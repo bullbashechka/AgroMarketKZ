@@ -4,15 +4,21 @@ node_modules/
 # Build outputs
 dist/
 backend/dist/
+backend/dist-worker/
 webapp/dist/
 packages/*/dist/
+.wrangler/
+backend/.wrangler/
 
 # Environment files
 .env
 .env.*
+.dev.vars
+backend/.dev.vars
 !.env.example
 !backend/.env.example
 !webapp/.env.example
+!backend/.dev.vars.example
 
 # Logs
 *.log

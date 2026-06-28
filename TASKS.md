@@ -3,11 +3,11 @@
 Разбивка [PRD.md](./PRD.md) на этапы и задачи под стек шаблона **[di-sukharev/vibe](https://github.com/di-sukharev/vibe)**.
 
 **Стек:** монорепо на Bun.
-- `backend/` — Hono + Prisma + PostgreSQL 18 + кастомный JWT + Zod.
+- `backend/` — Hono + Cloudflare Workers + Supabase PostgreSQL + кастомный JWT + Zod.
 - `webapp/` — React + Vite, TanStack Query/Form/Router (CSR за авторизацией) — здесь живёт Telegram Mini App.
 - `website/` — Astro (публичные SEO-страницы) — **вне scope** для Mini App, опционально под лендинг.
 - `packages/contracts/` — общие Zod-схемы и TypeScript-типы.
-- Инфраструктура: Docker Compose (локально), DigitalOcean App Platform (прод), DigitalOcean Spaces (фото), Playwright (E2E).
+- Инфраструктура: Docker Compose (локально), Cloudflare Pages/Workers (прод), Supabase Pro PostgreSQL + Storage (БД и фото), Playwright (E2E).
 
 Условные обозначения: `[ ]` — не сделано. В скобках — ссылки на разделы PRD.
 
@@ -17,7 +17,7 @@
 
 - [x] Инициализировать монорепо из шаблона vibe (Bun, workspaces: `backend`, `webapp`, `packages/contracts`).
 - [ ] Поднять PostgreSQL 18 локально через Docker Compose.
-- [x] Настроить переменные окружения: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_CHAT_ID`, `ADMIN_ALLOWLIST` (username/user id), ключи DigitalOcean Spaces.
+- [x] Настроить переменные окружения: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_CHAT_ID`, `ADMIN_ALLOWLIST` (username/user id), ключи Supabase и Cloudflare.
 - [x] Убедиться, что `backend` и `webapp` запускаются и общаются между собой локально.
 - [x] Настроить базовый CI (линт, типы, тесты) при наличии в шаблоне.
 
@@ -72,7 +72,7 @@
   - [ ] Список карточек категории + поиск по названию и базовые фильтры (категория, наличие цены) (раздел 11).
   - [ ] Получение карточки по id (галерея, характеристики, цена/«по запросу»).
 - [ ] Контакты площадки: выдача контактных данных для отклика и обратной связи (раздел 5, 7).
-- [ ] Загрузка изображений в DigitalOcean Spaces (получение URL, привязка к карточке).
+- [ ] Загрузка изображений в Supabase Storage (получение URL, привязка к карточке).
 - [ ] Избранное (для текущего пользователя): добавить, удалить, получить список (раздел 8).
 - [ ] Заявки:
   - [ ] Создание заявки (из карточки / с вкладки / из профиля) — единый механизм, без оплаты (раздел 6, 14).
@@ -143,11 +143,12 @@
 
 ---
 
-## Этап 10. Деплой (DigitalOcean)
+## Этап 10. Деплой (Cloudflare + Supabase Pro)
 
-- [ ] Развернуть `backend` и `webapp` на DigitalOcean App Platform.
-- [ ] Managed PostgreSQL 18, прогон миграций.
-- [ ] DigitalOcean Spaces для фото (бакет, ключи, публичный доступ к изображениям).
+- [ ] Развернуть `backend` в Cloudflare Workers.
+- [ ] Развернуть `webapp` в Cloudflare Pages.
+- [ ] Supabase Pro PostgreSQL, прогон миграций.
+- [ ] Supabase Storage для фото (bucket, политики доступа, публичный доступ к изображениям).
 - [ ] Продовые переменные окружения и секреты.
 - [ ] Настроить Mini App в BotFather на прод-домен, проверить запуск в Telegram.
 
