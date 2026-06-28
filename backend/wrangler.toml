@@ -1,6 +1,11 @@
 name = "agromarketkz-backend"
 main = "src/worker.ts"
 compatibility_date = "2026-06-28"
+# postgres.js использует TCP-сокеты через Node-совместимость на Workers.
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 WEBAPP_ORIGIN = "http://localhost:5173"
+
+# Секреты на проде задаются через `wrangler secret put` (Этап 10), НЕ в [vars]:
+#   JWT_SECRET, TELEGRAM_BOT_TOKEN, ADMIN_ALLOWLIST, DATABASE_URL

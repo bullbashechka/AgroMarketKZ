@@ -2,6 +2,36 @@
 
 Высокоуровневый путь пользователя в приложении (Telegram Mini App / браузер).
 
+## Вход и регистрация (Этап 3)
+
+Личность подтверждается через Telegram — отдельного логина/пароля нет. Вход зависит от того, где открыто приложение, а регистрация (имя + телефон) — жёсткая стена на входе.
+
+```mermaid
+flowchart TD
+Open([Открывает приложение]) --> Where{Где открыто?}
+Where -->|Внутри Telegram| TG[Молчаливый вход<br/>по подписи initData]
+Where -->|В браузере| Widget[Кнопка «Войти через Telegram»<br/>Login Widget]
+TG --> Wall{Уже зарегистрирован?}
+Widget --> Wall
+Wall -->|Нет| RegForm[Экран регистрации:<br/>имя из Telegram + телефон<br/>«Поделиться контактом» / ручной ввод KZ]
+Wall -->|Да| Home{{Главное меню}}
+RegForm --> Home
+
+classDef entry fill:#2ecc40,stroke:#1e8a2a,color:#fff,font-weight:bold
+classDef screen fill:#eef7ff,stroke:#3aa0ff,color:#0b3a66
+classDef action fill:#f5e6b3,stroke:#c9a227,color:#5a4a00
+class Open entry
+class TG,Widget,RegForm screen
+class Home,Where,Wall action
+```
+
+- **В Telegram** вход происходит незаметно (сессия живёт ~30 дней и сама продлевается).
+- **В браузере** при первом входе — кнопка Telegram Login Widget; повторно изредка.
+- **Жёсткая стена**: пока не указаны имя и телефон, каталог недоступен — так платформа собирает контакты всех заходящих.
+- **Телефон** принимается только казахстанский мобильный (`+7 7xx`).
+
+## Основной путь
+
 ```mermaid
 flowchart TD
 Start([Пользователь открывает AgroMarketKZ]) --> Reg[Регистрация<br/>сбор контактных данных пользователя]
