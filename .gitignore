@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+backend/dist/
+webapp/dist/
+packages/*/dist/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!backend/.env.example
+!webapp/.env.example
+
+# Logs
+*.log
+
+# OS/editor files
+.DS_Store
+.idea/

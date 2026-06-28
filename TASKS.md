@@ -15,11 +15,11 @@
 
 ## Этап 0. Подготовка проекта и инфраструктура
 
-- [ ] Инициализировать монорепо из шаблона vibe (Bun, workspaces: `backend`, `webapp`, `packages/contracts`).
+- [x] Инициализировать монорепо из шаблона vibe (Bun, workspaces: `backend`, `webapp`, `packages/contracts`).
 - [ ] Поднять PostgreSQL 18 локально через Docker Compose.
-- [ ] Настроить переменные окружения: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_CHAT_ID`, `ADMIN_ALLOWLIST` (username/user id), ключи DigitalOcean Spaces.
-- [ ] Убедиться, что `backend` и `webapp` запускаются и общаются между собой локально.
-- [ ] Настроить базовый CI (линт, типы, тесты) при наличии в шаблоне.
+- [x] Настроить переменные окружения: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_CHAT_ID`, `ADMIN_ALLOWLIST` (username/user id), ключи DigitalOcean Spaces.
+- [x] Убедиться, что `backend` и `webapp` запускаются и общаются между собой локально.
+- [x] Настроить базовый CI (линт, типы, тесты) при наличии в шаблоне.
 
 ---
 
