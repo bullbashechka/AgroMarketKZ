@@ -107,6 +107,73 @@ dd {
   font-size: 13px;
 }
 
+.form {
+  display: grid;
+  gap: 18px;
+  margin: 28px 0 0;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field-label {
+  color: #42503d;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #cfe0bb;
+  border-radius: 14px;
+  background: #f7faef;
+  padding: 14px 16px;
+  font-size: 17px;
+  color: #1f2a1f;
+}
+
+.input:focus {
+  border-color: #4a8f2d;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(74 143 45 / 18%);
+}
+
+.field-error {
+  color: #b3261e;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.button {
+  border: none;
+  border-radius: 16px;
+  padding: 16px 20px;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.button-primary {
+  background: #4a8f2d;
+  color: #ffffff;
+}
+
+.button-secondary {
+  background: #eaf3df;
+  color: #2f6f1f;
+}
+
+.tg-widget {
+  margin: 20px 0 0;
+}
+
 @media (max-width: 480px) {
   .shell {
     padding: 16px;

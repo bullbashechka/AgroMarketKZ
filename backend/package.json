@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@agromarket/contracts": "workspace:*",
-    "hono": "latest"
+    "hono": "latest",
+    "postgres": "^3.4.9",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",

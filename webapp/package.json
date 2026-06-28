@@ -10,10 +10,11 @@
   },
   "dependencies": {
     "@agromarket/contracts": "workspace:*",
+    "@tanstack/react-query": "^5.101.2",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",

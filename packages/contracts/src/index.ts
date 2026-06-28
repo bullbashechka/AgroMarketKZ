@@ -19,4 +19,5 @@ export * from "./favorite";
 export * from "./request";
 export * from "./feedback";
 export * from "./profile";
+export * from "./auth";
 export * from "./settings";

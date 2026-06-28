@@ -1,0 +1,102 @@
+import { describe, expect, test } from "bun:test";
+import type { WidgetLoginInput } from "@agromarket/contracts";
+import { validateInitData, validateWidgetLogin } from "../src/lib/telegram";
+
+const BOT_TOKEN = "123456:TEST-BOT-TOKEN";
+const encoder = new TextEncoder();
+
+async function hmac(keyBytes: ArrayBuffer | Uint8Array, message: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes as BufferSource,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(message)));
+}
+
+function hex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function dataCheckString(entries: [string, string][]): string {
+  return entries
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+}
+
+/** Собирает валидную строку initData Mini App с правильной подписью. */
+async function buildInitData(authDate: number): Promise<string> {
+  const user = JSON.stringify({ id: 777, first_name: "Aidos", username: "aidos" });
+  const entries: [string, string][] = [
+    ["auth_date", String(authDate)],
+    ["query_id", "AAEXAMPLE"],
+    ["user", user]
+  ];
+  const secret = await hmac(encoder.encode("WebAppData"), BOT_TOKEN);
+  const hash = hex(await hmac(secret, dataCheckString(entries)));
+  const params = new URLSearchParams(entries);
+  params.set("hash", hash);
+  return params.toString();
+}
+
+/** Собирает валидные данные Login Widget с правильной подписью. */
+async function buildWidget(authDate: number): Promise<WidgetLoginInput> {
+  const fields: [string, string][] = [
+    ["auth_date", String(authDate)],
+    ["first_name", "Aidos"],
+    ["id", "777"],
+    ["username", "aidos"]
+  ];
+  const secret = await crypto.subtle.digest("SHA-256", encoder.encode(BOT_TOKEN));
+  const hash = hex(await hmac(secret, dataCheckString(fields)));
+  return { id: 777, first_name: "Aidos", username: "aidos", auth_date: authDate, hash };
+}
+
+const now = () => Math.floor(Date.now() / 1000);
+
+describe("validateInitData", () => {
+  test("принимает валидную подпись и возвращает пользователя", async () => {
+    const initData = await buildInitData(now());
+    const user = await validateInitData(initData, BOT_TOKEN);
+    expect(user).toEqual({ id: 777, username: "aidos", firstName: "Aidos", lastName: null });
+  });
+
+  test("отклоняет подделанную подпись", async () => {
+    const initData = await buildInitData(now());
+    const tampered = initData.replace(/hash=[0-9a-f]+/, "hash=deadbeef");
+    await expect(validateInitData(tampered, BOT_TOKEN)).rejects.toThrow();
+  });
+
+  test("отклоняет чужой токен бота", async () => {
+    const initData = await buildInitData(now());
+    await expect(validateInitData(initData, "999:OTHER")).rejects.toThrow();
+  });
+
+  test("отклоняет устаревший auth_date (>24ч)", async () => {
+    const initData = await buildInitData(now() - 25 * 60 * 60);
+    await expect(validateInitData(initData, BOT_TOKEN)).rejects.toThrow();
+  });
+});
+
+describe("validateWidgetLogin", () => {
+  test("принимает валидную подпись виджета", async () => {
+    const data = await buildWidget(now());
+    const user = await validateWidgetLogin(data, BOT_TOKEN);
+    expect(user).toEqual({ id: 777, username: "aidos", firstName: "Aidos", lastName: null });
+  });
+
+  test("отклоняет подделанный hash", async () => {
+    const data = await buildWidget(now());
+    await expect(validateWidgetLogin({ ...data, hash: "deadbeef" }, BOT_TOKEN)).rejects.toThrow();
+  });
+
+  test("отклоняет устаревший auth_date", async () => {
+    const data = await buildWidget(now() - 25 * 60 * 60);
+    await expect(validateWidgetLogin(data, BOT_TOKEN)).rejects.toThrow();
+  });
+});
