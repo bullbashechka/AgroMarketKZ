@@ -3,11 +3,11 @@
 Разбивка [PRD.md](./PRD.md) на этапы и задачи под стек шаблона **[di-sukharev/vibe](https://github.com/di-sukharev/vibe)**.
 
 **Стек:** монорепо на Bun.
-- `backend/` — Hono + Cloudflare Workers + Supabase PostgreSQL + кастомный JWT + Zod.
+- `backend/` — Hono + Cloudflare Workers + Supabase PostgreSQL/Storage + кастомный JWT + Zod.
 - `webapp/` — React + Vite, TanStack Query/Form/Router (CSR за авторизацией) — здесь живёт Telegram Mini App.
 - `website/` — Astro (публичные SEO-страницы) — **вне scope** для Mini App, опционально под лендинг.
 - `packages/contracts/` — общие Zod-схемы и TypeScript-типы.
-- Инфраструктура: Docker Compose (локально), Cloudflare Pages/Workers (прод), Supabase Pro PostgreSQL + Storage (БД и фото), Playwright (E2E).
+- Инфраструктура: Docker Compose (локальная PostgreSQL для разработки), Cloudflare Pages/Workers (прод), Supabase Pro PostgreSQL + Storage (БД и фото), Playwright (E2E).
 
 Условные обозначения: `[ ]` — не сделано. В скобках — ссылки на разделы PRD.
 
@@ -16,18 +16,18 @@
 ## Этап 0. Подготовка проекта и инфраструктура
 
 - [x] Инициализировать монорепо из шаблона vibe (Bun, workspaces: `backend`, `webapp`, `packages/contracts`).
-- [ ] Поднять PostgreSQL 18 локально через Docker Compose.
+- [ ] Поднять локальную PostgreSQL через Docker Compose для разработки, совместимую со схемой Supabase.
 - [x] Настроить переменные окружения: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_CHAT_ID`, `ADMIN_ALLOWLIST` (username/user id), ключи Supabase и Cloudflare.
 - [x] Убедиться, что `backend` и `webapp` запускаются и общаются между собой локально.
 - [x] Настроить базовый CI (линт, типы, тесты) при наличии в шаблоне.
 
 ---
 
-## Этап 1. Модель данных (Prisma + PostgreSQL)
+## Этап 1. Модель данных (Supabase PostgreSQL)
 
 Раздел PRD: 1, 3, 4, 6, 7, 8, 9.
 
-- [ ] Спроектировать схему Prisma:
+- [ ] Спроектировать SQL-схему Supabase PostgreSQL:
   - [ ] `User` — telegram id, username, имя из Telegram, сохранённые имя и телефон (с регистрации), дата регистрации, признак админа (вычисляется по allowlist).
   - [ ] `Category` — вкладка (`услуга` / `товар`), название, порядок сортировки.
   - [ ] `Card` (товар/услуга) — название, описание, цена / признак «по запросу», тип (товар/услуга — определяет вкладку), категория, флаг видимости цены.
@@ -37,8 +37,9 @@
   - [ ] `Request` (заявка) — источник (`из карточки` / `с вкладки` / `из профиля`), карточка (необязательно), контакты, комментарий, статус (`новая` / `в работе` / `закрыта`), дата.
   - [ ] `FeedbackMessage` — сообщение из формы обратной связи.
   - [ ] `Settings` — контактные данные площадки (телефон, WhatsApp, Telegram, email), `ADMIN_CHAT_ID`.
-- [ ] Создать миграции.
+- [ ] Создать SQL-миграции Supabase.
 - [ ] Сиды: демо-категории (услуги/товары) и карточки для разработки.
+- [ ] Настроить Supabase Storage bucket для изображений карточек и политики доступа.
 
 ---
 
@@ -90,7 +91,7 @@
 - [ ] Интеграция Telegram Web Apps SDK (тема, viewport, MainButton при необходимости).
 - [ ] Маршрутизация (TanStack Router), API-клиент (TanStack Query), формы (TanStack Form).
 - [ ] Адаптивная вёрстка (Mini App + браузер, мобайл/десктоп).
-- [ ] Дизайн-система и палитра: ярко-зелёный, голубой, пшеничный, тёмно-жёлтый; крупные карточки и кнопки.
+- [ ] Дизайн-система и палитра: использовать дизайн-референсы из `.claude/skills`, с базовой палитрой ярко-зелёный, голубой, пшеничный, тёмно-жёлтый; крупные карточки и кнопки.
 - [ ] Общий layout с нижней панелью навигации из трёх вкладок: «Услуги», «Товары», «Общее» (раздел 2).
 
 ---
