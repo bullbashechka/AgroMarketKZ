@@ -14,13 +14,13 @@
 | `webapp/` | React + Vite + TanStack Query | Telegram Mini App (CSR за авторизацией) |
 | `packages/contracts/` | Zod + TypeScript | Общие схемы и типы (единый источник правды) |
 
-Инфраструктура: Docker Compose (локальная PostgreSQL), Cloudflare Pages/Workers (прод), Supabase Pro PostgreSQL + Storage.
+Инфраструктура: Supabase PostgreSQL (dev + prod) + Storage, Cloudflare Pages/Workers (прод).
 
 ## Требования
 
 - [Bun](https://bun.sh) ≥ 1.3
-- Docker (для локальной PostgreSQL)
 - `psql` (для миграций и сидов)
+- Аккаунт Supabase с доступом к проекту (см. `DATABASE_URL` в `.env.example`)
 
 ## Запуск локально
 
@@ -29,18 +29,17 @@
 bun install
 
 # 2. Переменные окружения
-cp .env.example .env          # заполнить значения (см. ниже)
+cp .env.example .env          # заполнить значения (см. ниже), включая DATABASE_URL от Supabase
 
-# 3. База данных
-docker compose up -d postgres
-bun run db:migrate            # применить SQL-миграции
-bun run db:seed:dev           # демо-категории и карточки (опционально)
+# 3. База данных (Supabase, миграции применяются один раз на проект)
+bun run db:migrate             # применить SQL-миграции
+bun run db:seed:dev            # демо-категории и карточки (опционально)
 
 # 4. Dev-серверы (contracts watch + backend + webapp)
 bun run dev
 ```
 
-После старта: backend — http://localhost:3000, webapp — http://localhost:5173, PostgreSQL — порт `5433`.
+После старта: backend — http://localhost:3000, webapp — http://localhost:5173, БД — Supabase (без локального порта).
 
 Отдельно: `bun run dev:backend`, `bun run dev:webapp`.
 

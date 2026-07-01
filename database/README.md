@@ -1,20 +1,15 @@
 # Database
 
-Local PostgreSQL uses the connection string from `DATABASE_URL`. If it is not set, the root scripts fall back to:
-
-```sh
-postgresql://agromarket:agromarket@localhost:5433/agromarketkz
-```
-
-> Локальный Docker-контейнер мапится на порт **5433** (чтобы не конфликтовать с нативной PostgreSQL на 5432).
+Один Supabase Postgres используется и для локальной разработки, и для прода — Docker не нужен. Подключение берётся из `DATABASE_URL` (строка Supabase transaction pooler, см. корневой `.env.example`).
 
 ## Commands
 
 ```sh
-docker compose up -d postgres
-bun run db:migrate
-bun run db:seed:dev
+bun run db:migrate     # применить SQL-миграции из database/migrations/*.sql к DATABASE_URL
+bun run db:seed:dev     # демо-категории и карточки (опционально)
 ```
+
+Также миграции можно применять через Supabase MCP (`apply_migration`) или SQL Editor в Dashboard — эквивалентно `db:migrate`.
 
 ## Supabase Storage
 

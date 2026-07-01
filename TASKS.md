@@ -7,7 +7,7 @@
 - `webapp/` — React + Vite, TanStack Query/Form/Router (CSR за авторизацией) — здесь живёт Telegram Mini App.
 - `website/` — Astro (публичные SEO-страницы) — **вне scope** для Mini App, опционально под лендинг.
 - `packages/contracts/` — общие Zod-схемы и TypeScript-типы.
-- Инфраструктура: Docker Compose (локальная PostgreSQL для разработки), Cloudflare Pages/Workers (прод), Supabase Pro PostgreSQL + Storage (БД и фото), Playwright (E2E).
+- Инфраструктура: Supabase PostgreSQL + Storage (БД и фото, dev и прод), Cloudflare Pages/Workers (прод), Playwright (E2E).
 
 Условные обозначения: `[ ]` — не сделано. В скобках — ссылки на разделы PRD.
 

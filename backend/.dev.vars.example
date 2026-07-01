@@ -1,5 +1,5 @@
 WEBAPP_ORIGIN=http://localhost:5173
-DATABASE_URL=postgresql://agromarket:agromarket@localhost:5433/agromarketkz
+DATABASE_URL=postgresql://postgres.your-project-ref:[YOUR-PASSWORD]@aws-0-your-region.pooler.supabase.com:6543/postgres
 JWT_SECRET=replace-with-local-secret
 TELEGRAM_BOT_TOKEN=replace-with-telegram-bot-token
 ADMIN_CHAT_ID=replace-with-admin-chat-id
