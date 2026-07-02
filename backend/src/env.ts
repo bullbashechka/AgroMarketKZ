@@ -11,6 +11,8 @@ export interface AppEnv {
   TELEGRAM_BOT_TOKEN: string;
   ADMIN_ALLOWLIST: string;
   DATABASE_URL: string;
+  SUPABASE_URL: string;
+  SUPABASE_STORAGE_BUCKET: string;
 }
 
 /** Аутентифицированный пользователь, кладётся `requireAuth` в контекст. */

@@ -6,6 +6,7 @@ import { ZodError } from "zod";
 import { type AppEnv, type HonoEnv, resolveEnv } from "./env";
 import { HttpError } from "./lib/errors";
 import { authRoutes } from "./routes/auth";
+import { catalogRoutes } from "./routes/catalog";
 import { profileRoutes } from "./routes/profile";
 
 type AppOptions = {
@@ -53,6 +54,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.route("/auth", authRoutes);
   app.route("/profile", profileRoutes);
+  app.route("/catalog", catalogRoutes);
 
   return app;
 }
