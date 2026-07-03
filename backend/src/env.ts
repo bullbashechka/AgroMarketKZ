@@ -13,6 +13,7 @@ export interface AppEnv {
   DATABASE_URL: string;
   SUPABASE_URL: string;
   SUPABASE_STORAGE_BUCKET: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
 }
 
 /** Аутентифицированный пользователь, кладётся `requireAuth` в контекст. */

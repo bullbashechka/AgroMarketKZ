@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { AppEnv } from "../src/env";
-import { publicImageUrl } from "../src/lib/storage";
+import {
+  buildCardImagePath,
+  extFromContentType,
+  publicImageUrl,
+  signedUploadUrlFromResponse
+} from "../src/lib/storage";
 
 const env = {
   SUPABASE_URL: "https://qxyieyzfdcosmmckyocm.supabase.co",
@@ -25,5 +30,39 @@ describe("publicImageUrl", () => {
     expect(publicImageUrl(env, "/cards/abc/1.jpg")).toBe(
       "https://qxyieyzfdcosmmckyocm.supabase.co/storage/v1/object/public/card-images/cards/abc/1.jpg"
     );
+  });
+});
+
+describe("extFromContentType", () => {
+  test("сопоставляет MIME-тип и расширение", () => {
+    expect(extFromContentType("image/jpeg")).toBe("jpg");
+    expect(extFromContentType("image/png")).toBe("png");
+    expect(extFromContentType("image/webp")).toBe("webp");
+  });
+});
+
+describe("buildCardImagePath", () => {
+  test("строит путь вида cards/{id}.{ext}", () => {
+    expect(buildCardImagePath("image/webp", "11111111-1111-4111-8111-111111111111")).toBe(
+      "cards/11111111-1111-4111-8111-111111111111.webp"
+    );
+  });
+});
+
+describe("signedUploadUrlFromResponse", () => {
+  test("собирает абсолютный URL и извлекает token", () => {
+    const result = signedUploadUrlFromResponse(env, {
+      url: "/object/upload/sign/card-images/cards/a.jpg?token=abc123"
+    });
+    expect(result.uploadUrl).toBe(
+      "https://qxyieyzfdcosmmckyocm.supabase.co/storage/v1/object/upload/sign/card-images/cards/a.jpg?token=abc123"
+    );
+    expect(result.token).toBe("abc123");
+  });
+
+  test("бросает HttpError, если в ответе нет token", () => {
+    expect(() =>
+      signedUploadUrlFromResponse(env, { url: "/object/upload/sign/card-images/cards/a.jpg" })
+    ).toThrow();
   });
 });

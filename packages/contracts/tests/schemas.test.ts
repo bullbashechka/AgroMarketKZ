@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { createCardInput } from "../src/card";
 import { createRequestInput } from "../src/request";
 import { contactNameSchema } from "../src/primitives";
+import { createUploadUrlInput } from "../src/upload";
+import { adminCardListQuery } from "../src/admin";
+import { adminPlatformSettingsSchema } from "../src/settings";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 const oneImage = [{ storagePath: "cards/a.jpg" }];
@@ -84,5 +87,43 @@ describe("contactNameSchema", () => {
 
   test("пустое имя — ошибка", () => {
     expect(contactNameSchema.safeParse("   ").success).toBe(false);
+  });
+});
+
+describe("createUploadUrlInput", () => {
+  test("допустимый contentType валиден", () => {
+    expect(createUploadUrlInput.safeParse({ contentType: "image/webp" }).success).toBe(true);
+  });
+
+  test("недопустимый contentType — ошибка", () => {
+    expect(createUploadUrlInput.safeParse({ contentType: "image/gif" }).success).toBe(false);
+  });
+});
+
+describe("adminCardListQuery", () => {
+  test("по умолчанию archived = all, пустая строка поиска игнорируется", () => {
+    const r = adminCardListQuery.safeParse({ search: "" });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.archived).toBe("all");
+      expect(r.data.search).toBeUndefined();
+    }
+  });
+
+  test("archived принимает только all/active/archived", () => {
+    expect(adminCardListQuery.safeParse({ archived: "hidden" }).success).toBe(false);
+  });
+});
+
+describe("adminPlatformSettingsSchema", () => {
+  test("adminChatId может быть null", () => {
+    const r = adminPlatformSettingsSchema.safeParse({
+      contactPhone: null,
+      whatsappPhone: null,
+      telegramContact: null,
+      email: null,
+      adminChatId: null
+    });
+    expect(r.success).toBe(true);
   });
 });

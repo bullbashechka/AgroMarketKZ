@@ -5,9 +5,14 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ZodError } from "zod";
 import { type AppEnv, type HonoEnv, resolveEnv } from "./env";
 import { HttpError } from "./lib/errors";
+import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { catalogRoutes } from "./routes/catalog";
+import { favoritesRoutes } from "./routes/favorites";
+import { feedbackRoutes } from "./routes/feedback";
 import { profileRoutes } from "./routes/profile";
+import { requestsRoutes } from "./routes/requests";
+import { settingsRoutes } from "./routes/settings";
 
 type AppOptions = {
   /** Локальный override окружения (Bun.env). На Workers не передаётся — используется c.env. */
@@ -55,6 +60,11 @@ export function createApp(options: AppOptions = {}) {
   app.route("/auth", authRoutes);
   app.route("/profile", profileRoutes);
   app.route("/catalog", catalogRoutes);
+  app.route("/settings", settingsRoutes);
+  app.route("/favorites", favoritesRoutes);
+  app.route("/requests", requestsRoutes);
+  app.route("/feedback", feedbackRoutes);
+  app.route("/admin", adminRoutes);
 
   return app;
 }

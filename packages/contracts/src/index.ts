@@ -21,3 +21,5 @@ export * from "./feedback";
 export * from "./profile";
 export * from "./auth";
 export * from "./settings";
+export * from "./upload";
+export * from "./admin";

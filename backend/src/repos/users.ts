@@ -1,7 +1,8 @@
-import type { Profile } from "@agromarket/contracts";
+import type { PaginationQuery, Profile } from "@agromarket/contracts";
 import { getDb } from "../db";
 import type { AppEnv } from "../env";
 import { isAdmin } from "../lib/admin";
+import { paginateRows, type PaginatedResult } from "../lib/pagination";
 
 /** Строка таблицы `users` (нужные поля; postgres.js может вернуть и лишние ключи). */
 export interface UserRow {
@@ -84,6 +85,22 @@ export async function updateContacts(
     returning *
   `;
   return row!;
+}
+
+/** Зарегистрированные пользователи (админ) — база собранных контактов, новые сверху. */
+export async function listRegisteredUsers(
+  env: AppEnv,
+  query: PaginationQuery
+): Promise<PaginatedResult<Profile>> {
+  const sql = getDb(env);
+  const rows = await sql<UserRow[]>`
+    select * from users
+    where registered_at is not null
+    order by created_at desc
+    limit ${query.limit + 1} offset ${query.offset}
+  `;
+  const items = rows.map((row) => toProfile(row, env));
+  return paginateRows(items, query.limit, query.offset);
 }
 
 /** Маппинг строки БД в DTO профиля. `isRegistered`/`isAdmin` вычисляются. */

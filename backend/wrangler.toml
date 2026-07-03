@@ -6,6 +6,8 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 WEBAPP_ORIGIN = "http://localhost:5173"
+SUPABASE_URL = "https://replace-with-project-ref.supabase.co"
+SUPABASE_STORAGE_BUCKET = "card-images"
 
 # Секреты на проде задаются через `wrangler secret put` (Этап 10), НЕ в [vars]:
-#   JWT_SECRET, TELEGRAM_BOT_TOKEN, ADMIN_ALLOWLIST, DATABASE_URL
+#   JWT_SECRET, TELEGRAM_BOT_TOKEN, ADMIN_ALLOWLIST, DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY

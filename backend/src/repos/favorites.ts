@@ -1,0 +1,47 @@
+import type { CardListItem } from "@agromarket/contracts";
+import { getDb } from "../db";
+import type { AppEnv } from "../env";
+import { HttpError } from "../lib/errors";
+import { type CardListRow, toCardListItem } from "./catalog";
+
+/** Добавляет карточку в избранное. 404, если карточки не существует. Идемпотентно. */
+export async function addFavorite(env: AppEnv, userId: string, cardId: string): Promise<void> {
+  const sql = getDb(env);
+  const [card] = await sql<{ id: string }[]>`select id from cards where id = ${cardId}`;
+  if (!card) {
+    throw new HttpError(404, "Карточка не найдена");
+  }
+  await sql`
+    insert into favorites (user_id, card_id)
+    values (${userId}, ${cardId})
+    on conflict (user_id, card_id) do nothing
+  `;
+}
+
+/** Убирает карточку из избранного. Идемпотентно — отсутствие записи не ошибка. */
+export async function removeFavorite(env: AppEnv, userId: string, cardId: string): Promise<void> {
+  const sql = getDb(env);
+  await sql`delete from favorites where user_id = ${userId} and card_id = ${cardId}`;
+}
+
+/** Список избранного пользователя (карточки-превью), новые сверху. Архив исключён. */
+export async function listFavorites(env: AppEnv, userId: string): Promise<CardListItem[]> {
+  const sql = getDb(env);
+  const rows = await sql<CardListRow[]>`
+    select
+      c.id, c.type, c.category_id, c.title, c.price_type, c.price_amount,
+      img.storage_path as first_image_path,
+      spec.key as first_spec_key, spec.value as first_spec_value
+    from favorites f
+    join cards c on c.id = f.card_id
+    left join lateral (
+      select storage_path from card_images where card_id = c.id order by sort_order limit 1
+    ) img on true
+    left join lateral (
+      select key, value from card_specs where card_id = c.id order by sort_order limit 1
+    ) spec on true
+    where f.user_id = ${userId} and c.archived_at is null
+    order by f.created_at desc
+  `;
+  return rows.map((row) => toCardListItem(row, env));
+}

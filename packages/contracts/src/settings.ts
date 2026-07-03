@@ -12,6 +12,13 @@ export const platformSettingsSchema = z.object({
 
 export type PlatformSettings = z.infer<typeof platformSettingsSchema>;
 
+/** Настройки площадки для админа — те же поля + чат для уведомлений о заявках. */
+export const adminPlatformSettingsSchema = platformSettingsSchema.extend({
+  adminChatId: z.string().nullable()
+});
+
+export type AdminPlatformSettings = z.infer<typeof adminPlatformSettingsSchema>;
+
 /**
  * Обновление настроек площадки (админ). Любое поле необязательно; `null` очищает значение.
  * Телефонные поля нормализуются к KZ-виду, email проверяется как email.
