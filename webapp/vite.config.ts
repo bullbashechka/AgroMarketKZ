@@ -6,6 +6,8 @@ export default defineConfig({
   // Единый корневой .env (только VITE_-переменные попадают в клиент; секреты бэкенда игнорируются).
   envDir: "..",
   server: {
-    port: 5173
+    port: 5173,
+    // Разрешаем доступ через туннели (ngrok/cloudflared) для тестирования Telegram Mini App.
+    allowedHosts: [".ngrok-free.dev", ".trycloudflare.com"]
   }
 });
