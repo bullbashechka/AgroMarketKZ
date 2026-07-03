@@ -1,0 +1,99 @@
+/*
+ * Дизайн-токены AgroMarketKZ: primitive → semantic.
+ * Палитра (TASKS.md, раздел 10 PRD): ярко-зелёный, голубой, пшеничный, тёмно-жёлтый.
+ * Светлая тема — база; тёмная — собственный фирменный вариант (не серый Telegram-дефолт).
+ */
+
+:root {
+  /* Primitives — light */
+  --green-50: #e8f5db;
+  --green-200: #cdeab8;
+  --green-500: #55b02e;
+  --green-600: #3f8f1d;
+  --green-700: #326f18;
+
+  --sky-50: #e3f2fb;
+  --sky-200: #8fcbe9;
+  --sky-500: #3d9fd6;
+  --sky-600: #2b7fae;
+
+  --wheat-50: #fbf7ec;
+  --wheat-200: #f5ecd3;
+  --wheat-400: #ecdcae;
+  --wheat-600: #ddc481;
+
+  --amber-400: #f5c518;
+  --amber-600: #d99e00;
+  --amber-700: #a97800;
+
+  --ink-100: #e8ede1;
+  --ink-300: #6d7767;
+  --ink-500: #44523e;
+  --ink-900: #22301c;
+
+  --danger-500: #b3261e;
+  --white: #ffffff;
+
+  /* Semantic — light (default) */
+  --color-bg: var(--wheat-50);
+  --color-surface: var(--white);
+  --color-surface-alt: var(--wheat-200);
+  --color-text: var(--ink-900);
+  --color-text-muted: var(--ink-300);
+  --color-primary: var(--green-600);
+  --color-primary-hover: var(--green-700);
+  --color-on-primary: var(--white);
+  --color-accent: var(--amber-600);
+  --color-on-accent: #2b2200;
+  --color-info: var(--sky-600);
+  --color-border: #e6ddc4;
+  --color-focus: rgb(63 143 29 / 25%);
+  --color-danger: var(--danger-500);
+  --color-skeleton: #ece5d2;
+  --color-skeleton-shine: #f7f2e4;
+  --color-nav-bg: var(--white);
+  --color-nav-active: var(--green-600);
+  --color-nav-inactive: var(--ink-300);
+
+  /* Размеры и форма */
+  --radius-card: 24px;
+  --radius-control: 16px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --content-max: 1080px;
+  --tabbar-h: 64px;
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  color-scheme: light;
+}
+
+/* Тёмная тема — фирменный вариант палитры, не нейтральный серый. */
+:root[data-theme="dark"] {
+  --color-bg: #141a0f;
+  --color-surface: #1f2817;
+  --color-surface-alt: #283220;
+  --color-text: #eef3e4;
+  --color-text-muted: #a3ad95;
+  --color-primary: #63b93a;
+  --color-primary-hover: #74ca4a;
+  --color-on-primary: #0d1a06;
+  --color-accent: #f0b429;
+  --color-on-accent: #241a00;
+  --color-info: #62b1dd;
+  --color-border: #37422c;
+  --color-focus: rgb(99 185 58 / 30%);
+  --color-danger: #f2857c;
+  --color-skeleton: #283220;
+  --color-skeleton-shine: #313d27;
+  --color-nav-bg: #1a2212;
+  --color-nav-active: #74ca4a;
+  --color-nav-inactive: #8b957e;
+
+  color-scheme: dark;
+}

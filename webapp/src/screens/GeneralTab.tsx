@@ -1,14 +1,21 @@
-import type { Profile } from "@agromarket/contracts";
+import { useAuth } from "../lib/auth";
 
-/** Временная заглушка главного меню. Реальные вкладки и каталог — Этап 5/6. */
-export function HomePlaceholder({ profile }: { profile: Profile }) {
+/** Вкладка «Общее»: сейчас — сводка профиля. Редактирование, избранное, обратная связь — Этап 6. */
+export function GeneralTab() {
+  const { profile } = useAuth();
+  if (!profile) return null;
+
   return (
-    <main className="shell">
+    <div className="screen">
+      <div className="screen-header">
+        <h2 className="screen-title">Общее</h2>
+      </div>
+
       <section className="card">
-        <p className="eyebrow">Главное меню</p>
+        <p className="eyebrow">Профиль</p>
         <h1>Добро пожаловать{profile.contactName ? `, ${profile.contactName}` : ""}!</h1>
         <p className="description">
-          Вы вошли и зарегистрированы. Каталог «Услуги/Товары/Общее» появится на следующем этапе.
+          Редактирование контактов, избранное и обратная связь появятся на Этапе 6.
         </p>
 
         <dl className="status-list">
@@ -28,6 +35,6 @@ export function HomePlaceholder({ profile }: { profile: Profile }) {
           </div>
         </dl>
       </section>
-    </main>
+    </div>
   );
 }

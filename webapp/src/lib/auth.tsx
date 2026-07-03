@@ -54,6 +54,8 @@ interface AuthContextValue {
   loginPending: boolean;
   register: (data: RegisterInput) => Promise<Profile>;
   registerPending: boolean;
+  /** Повторить bootstrap профиля после сбоя сети (status === "error"). */
+  retry: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -105,7 +107,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loginWidget: loginMutation.mutate,
     loginPending: loginMutation.isPending,
     register: registerMutation.mutateAsync,
-    registerPending: registerMutation.isPending
+    registerPending: registerMutation.isPending,
+    retry: () => {
+      profileQuery.refetch();
+    }
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
