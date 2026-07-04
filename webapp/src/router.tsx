@@ -1,4 +1,11 @@
 import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
+import { AdminGuard } from "./components/admin/AdminGuard";
+import { AdminCardsScreen } from "./screens/admin/AdminCardsScreen";
+import { AdminCategoriesScreen } from "./screens/admin/AdminCategoriesScreen";
+import { AdminRequestsScreen } from "./screens/admin/AdminRequestsScreen";
+import { AdminSettingsScreen } from "./screens/admin/AdminSettingsScreen";
+import { AdminUsersScreen } from "./screens/admin/AdminUsersScreen";
+import { CardEditorScreen } from "./screens/admin/CardEditorScreen";
 import { CardScreen } from "./screens/CardScreen";
 import { CatalogTab } from "./screens/CatalogTab";
 import { CategoryScreen } from "./screens/CategoryScreen";
@@ -7,7 +14,7 @@ import { FeedbackScreen } from "./screens/FeedbackScreen";
 import { GeneralTab } from "./screens/GeneralTab";
 import { ProfileEditScreen } from "./screens/ProfileEditScreen";
 import { RootLayout } from "./screens/RootLayout";
-import { catalogSearchSchema } from "./lib/searchParams";
+import { adminCardsSearchSchema, adminRequestsSearchSchema, adminTypeSearchSchema, catalogSearchSchema } from "./lib/searchParams";
 import { rememberLocation } from "./lib/tabHistory";
 
 const rootRoute = createRootRoute({ component: RootLayout });
@@ -84,6 +91,80 @@ const generalFeedbackRoute = createRoute({
   component: FeedbackScreen
 });
 
+const adminCardsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/cards",
+  validateSearch: adminCardsSearchSchema,
+  component: () => (
+    <AdminGuard>
+      <AdminCardsScreen />
+    </AdminGuard>
+  )
+});
+
+const adminCardsNewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/cards/new",
+  validateSearch: adminTypeSearchSchema,
+  component: () => (
+    <AdminGuard>
+      <CardEditorScreen />
+    </AdminGuard>
+  )
+});
+
+const adminCardEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/cards/$cardId",
+  component: () => (
+    <AdminGuard>
+      <CardEditorScreen />
+    </AdminGuard>
+  )
+});
+
+const adminCategoriesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/categories",
+  validateSearch: adminTypeSearchSchema,
+  component: () => (
+    <AdminGuard>
+      <AdminCategoriesScreen />
+    </AdminGuard>
+  )
+});
+
+const adminRequestsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/requests",
+  validateSearch: adminRequestsSearchSchema,
+  component: () => (
+    <AdminGuard>
+      <AdminRequestsScreen />
+    </AdminGuard>
+  )
+});
+
+const adminUsersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/users",
+  component: () => (
+    <AdminGuard>
+      <AdminUsersScreen />
+    </AdminGuard>
+  )
+});
+
+const adminSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/settings",
+  component: () => (
+    <AdminGuard>
+      <AdminSettingsScreen />
+    </AdminGuard>
+  )
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   servicesRoute,
@@ -95,7 +176,14 @@ const routeTree = rootRoute.addChildren([
   generalRoute,
   generalContactsRoute,
   generalFavoritesRoute,
-  generalFeedbackRoute
+  generalFeedbackRoute,
+  adminCardsRoute,
+  adminCardsNewRoute,
+  adminCardEditRoute,
+  adminCategoriesRoute,
+  adminRequestsRoute,
+  adminUsersRoute,
+  adminSettingsRoute
 ]);
 
 export const router = createRouter({ routeTree, scrollRestoration: true });

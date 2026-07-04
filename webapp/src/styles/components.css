@@ -146,6 +146,11 @@ dd {
   color: var(--color-primary-hover);
 }
 
+.button-danger {
+  background: var(--color-danger-fill);
+  color: var(--white);
+}
+
 .tg-widget {
   margin: var(--space-5) 0 0;
 }
@@ -342,6 +347,10 @@ dd {
 .tab-cta {
   width: 100%;
   margin: var(--space-6) 0 0;
+}
+
+.select-filter {
+  margin: 0 0 var(--space-5);
 }
 
 /* ---------- Поиск и фильтр цены ---------- */
@@ -833,4 +842,313 @@ dd {
 .list-row-chevron {
   color: var(--color-text-muted);
   font-size: 20px;
+}
+
+.category-row {
+  width: 100%;
+  border: none;
+  font: inherit;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: var(--space-2);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.badge--muted {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+
+/* ---------- Список карточек (админ) ---------- */
+
+.admin-card-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: 0 1px 0 var(--color-border);
+  padding: 10px var(--space-4);
+  color: var(--color-text);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.admin-card-row-thumb {
+  flex-shrink: 0;
+  overflow: hidden;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--color-surface-alt);
+}
+
+.admin-card-row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.admin-card-row-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--color-surface-alt), var(--color-skeleton));
+}
+
+.admin-card-row-body {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-card-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.admin-card-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* ---------- Фото карточки (редактор, админ) ---------- */
+
+.thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--space-3);
+}
+
+.thumb {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-alt);
+  padding: 0;
+  cursor: pointer;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb--error {
+  border-color: var(--color-danger);
+}
+
+.thumb-cover {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 60%);
+  padding: 2px 8px;
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.thumb-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 45%);
+  color: var(--white);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.thumb-overlay--error {
+  background: rgb(220 38 38 / 55%);
+}
+
+.thumb-spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid rgb(255 255 255 / 40%);
+  border-top-color: var(--white);
+  border-radius: 50%;
+  animation: thumb-spin 0.8s linear infinite;
+}
+
+@keyframes thumb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.thumb-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 28px;
+}
+
+/* ---------- Характеристики (редактор карточки, админ) ---------- */
+
+.spec-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.spec-row-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.spec-row-error {
+  grid-column: 1 / -1;
+}
+
+.admin-section-title {
+  margin-top: var(--space-6);
+}
+
+.list-row-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--color-danger-fill);
+  padding: 2px 9px;
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ---------- Пользователи (админ, read-only) ---------- */
+
+.user-row {
+  display: grid;
+  gap: 4px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: 0 1px 0 var(--color-border);
+  padding: 16px var(--space-4);
+}
+
+.user-row-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.user-row-name {
+  font-weight: 700;
+}
+
+.user-row-username {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.user-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* ---------- Заявки (админ) ---------- */
+
+.request-item {
+  display: grid;
+  gap: 6px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: 0 1px 0 var(--color-border);
+  padding: 16px var(--space-4);
+}
+
+.request-item-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.request-item-name {
+  font-weight: 700;
+}
+
+.request-item-date {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.request-item-phone {
+  color: var(--color-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.request-item-source {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.request-item-comment {
+  margin: 0;
+  font-size: 15px;
+}
+
+.request-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 0;
+}
+
+.request-status {
+  border-radius: 999px;
+  background: var(--color-surface-alt);
+  padding: 4px 10px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.request-status--new {
+  background: var(--color-info-fill);
+  color: var(--white);
+}
+
+.request-status--in_progress {
+  background: var(--amber-700);
+  color: var(--white);
 }

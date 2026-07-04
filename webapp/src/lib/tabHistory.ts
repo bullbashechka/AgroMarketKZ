@@ -8,10 +8,11 @@ const rootPaths: Record<TabSection, string> = {
 
 const lastHref = new Map<TabSection, string>();
 
-function sectionOf(pathname: string): TabSection | null {
+/** Секция вкладки для пути. Экраны админки (`/admin/*`) относятся к вкладке «Общее». */
+export function sectionOf(pathname: string): TabSection | null {
   if (pathname.startsWith("/services")) return "services";
   if (pathname.startsWith("/products")) return "products";
-  if (pathname.startsWith("/general")) return "general";
+  if (pathname.startsWith("/general") || pathname.startsWith("/admin")) return "general";
   return null;
 }
 

@@ -1,6 +1,7 @@
 import type {
   AdminCardListItem,
   AdminCardListQuery,
+  AdminCategory,
   CardDetail,
   Category,
   CatalogType,
@@ -29,16 +30,34 @@ function isPgError(err: unknown, code: string): boolean {
   return typeof err === "object" && err !== null && (err as { code?: string }).code === code;
 }
 
-/** Все категории вкладки (включая неактивные) — для админ-списка. */
-export async function listCategoriesAdmin(env: AppEnv, type: CatalogType): Promise<Category[]> {
+interface AdminCategoryRow extends CategoryRow {
+  card_count: number;
+  active_card_count: number;
+}
+
+function toAdminCategory(row: AdminCategoryRow): AdminCategory {
+  return {
+    ...toCategory(row),
+    cardCount: row.card_count,
+    activeCardCount: row.active_card_count
+  };
+}
+
+/** Все категории вкладки (включая неактивные) — со счётчиками карточек для админ-списка. */
+export async function listCategoriesAdmin(env: AppEnv, type: CatalogType): Promise<AdminCategory[]> {
   const sql = getDb(env);
-  const rows = await sql<CategoryRow[]>`
-    select id, type, name, sort_order, is_active, created_at, updated_at
-    from categories
-    where type = ${type}
-    order by sort_order, name
+  const rows = await sql<AdminCategoryRow[]>`
+    select
+      cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.created_at, cat.updated_at,
+      count(c.id)::int as card_count,
+      count(c.id) filter (where c.archived_at is null)::int as active_card_count
+    from categories cat
+    left join cards c on c.category_id = cat.id
+    where cat.type = ${type}
+    group by cat.id
+    order by cat.sort_order, cat.name
   `;
-  return rows.map(toCategory);
+  return rows.map(toAdminCategory);
 }
 
 /** Создание категории. 409, если активная категория с таким названием уже есть. */

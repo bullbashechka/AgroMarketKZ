@@ -1,6 +1,18 @@
 import type { CatalogType, PriceType } from "@agromarket/contracts";
 
 const priceFormatter = new Intl.NumberFormat("ru-RU");
+const dateTimeFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit"
+});
+
+/** Дата и время в формате «04.07.2026, 14:02» (для заявок и списка пользователей). */
+export function formatDateTime(iso: string): string {
+  return dateTimeFormatter.format(new Date(iso));
+}
 
 /** Путь к экрану карточки: `/services/{categoryId}/{cardId}` или `/products/...`. */
 export function cardHref(card: { type: CatalogType; categoryId: string; id: string }): string {

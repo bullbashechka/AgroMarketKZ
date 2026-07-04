@@ -1,6 +1,6 @@
 import { catalogTypeTabLabels } from "@agromarket/contracts";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { getRememberedHref, resetTab, tabRootPath, type TabSection } from "../lib/tabHistory";
+import { getRememberedHref, resetTab, sectionOf, tabRootPath, type TabSection } from "../lib/tabHistory";
 import { useKeyboardOpen } from "../lib/useKeyboardOpen";
 
 const tabs: { section: TabSection; label: string; icon: IconKind }[] = [
@@ -44,7 +44,7 @@ export function TabBar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const keyboardOpen = useKeyboardOpen();
 
-  const activeSection = tabs.find((t) => pathname.startsWith(tabRootPath(t.section)))?.section;
+  const activeSection = sectionOf(pathname) ?? undefined;
 
   function handleTap(section: TabSection) {
     const root = tabRootPath(section);

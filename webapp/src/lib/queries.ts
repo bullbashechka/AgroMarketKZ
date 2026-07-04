@@ -1,11 +1,17 @@
 import type {
+  AdminCardListResponse,
+  AdminCategory,
+  AdminPlatformSettings,
+  AdminUserListResponse,
   CardDetail,
   CardListItem,
   CardListResponse,
   CatalogType,
   CategoryListItem,
   PlatformSettings,
-  PriceType
+  PriceType,
+  RequestListResponse,
+  RequestStatus
 } from "@agromarket/contracts";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { apiGet, ApiError } from "./api";
@@ -65,4 +71,79 @@ export const settingsQueryOptions = queryOptions({
   queryKey: ["settings"] as const,
   queryFn: () => apiGet<PlatformSettings>("/settings"),
   staleTime: 5 * 60_000
+});
+
+// --- Админ ---
+
+interface AdminCardsQueryParams {
+  type?: CatalogType;
+  categoryId?: string;
+  search?: string;
+}
+
+function buildAdminCardsQuery(params: AdminCardsQueryParams, offset: number): string {
+  const query = new URLSearchParams({ archived: "all", offset: String(offset) });
+  if (params.type) query.set("type", params.type);
+  if (params.categoryId) query.set("categoryId", params.categoryId);
+  if (params.search) query.set("search", params.search);
+  return query.toString();
+}
+
+/** Постраничный список карточек (админ) — все карточки, включая скрытые. */
+export const adminCardsInfiniteQueryOptions = (params: AdminCardsQueryParams) =>
+  infiniteQueryOptions({
+    queryKey: ["admin-cards", params.type ?? null, params.categoryId ?? null, params.search ?? ""] as const,
+    queryFn: ({ pageParam }) =>
+      apiGet<AdminCardListResponse>(`/admin/cards?${buildAdminCardsQuery(params, pageParam)}`),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    placeholderData: keepPreviousData
+  });
+
+/** Полная карточка по id (админ — включая скрытые). */
+export const adminCardQueryOptions = (cardId: string) =>
+  queryOptions({
+    queryKey: ["admin-card", cardId] as const,
+    queryFn: () => apiGet<CardDetail>(`/admin/cards/${cardId}`)
+  });
+
+/** Категории вкладки (админ) — включая неактивные, со счётчиками карточек. */
+export const adminCategoriesQueryOptions = (type: CatalogType) =>
+  queryOptions({
+    queryKey: ["admin-categories", type] as const,
+    queryFn: () => apiGet<AdminCategory[]>(`/admin/categories?type=${type}`)
+  });
+
+/** Постраничный список заявок (админ) по статусу. */
+export const adminRequestsInfiniteQueryOptions = (status: RequestStatus) =>
+  infiniteQueryOptions({
+    queryKey: ["admin-requests", status] as const,
+    queryFn: ({ pageParam }) =>
+      apiGet<RequestListResponse>(`/admin/requests?status=${status}&offset=${pageParam}`),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    placeholderData: keepPreviousData
+  });
+
+/** Счётчик новых заявок для бейджа в «Общее» — без выделенного count-эндпоинта берём первую страницу. */
+export const adminNewRequestsBadgeQueryOptions = queryOptions({
+  queryKey: ["admin-requests-badge"] as const,
+  queryFn: () => apiGet<RequestListResponse>("/admin/requests?status=new&limit=20"),
+  select: (data: RequestListResponse) => ({ count: data.items.length, hasMore: data.hasMore }),
+  staleTime: 60_000
+});
+
+/** Постраничный список зарегистрированных пользователей (админ, read-only). */
+export const adminUsersInfiniteQueryOptions = infiniteQueryOptions({
+  queryKey: ["admin-users"] as const,
+  queryFn: ({ pageParam }) => apiGet<AdminUserListResponse>(`/admin/users?offset=${pageParam}`),
+  initialPageParam: 0,
+  getNextPageParam: (lastPage) => lastPage.nextOffset,
+  placeholderData: keepPreviousData
+});
+
+/** Настройки площадки для админа (включая adminChatId). */
+export const adminSettingsQueryOptions = queryOptions({
+  queryKey: ["admin-settings"] as const,
+  queryFn: () => apiGet<AdminPlatformSettings>("/admin/settings")
 });

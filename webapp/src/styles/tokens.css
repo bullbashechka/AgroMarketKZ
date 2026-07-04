@@ -46,9 +46,11 @@
   --color-accent: var(--amber-600);
   --color-on-accent: #2b2200;
   --color-info: var(--sky-600);
+  --color-info-fill: var(--sky-600);
   --color-border: #e6ddc4;
   --color-focus: rgb(63 143 29 / 25%);
   --color-danger: var(--danger-500);
+  --color-danger-fill: var(--danger-500);
   --color-skeleton: #ece5d2;
   --color-skeleton-shine: #f7f2e4;
   --color-nav-bg: var(--white);
@@ -86,9 +88,11 @@
   --color-accent: #f0b429;
   --color-on-accent: #241a00;
   --color-info: #62b1dd;
+  --color-info-fill: #2f6f95;
   --color-border: #37422c;
   --color-focus: rgb(99 185 58 / 30%);
   --color-danger: #f2857c;
+  --color-danger-fill: #c1443a;
   --color-skeleton: #283220;
   --color-skeleton-shine: #313d27;
   --color-nav-bg: #1a2212;

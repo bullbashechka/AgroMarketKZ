@@ -1,9 +1,11 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useState, type MouseEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import { RequestSheet } from "../components/RequestSheet";
 import { useAuth } from "../lib/auth";
+import { adminNewRequestsBadgeQueryOptions } from "../lib/queries";
 
-function ListRow({ href, title, value }: { href: string; title: string; value?: string }) {
+function ListRow({ href, title, value, badge }: { href: string; title: string; value?: string; badge?: ReactNode }) {
   const navigate = useNavigate();
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
@@ -15,11 +17,35 @@ function ListRow({ href, title, value }: { href: string; title: string; value?: 
   return (
     <a href={href} className="list-row" onClick={handleClick}>
       <span className="list-row-title">{title}</span>
+      {badge}
       {value && <span className="list-row-value">{value}</span>}
       <span className="list-row-chevron" aria-hidden="true">
         ›
       </span>
     </a>
+  );
+}
+
+/** Блок «Управление» — только для админов; бейдж новых заявок берёт первую страницу (без count-эндпоинта). */
+function AdminSection() {
+  const badge = useQuery({ ...adminNewRequestsBadgeQueryOptions, enabled: true });
+  const count = badge.data ? (badge.data.hasMore ? `${badge.data.count}+` : String(badge.data.count)) : null;
+
+  return (
+    <>
+      <p className="eyebrow admin-section-title">Управление</p>
+      <div className="list-rows">
+        <ListRow href="/admin/cards" title="Карточки" />
+        <ListRow href="/admin/categories" title="Категории" />
+        <ListRow
+          href="/admin/requests"
+          title="Заявки"
+          badge={count && count !== "0" ? <span className="list-row-badge">{count}</span> : undefined}
+        />
+        <ListRow href="/admin/users" title="Пользователи" />
+        <ListRow href="/admin/settings" title="Контакты площадки" />
+      </div>
+    </>
   );
 }
 
@@ -50,6 +76,8 @@ export function GeneralTab() {
       <button type="button" className="button button-primary tab-cta" onClick={() => setRequestOpen(true)}>
         Оставить заявку
       </button>
+
+      {profile.isAdmin && <AdminSection />}
 
       <RequestSheet open={requestOpen} onClose={() => setRequestOpen(false)} source={{ source: "profile" }} />
     </div>
