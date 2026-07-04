@@ -8,7 +8,7 @@ import {
 } from "./enums";
 import { paginated, paginationQuerySchema } from "./pagination";
 import { contactNameSchema, optionalText } from "./primitives";
-import { kzPhoneSchema } from "./phone";
+import { phoneSchema } from "./phone";
 
 /** Заявка (ответ API). Snapshot-поля хранят данные карточки на момент создания заявки. */
 export const requestSchema = z.object({
@@ -34,7 +34,7 @@ export type Request = z.infer<typeof requestSchema>;
 // но всё равно валидируются на отправке.
 const contactFields = {
   contactName: contactNameSchema,
-  contactPhone: kzPhoneSchema,
+  contactPhone: phoneSchema,
   comment: optionalText(REQUEST_COMMENT_MAX)
 };
 

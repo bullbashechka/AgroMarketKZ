@@ -16,6 +16,13 @@ export const categorySchema = z.object({
 
 export type Category = z.infer<typeof categorySchema>;
 
+/** Категория в публичном списке вкладки — с числом опубликованных карточек. */
+export const categoryListItemSchema = categorySchema.extend({
+  cardCount: z.number().int().min(0)
+});
+
+export type CategoryListItem = z.infer<typeof categoryListItemSchema>;
+
 /** Создание категории (админ). */
 export const createCategoryInput = z.object({
   type: catalogTypeSchema,

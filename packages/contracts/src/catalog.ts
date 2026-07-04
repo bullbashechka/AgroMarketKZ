@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { SEARCH_MAX } from "./constants";
 import { cardListItemSchema } from "./card";
-import { categorySchema } from "./category";
+import { categorySchema, categoryListItemSchema } from "./category";
 import { catalogTypeSchema, priceTypeSchema } from "./enums";
 import { paginated, paginationQuerySchema } from "./pagination";
 
@@ -10,7 +10,11 @@ export const categoryListQuery = z.object({
   type: catalogTypeSchema
 });
 
+/** Список категорий (админ, включая неактивные и пустые). */
 export const categoryListResponse = z.array(categorySchema);
+
+/** Список категорий вкладки для пользователей — только с опубликованными карточками (пустые скрыты). */
+export const categoryListItemResponse = z.array(categoryListItemSchema);
 
 /**
  * Каталог карточек. Гибридная навигация:

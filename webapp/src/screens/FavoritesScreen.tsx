@@ -1,0 +1,34 @@
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import { CardTile } from "../components/CardTile";
+import { ErrorState } from "../components/ErrorState";
+import { Screen } from "../components/Screen";
+import { SkeletonList } from "../components/Skeleton";
+import { favoritesQueryOptions } from "../lib/queries";
+
+export function FavoritesScreen() {
+  const { data, isPending, isError, refetch } = useQuery(favoritesQueryOptions);
+  const navigate = useNavigate();
+
+  return (
+    <Screen back title="Избранное" fallbackTo="/general">
+      {isPending && <SkeletonList />}
+      {isError && <ErrorState onRetry={refetch} />}
+      {data && data.length === 0 && (
+        <div className="empty-state">
+          <p>В избранном пока пусто.</p>
+          <button type="button" className="button button-primary" onClick={() => navigate({ href: "/services" })}>
+            В каталог
+          </button>
+        </div>
+      )}
+      {data && data.length > 0 && (
+        <div className="grid-cards">
+          {data.map((item) => (
+            <CardTile key={item.id} item={item} />
+          ))}
+        </div>
+      )}
+    </Screen>
+  );
+}

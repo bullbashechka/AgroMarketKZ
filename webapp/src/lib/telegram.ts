@@ -16,6 +16,15 @@ interface TelegramBackButton {
   offClick: (cb: () => void) => void;
 }
 
+type HapticNotificationType = "error" | "success" | "warning";
+type HapticImpactStyle = "light" | "medium" | "heavy" | "rigid" | "soft";
+
+interface TelegramHapticFeedback {
+  impactOccurred: (style: HapticImpactStyle) => void;
+  notificationOccurred: (type: HapticNotificationType) => void;
+  selectionChanged: () => void;
+}
+
 interface TelegramWebApp {
   initData: string;
   initDataUnsafe?: { user?: TelegramUser };
@@ -23,6 +32,7 @@ interface TelegramWebApp {
   colorScheme?: TelegramColorScheme;
   themeParams?: Record<string, string>;
   BackButton?: TelegramBackButton;
+  HapticFeedback?: TelegramHapticFeedback;
   ready: () => void;
   expand?: () => void;
   isVersionAtLeast?: (version: string) => boolean;
@@ -34,6 +44,8 @@ interface TelegramWebApp {
   enableClosingConfirmation?: () => void;
   disableVerticalSwipes?: () => void;
   requestContact?: (callback: (ok: boolean, event?: unknown) => void) => void;
+  openLink?: (url: string, options?: { try_instant_view?: boolean }) => void;
+  openTelegramLink?: (url: string) => void;
 }
 
 declare global {
@@ -142,4 +154,37 @@ export function setTelegramColors(bgHex: string): void {
   wa.setHeaderColor?.(bgHex);
   wa.setBackgroundColor?.(bgHex);
   if (versionAtLeast(wa, "7.10")) wa.setBottomBarColor?.(bgHex);
+}
+
+/** Тактильный отклик на успех/ошибку (например, отправка заявки). No-op вне Telegram. */
+export function hapticNotify(type: HapticNotificationType): void {
+  getWebApp()?.HapticFeedback?.notificationOccurred(type);
+}
+
+/** Лёгкий тактильный отклик на короткое действие (например, тап по сердечку). No-op вне Telegram. */
+export function hapticImpactLight(): void {
+  getWebApp()?.HapticFeedback?.impactOccurred("light");
+}
+
+/**
+ * Открывает внешнюю ссылку (звонок/WhatsApp и т.п.). В Telegram — через SDK (не покидая клиент
+ * там, где это возможно), вне Telegram — обычным способом браузера.
+ */
+export function openExternalLink(url: string): void {
+  const wa = getWebApp();
+  if (wa?.openLink) {
+    wa.openLink(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/** Открывает t.me-ссылку на Telegram-аккаунт/канал. No-op-фолбэк вне Telegram — обычная ссылка. */
+export function openTelegramDeepLink(url: string): void {
+  const wa = getWebApp();
+  if (wa?.openTelegramLink) {
+    wa.openTelegramLink(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
 }

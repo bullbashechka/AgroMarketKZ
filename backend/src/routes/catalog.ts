@@ -2,8 +2,8 @@ import {
   cardDetailSchema,
   cardListQuery,
   cardListResponse,
-  categoryListQuery,
-  categoryListResponse
+  categoryListItemResponse,
+  categoryListQuery
 } from "@agromarket/contracts";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -18,12 +18,12 @@ export const catalogRoutes = new Hono<HonoEnv>();
 // Каталог закрыт от парсеров: доступен только авторизованным зарегистрированным пользователям.
 catalogRoutes.use("*", requireAuth, requireRegistered);
 
-/** Категории вкладки, включая пустые (пустое состояние рисует фронт). */
+/** Категории вкладки с числом карточек; пустые категории скрыты от пользователей. */
 catalogRoutes.get("/categories", async (c) => {
   const env = getEnv(c);
   const { type } = categoryListQuery.parse(c.req.query());
   const categories = await listCategories(env, type);
-  return c.json(categoryListResponse.parse(categories));
+  return c.json(categoryListItemResponse.parse(categories));
 });
 
 /** Карточки вкладки с фильтрами и постраничной выдачей (load-more). Архив не попадает. */

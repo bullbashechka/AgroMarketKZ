@@ -1,8 +1,33 @@
+import { useNavigate } from "@tanstack/react-router";
+import { useState, type MouseEvent } from "react";
+import { RequestSheet } from "../components/RequestSheet";
 import { useAuth } from "../lib/auth";
 
-/** Вкладка «Общее»: сейчас — сводка профиля. Редактирование, избранное, обратная связь — Этап 6. */
+function ListRow({ href, title, value }: { href: string; title: string; value?: string }) {
+  const navigate = useNavigate();
+
+  function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    event.preventDefault();
+    navigate({ href });
+  }
+
+  return (
+    <a href={href} className="list-row" onClick={handleClick}>
+      <span className="list-row-title">{title}</span>
+      {value && <span className="list-row-value">{value}</span>}
+      <span className="list-row-chevron" aria-hidden="true">
+        ›
+      </span>
+    </a>
+  );
+}
+
+/** Вкладка «Общее»: мои контакты, избранное, обратная связь, оставить заявку. */
 export function GeneralTab() {
   const { profile } = useAuth();
+  const [requestOpen, setRequestOpen] = useState(false);
+
   if (!profile) return null;
 
   return (
@@ -14,27 +39,19 @@ export function GeneralTab() {
       <section className="card">
         <p className="eyebrow">Профиль</p>
         <h1>Добро пожаловать{profile.contactName ? `, ${profile.contactName}` : ""}!</h1>
-        <p className="description">
-          Редактирование контактов, избранное и обратная связь появятся на Этапе 6.
-        </p>
-
-        <dl className="status-list">
-          <div>
-            <dt>Имя</dt>
-            <dd>{profile.contactName ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Телефон</dt>
-            <dd>{profile.contactPhone ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Роль</dt>
-            <dd className={profile.isAdmin ? "ok" : "muted"}>
-              {profile.isAdmin ? "администратор" : "пользователь"}
-            </dd>
-          </div>
-        </dl>
       </section>
+
+      <div className="list-rows">
+        <ListRow href="/general/contacts" title="Мои контакты" value={profile.contactName ?? "—"} />
+        <ListRow href="/general/favorites" title="Избранное" />
+        <ListRow href="/general/feedback" title="Обратная связь" />
+      </div>
+
+      <button type="button" className="button button-primary tab-cta" onClick={() => setRequestOpen(true)}>
+        Оставить заявку
+      </button>
+
+      <RequestSheet open={requestOpen} onClose={() => setRequestOpen(false)} source={{ source: "profile" }} />
     </div>
   );
 }

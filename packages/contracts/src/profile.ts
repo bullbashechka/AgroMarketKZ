@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { contactNameSchema } from "./primitives";
-import { kzPhoneSchema } from "./phone";
+import { phoneSchema } from "./phone";
 
 /** Профиль пользователя (ответ API). `isAdmin` вычисляется backend по allowlist. */
 export const profileSchema = z.object({
@@ -22,7 +22,7 @@ export type Profile = z.infer<typeof profileSchema>;
 /** Регистрация при первом входе: имя + телефон. */
 export const registerInput = z.object({
   contactName: contactNameSchema,
-  contactPhone: kzPhoneSchema
+  contactPhone: phoneSchema
 });
 
 export type RegisterInput = z.infer<typeof registerInput>;

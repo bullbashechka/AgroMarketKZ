@@ -4,10 +4,12 @@ import {
   toCardDetail,
   toCardListItem,
   toCategory,
+  toCategoryListItem,
   type CardImageRow,
   type CardListRow,
   type CardRow,
   type CardSpecRow,
+  type CategoryListRow,
   type CategoryRow
 } from "../src/repos/catalog";
 
@@ -35,6 +37,31 @@ describe("toCategory", () => {
       isActive: true,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-02T00:00:00.000Z"
+    });
+  });
+});
+
+describe("toCategoryListItem", () => {
+  test("маппит строку БД в DTO категории с числом карточек", () => {
+    const row: CategoryListRow = {
+      id: "cat-1",
+      type: "product",
+      name: "Тракторы",
+      sort_order: 1,
+      is_active: true,
+      created_at: new Date("2026-01-01T00:00:00.000Z"),
+      updated_at: new Date("2026-01-02T00:00:00.000Z"),
+      card_count: 7
+    };
+    expect(toCategoryListItem(row)).toEqual({
+      id: "cat-1",
+      type: "product",
+      name: "Тракторы",
+      sortOrder: 1,
+      isActive: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+      cardCount: 7
     });
   });
 });
