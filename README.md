@@ -62,7 +62,61 @@ URL туннеля вставляется в BotFather → бот → Bot Settin
 
 Если ngrok пишет `ERR_NGROK_3200` («endpoint offline») — агент (`ngrok http ...`) сейчас не запущен, нужно перезапустить командой выше.
 
+### Альтернатива: Cloudflare Tunnel (`cloudflared`)
+
+Не требует аккаунта ngrok и не ограничен одним эндпоинтом. Домен `*.trycloudflare.com` уже разрешён в `allowedHosts` ([`webapp/vite.config.ts`](./webapp/vite.config.ts)) — правок не нужно.
+
+```sh
+brew install cloudflared    # один раз, если ещё не установлен
+
+# 1. dev-серверы подняты (bun run dev, либо dev:backend + dev:webapp)
+
+# 2. один туннель на webapp (quick tunnel, без аккаунта Cloudflare)
+cloudflared tunnel --url http://localhost:5173
+```
+
+В логе появится случайный URL вида `https://<три-случайных-слова>.trycloudflare.com` — его и вставляем в BotFather → бот → Bot Settings → Menu Button. В отличие от ngrok, при каждом перезапуске `cloudflared` домен **меняется** — обновлять Menu Button нужно каждый раз заново. `VITE_API_URL` при этом варианте так же должен быть пустым (`VITE_API_URL=`).
+
+Если нужен стабильный (не меняющийся) домен — это именованный туннель с привязкой к своему домену в Cloudflare (`cloudflared tunnel create ...` + `cloudflared tunnel route dns ...`), что требует зоны в Cloudflare; для локальной разработки обычно достаточно quick tunnel.
+
 Если в самом Mini App при открытии видно `Load failed` / «Повторить» — это провал сетевого запроса на этапе логина (`POST /auth/telegram`), почти всегда из-за того, что `VITE_API_URL` указывает на недоступный с телефона адрес (например, оставшийся `http://localhost:3000`) или webapp dev-сервер не перезапущен после правки `.env`/`vite.config.ts`.
+
+## Telegram-бот и вебхук (Этап 8)
+
+Бот делает три вещи: отвечает в личке приветствием с кнопкой запуска Mini App,
+сам подключает группу для уведомлений о заявках (когда его добавляет админ)
+и служит адресатом «Поделиться контактом» (верификация телефона).
+
+### Настройка dev-бота в BotFather (один раз)
+
+1. `/newbot` — создать тестового бота, токен → `TELEGRAM_BOT_TOKEN`, username (без @) → `TELEGRAM_BOT_USERNAME` и `VITE_TELEGRAM_BOT_USERNAME`.
+2. `/newapp` — создать Mini App у бота: URL — адрес туннеля, short name → `TELEGRAM_MINIAPP_SHORTNAME` (нужен для deep-link-кнопок «Открыть заявку» в уведомлениях).
+3. Bot Settings → Menu Button — URL туннеля (кнопка меню в личке).
+4. `/setdomain` — домен туннеля (для Login Widget в браузере).
+5. Bot Settings → Allow Groups? — **включить** (иначе бота нельзя добавить в группу уведомлений).
+6. Придумать случайную строку → `TELEGRAM_WEBHOOK_SECRET`.
+
+Прод-бот настраивается так же на Этапе 10, на прод-домен.
+
+### Вебхук
+
+```sh
+# после поднятия dev-серверов и туннеля (URL туннеля webapp — vite проксирует /telegram на backend):
+bun run --cwd backend webhook:set https://<tunnel>
+
+# проверить/удалить:
+bun run --cwd backend webhook:set --delete
+```
+
+После **каждой смены URL туннеля** запускать `webhook:set` заново (и обновлять
+Menu Button + `/newapp` URL в BotFather). В выводе скрипта `getWebhookInfo` не
+должно быть `last_error_message`.
+
+### Подключение чата уведомлений
+
+Добавить бота в группу аккаунтом из `ADMIN_ALLOWLIST` — бот сохранит чат и
+ответит «Уведомления подключены». Удаление бота из группы отключает уведомления.
+Запасной вариант — вручную указать chat id в админке (Управление → Настройки).
 
 ## Переменные окружения
 
@@ -72,7 +126,10 @@ URL туннеля вставляется в BotFather → бот → Bot Settin
 |-----------|-----|-----------|
 | `DATABASE_URL` | backend | строка подключения PostgreSQL |
 | `JWT_SECRET` | backend | подпись JWT сессий |
-| `TELEGRAM_BOT_TOKEN` | backend | валидация `initData` и Login Widget |
+| `TELEGRAM_BOT_TOKEN` | backend | валидация `initData`, Login Widget, отправка уведомлений |
+| `TELEGRAM_WEBHOOK_SECRET` | backend | секрет вебхука бота (проверка `X-Telegram-Bot-Api-Secret-Token`) |
+| `TELEGRAM_BOT_USERNAME` | backend | username бота без @ — deep-link-кнопки в уведомлениях |
+| `TELEGRAM_MINIAPP_SHORTNAME` | backend | short name Mini App из `/newapp` — вторая часть deep-link |
 | `ADMIN_ALLOWLIST` | backend | числовые Telegram id админов (через запятую) |
 | `VITE_API_URL` | webapp | базовый URL backend |
 | `VITE_TELEGRAM_BOT_USERNAME` | webapp | username бота для Login Widget в браузере |

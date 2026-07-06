@@ -1,5 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { escapeHtml, formatFeedbackNotification, formatRequestNotification } from "../src/lib/telegramBot";
+import { afterEach, describe, expect, test } from "bun:test";
+import type { AppEnv } from "../src/env";
+import {
+  buildRequestDeepLink,
+  escapeHtml,
+  formatFeedbackNotification,
+  formatRequestNotification,
+  sendAdminNotification
+} from "../src/lib/telegramBot";
 
 describe("escapeHtml", () => {
   test("экранирует &, < и >", () => {
@@ -17,6 +24,7 @@ describe("formatRequestNotification", () => {
       cardPriceAmountSnapshot: 120000,
       contactName: "Айбек",
       contactPhone: "+77011234567",
+      contactPhoneVerified: false,
       comment: "Нужно 5 тонн",
       telegramUsername: "aibek"
     });
@@ -36,6 +44,7 @@ describe("formatRequestNotification", () => {
       cardPriceAmountSnapshot: null,
       contactName: "Айбек",
       contactPhone: "+77011234567",
+      contactPhoneVerified: false,
       comment: null,
       telegramUsername: null
     });
@@ -53,6 +62,7 @@ describe("formatRequestNotification", () => {
       cardPriceAmountSnapshot: null,
       contactName: "Айбек",
       contactPhone: "+77011234567",
+      contactPhoneVerified: false,
       comment: null,
       telegramUsername: null
     });
@@ -68,6 +78,7 @@ describe("formatRequestNotification", () => {
       cardPriceAmountSnapshot: null,
       contactName: "Айбек",
       contactPhone: "+77011234567",
+      contactPhoneVerified: false,
       comment: null,
       telegramUsername: null
     });
@@ -76,11 +87,103 @@ describe("formatRequestNotification", () => {
   });
 });
 
+describe("отметка подтверждённого телефона", () => {
+  test("подтверждённый номер помечается в заявке", () => {
+    const html = formatRequestNotification({
+      source: "profile",
+      tabType: null,
+      cardTitleSnapshot: null,
+      cardPriceTypeSnapshot: null,
+      cardPriceAmountSnapshot: null,
+      contactName: "Айбек",
+      contactPhone: "+77011234567",
+      contactPhoneVerified: true,
+      comment: null,
+      telegramUsername: null
+    });
+    expect(html).toContain("Телефон: +77011234567 ✓ подтверждён через Telegram");
+  });
+
+  test("неподтверждённый номер — без отметки", () => {
+    const html = formatFeedbackNotification({
+      contactName: "Айбек",
+      contactPhone: "+77011234567",
+      contactPhoneVerified: false,
+      message: "Вопрос",
+      telegramUsername: null
+    });
+    expect(html).toContain("Телефон: +77011234567\n");
+    expect(html).not.toContain("подтверждён");
+  });
+});
+
+describe("buildRequestDeepLink", () => {
+  const baseEnv = {} as AppEnv;
+
+  test("собирает t.me-ссылку c startapp при заданном env", () => {
+    const env = {
+      ...baseEnv,
+      TELEGRAM_BOT_USERNAME: "agromarket_bot",
+      TELEGRAM_MINIAPP_SHORTNAME: "market"
+    } as AppEnv;
+    expect(buildRequestDeepLink(env, "abc-123")).toBe(
+      "https://t.me/agromarket_bot/market?startapp=request_abc-123"
+    );
+  });
+
+  test("возвращает null без username/shortname", () => {
+    expect(buildRequestDeepLink(baseEnv, "abc")).toBeNull();
+    expect(
+      buildRequestDeepLink({ ...baseEnv, TELEGRAM_BOT_USERNAME: "bot" } as AppEnv, "abc")
+    ).toBeNull();
+  });
+});
+
+describe("sendAdminNotification (ретрай)", () => {
+  const realFetch = globalThis.fetch;
+  const env = { TELEGRAM_BOT_TOKEN: "123:TEST" } as AppEnv;
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("успех с первой попытки — один запрос", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    await sendAdminNotification(env, "-100", "test");
+    expect(calls).toBe(1);
+  });
+
+  test("после неудачи выполняется ровно одна повторная попытка", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response("error", { status: 500 });
+    }) as typeof fetch;
+
+    await sendAdminNotification(env, "-100", "test");
+    expect(calls).toBe(2);
+  });
+
+  test("сетевая ошибка не пробрасывается наружу", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("network down");
+    }) as typeof fetch;
+
+    await expect(sendAdminNotification(env, "-100", "test")).resolves.toBeUndefined();
+  });
+});
+
 describe("formatFeedbackNotification", () => {
   test("формирует сообщение с экранированием", () => {
     const html = formatFeedbackNotification({
       contactName: "Айбек",
       contactPhone: "+77011234567",
+      contactPhoneVerified: false,
       message: "Вопрос <срочно>",
       telegramUsername: null
     });

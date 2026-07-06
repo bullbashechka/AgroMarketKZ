@@ -9,6 +9,7 @@ export const feedbackMessageSchema = z.object({
   userId: z.uuid(),
   contactName: z.string(),
   contactPhone: z.string(),
+  contactPhoneVerified: z.boolean(),
   message: z.string(),
   createdAt: z.iso.datetime()
 });

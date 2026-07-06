@@ -2,6 +2,7 @@ import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/
 import { AdminGuard } from "./components/admin/AdminGuard";
 import { AdminCardsScreen } from "./screens/admin/AdminCardsScreen";
 import { AdminCategoriesScreen } from "./screens/admin/AdminCategoriesScreen";
+import { AdminRequestScreen } from "./screens/admin/AdminRequestScreen";
 import { AdminRequestsScreen } from "./screens/admin/AdminRequestsScreen";
 import { AdminSettingsScreen } from "./screens/admin/AdminSettingsScreen";
 import { AdminUsersScreen } from "./screens/admin/AdminUsersScreen";
@@ -145,6 +146,16 @@ const adminRequestsRoute = createRoute({
   )
 });
 
+const adminRequestRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/requests/$requestId",
+  component: () => (
+    <AdminGuard>
+      <AdminRequestScreen />
+    </AdminGuard>
+  )
+});
+
 const adminUsersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/users",
@@ -182,6 +193,7 @@ const routeTree = rootRoute.addChildren([
   adminCardEditRoute,
   adminCategoriesRoute,
   adminRequestsRoute,
+  adminRequestRoute,
   adminUsersRoute,
   adminSettingsRoute
 ]);

@@ -15,6 +15,7 @@ export interface RequestRow {
   card_price_amount_snapshot: number | null;
   contact_name: string;
   contact_phone: string;
+  contact_phone_verified: boolean;
   comment: string | null;
   status: "new" | "in_progress" | "closed";
   created_at: Date;
@@ -33,6 +34,7 @@ export function toRequest(row: RequestRow): RequestDto {
     cardPriceAmountSnapshot: row.card_price_amount_snapshot,
     contactName: row.contact_name,
     contactPhone: row.contact_phone,
+    contactPhoneVerified: row.contact_phone_verified,
     comment: row.comment,
     status: row.status,
     createdAt: row.created_at.toISOString(),
@@ -53,6 +55,8 @@ export async function countRecentRequests(env: AppEnv, userId: string): Promise<
 /**
  * Создаёт заявку. Для источника `card` снапшот названия/цены читается из карточки
  * на момент отправки; карточка должна существовать и быть опубликована.
+ * Флаг подтверждённости телефона снапшотится подзапросом: совпадает ли номер
+ * из формы с verified_phone пользователя на момент создания.
  */
 export async function createRequest(
   env: AppEnv,
@@ -60,6 +64,7 @@ export async function createRequest(
   input: CreateRequestInput
 ): Promise<RequestRow> {
   const sql = getDb(env);
+  const phoneVerified = sql`coalesce((select verified_phone = ${input.contactPhone} from users where id = ${userId}), false)`;
 
   if (input.source === "card") {
     const [card] = await sql<
@@ -75,11 +80,11 @@ export async function createRequest(
       insert into requests (
         user_id, source, card_id, card_title_snapshot,
         card_price_type_snapshot, card_price_amount_snapshot,
-        contact_name, contact_phone, comment
+        contact_name, contact_phone, contact_phone_verified, comment
       ) values (
         ${userId}, 'card', ${input.cardId}, ${card.title},
         ${card.price_type}, ${card.price_amount},
-        ${input.contactName}, ${input.contactPhone}, ${input.comment ?? null}
+        ${input.contactName}, ${input.contactPhone}, ${phoneVerified}, ${input.comment ?? null}
       )
       returning *
     `;
@@ -88,16 +93,16 @@ export async function createRequest(
 
   if (input.source === "tab") {
     const [row] = await sql<RequestRow[]>`
-      insert into requests (user_id, source, tab_type, contact_name, contact_phone, comment)
-      values (${userId}, 'tab', ${input.tabType}, ${input.contactName}, ${input.contactPhone}, ${input.comment ?? null})
+      insert into requests (user_id, source, tab_type, contact_name, contact_phone, contact_phone_verified, comment)
+      values (${userId}, 'tab', ${input.tabType}, ${input.contactName}, ${input.contactPhone}, ${phoneVerified}, ${input.comment ?? null})
       returning *
     `;
     return row!;
   }
 
   const [row] = await sql<RequestRow[]>`
-    insert into requests (user_id, source, contact_name, contact_phone, comment)
-    values (${userId}, 'profile', ${input.contactName}, ${input.contactPhone}, ${input.comment ?? null})
+    insert into requests (user_id, source, contact_name, contact_phone, contact_phone_verified, comment)
+    values (${userId}, 'profile', ${input.contactName}, ${input.contactPhone}, ${phoneVerified}, ${input.comment ?? null})
     returning *
   `;
   return row!;
@@ -117,6 +122,16 @@ export async function listRequests(
   `;
   const items = rows.map(toRequest);
   return paginateRows(items, query.limit, query.offset);
+}
+
+/** Заявка по id (админ, деталка для deep-link из уведомления). 404, если нет. */
+export async function getRequestById(env: AppEnv, id: string): Promise<RequestRow> {
+  const sql = getDb(env);
+  const [row] = await sql<RequestRow[]>`select * from requests where id = ${id}`;
+  if (!row) {
+    throw new HttpError(404, "Заявка не найдена");
+  }
+  return row;
 }
 
 /** Смена статуса заявки (админ). Переходы свободные. 404, если заявки нет. */

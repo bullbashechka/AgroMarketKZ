@@ -2,7 +2,8 @@ import { registerInput } from "@agromarket/contracts";
 import { useState } from "react";
 import { useAuth } from "../lib/auth";
 import { ApiError } from "../lib/api";
-import { isTelegramContext, requestContactPhone } from "../lib/telegram";
+import { sharePhoneFromTelegram } from "../lib/shareContact";
+import { isTelegramContext } from "../lib/telegram";
 
 export function RegisterScreen() {
   const { profile, register, registerPending } = useAuth();
@@ -18,7 +19,7 @@ export function RegisterScreen() {
   const inTelegram = isTelegramContext();
 
   async function handleShareContact() {
-    const shared = await requestContactPhone();
+    const shared = await sharePhoneFromTelegram();
     if (shared) setPhone(shared);
   }
 

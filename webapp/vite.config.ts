@@ -19,6 +19,7 @@ export default defineConfig({
       "/favorites": "http://localhost:3000",
       "/requests": "http://localhost:3000",
       "/feedback": "http://localhost:3000",
+      "/telegram": "http://localhost:3000",
       "/admin": "http://localhost:3000",
       "/health": "http://localhost:3000"
     }

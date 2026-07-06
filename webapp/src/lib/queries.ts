@@ -10,6 +10,7 @@ import type {
   CategoryListItem,
   PlatformSettings,
   PriceType,
+  Request,
   RequestListResponse,
   RequestStatus
 } from "@agromarket/contracts";
@@ -123,6 +124,14 @@ export const adminRequestsInfiniteQueryOptions = (status: RequestStatus) =>
     initialPageParam: 0,
     getNextPageParam: (lastPage) => lastPage.nextOffset,
     placeholderData: keepPreviousData
+  });
+
+/** Заявка по id (админ) — деталка, в т.ч. по deep-link из Telegram-уведомления. */
+export const adminRequestQueryOptions = (requestId: string) =>
+  queryOptions({
+    queryKey: ["admin-request", requestId] as const,
+    queryFn: () => apiGet<Request>(`/admin/requests/${requestId}`),
+    retry: (failureCount, error) => !(error instanceof ApiError && error.status === 404) && failureCount < 2
   });
 
 /** Счётчик новых заявок для бейджа в «Общее» — без выделенного count-эндпоинта берём первую страницу. */

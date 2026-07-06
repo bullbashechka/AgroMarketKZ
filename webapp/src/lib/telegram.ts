@@ -25,9 +25,16 @@ interface TelegramHapticFeedback {
   selectionChanged: () => void;
 }
 
+/** Событие requestContact: `response` — подписанная строка для серверной проверки. */
+interface TelegramContactEvent {
+  status?: string;
+  response?: string;
+  responseUnsafe?: { contact?: { phone_number?: string } };
+}
+
 interface TelegramWebApp {
   initData: string;
-  initDataUnsafe?: { user?: TelegramUser };
+  initDataUnsafe?: { user?: TelegramUser; start_param?: string };
   version?: string;
   colorScheme?: TelegramColorScheme;
   themeParams?: Record<string, string>;
@@ -43,7 +50,7 @@ interface TelegramWebApp {
   setBottomBarColor?: (color: string) => void;
   enableClosingConfirmation?: () => void;
   disableVerticalSwipes?: () => void;
-  requestContact?: (callback: (ok: boolean, event?: unknown) => void) => void;
+  requestContact?: (callback: (ok: boolean, event?: TelegramContactEvent) => void) => void;
   openLink?: (url: string, options?: { try_instant_view?: boolean }) => void;
   openTelegramLink?: (url: string) => void;
 }
@@ -92,26 +99,39 @@ export function getTelegramDisplayName(): string {
   return [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
 }
 
+/** Результат «Поделиться контактом»: подписанная строка + номер без проверки. */
+export interface SharedContact {
+  /** Подписанный ответ Telegram для серверной верификации (может отсутствовать на старых клиентах). */
+  response: string | null;
+  /** Телефон из неподписанной копии — fallback для предзаполнения без верификации. */
+  unsafePhone: string | null;
+}
+
 /**
- * Нативный запрос «Поделиться контактом». Best-effort: если SDK вернёт номер,
- * отдаём его для предзаполнения. Гарантированный путь получения телефона — ручной ввод;
- * полная серверная обработка расшаренного контакта — Этап 8.
+ * Нативный запрос «Поделиться контактом». Возвращает `null` при отказе или вне
+ * Telegram. Гарантированный путь получения телефона — ручной ввод в форме.
  */
-export function requestContactPhone(): Promise<string | null> {
+export function requestTelegramContact(): Promise<SharedContact | null> {
   const wa = getWebApp();
   if (!wa?.requestContact) return Promise.resolve(null);
   return new Promise((resolve) => {
     try {
       wa.requestContact!((ok, event) => {
         if (!ok) return resolve(null);
-        const phone = (event as { responseUnsafe?: { contact?: { phone_number?: string } } })
-          ?.responseUnsafe?.contact?.phone_number;
-        resolve(phone ?? null);
+        resolve({
+          response: event?.response ?? null,
+          unsafePhone: event?.responseUnsafe?.contact?.phone_number ?? null
+        });
       });
     } catch {
       resolve(null);
     }
   });
+}
+
+/** Параметр `startapp` из deep-link (t.me/<бот>/<приложение>?startapp=…), либо null. */
+export function getStartParam(): string | null {
+  return getWebApp()?.initDataUnsafe?.start_param ?? null;
 }
 
 /** Цветовая схема Telegram-клиента ("light"/"dark"), либо null вне Telegram. */

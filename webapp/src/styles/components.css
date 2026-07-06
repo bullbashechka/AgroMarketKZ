@@ -1115,6 +1115,13 @@ dd {
   text-decoration: none;
 }
 
+/* Отметка «телефон подтверждён через Telegram» (Этап 8). */
+.phone-verified {
+  display: block;
+  color: var(--color-success, #2e7d32);
+  font-size: 13px;
+}
+
 .request-item-source {
   margin: 0;
   color: var(--color-text-muted);

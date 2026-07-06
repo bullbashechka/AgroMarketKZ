@@ -1,5 +1,6 @@
 import { NAME_MAX } from "@agromarket/contracts";
-import { isTelegramContext, requestContactPhone } from "../lib/telegram";
+import { sharePhoneFromTelegram } from "../lib/shareContact";
+import { isTelegramContext } from "../lib/telegram";
 
 interface ContactFieldsProps {
   name: string;
@@ -14,7 +15,7 @@ export function ContactFields({ name, phone, onNameChange, onPhoneChange, errors
   const inTelegram = isTelegramContext();
 
   async function handleShareContact() {
-    const shared = await requestContactPhone();
+    const shared = await sharePhoneFromTelegram();
     if (shared) onPhoneChange(shared);
   }
 

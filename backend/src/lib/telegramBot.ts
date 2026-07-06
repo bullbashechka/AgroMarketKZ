@@ -18,6 +18,12 @@ function formatPrice(priceType: PriceType, priceAmount: number | null): string {
   return `${priceAmount.toLocaleString("ru-RU")} ₸`;
 }
 
+/** Строка телефона с отметкой верификации через Telegram. */
+function formatPhoneLine(phone: string, verified: boolean): string {
+  const suffix = verified ? " ✓ подтверждён через Telegram" : "";
+  return `Телефон: ${escapeHtml(phone)}${suffix}`;
+}
+
 export interface RequestNotificationInput {
   source: RequestSource;
   tabType: CatalogType | null;
@@ -26,6 +32,7 @@ export interface RequestNotificationInput {
   cardPriceAmountSnapshot: number | null;
   contactName: string;
   contactPhone: string;
+  contactPhoneVerified: boolean;
   comment: string | null;
   telegramUsername: string | null;
 }
@@ -45,7 +52,7 @@ export function formatRequestNotification(input: RequestNotificationInput): stri
   }
 
   lines.push(`Имя: ${escapeHtml(input.contactName)}`);
-  lines.push(`Телефон: ${escapeHtml(input.contactPhone)}`);
+  lines.push(formatPhoneLine(input.contactPhone, input.contactPhoneVerified));
   if (input.telegramUsername) {
     lines.push(`Telegram: @${escapeHtml(input.telegramUsername)}`);
   }
@@ -59,6 +66,7 @@ export function formatRequestNotification(input: RequestNotificationInput): stri
 export interface FeedbackNotificationInput {
   contactName: string;
   contactPhone: string;
+  contactPhoneVerified: boolean;
   message: string;
   telegramUsername: string | null;
 }
@@ -68,7 +76,7 @@ export function formatFeedbackNotification(input: FeedbackNotificationInput): st
   const lines = [
     "<b>Обратная связь</b>",
     `Имя: ${escapeHtml(input.contactName)}`,
-    `Телефон: ${escapeHtml(input.contactPhone)}`
+    formatPhoneLine(input.contactPhone, input.contactPhoneVerified)
   ];
   if (input.telegramUsername) {
     lines.push(`Telegram: @${escapeHtml(input.telegramUsername)}`);
@@ -77,22 +85,67 @@ export function formatFeedbackNotification(input: FeedbackNotificationInput): st
   return lines.join("\n");
 }
 
+/** Inline-клавиатура Bot API (используем только URL-кнопки). */
+export interface InlineKeyboardMarkup {
+  inline_keyboard: { text: string; url: string }[][];
+}
+
 /**
- * Отправляет уведомление в чат администраторов через Bot API. Best-effort:
- * любая ошибка логируется и проглатывается — сбой не должен ломать создание
- * заявки/сообщения обратной связи, повторных попыток нет.
+ * Deep link на заявку в админке через Mini App: `t.me/<бот>/<приложение>?startapp=…`.
+ * Возвращает `null`, если username бота или shortname Mini App не заданы в окружении —
+ * тогда кнопка в уведомлении просто опускается.
  */
-export async function sendAdminNotification(env: AppEnv, chatId: string, html: string): Promise<void> {
+export function buildRequestDeepLink(env: AppEnv, requestId: string): string | null {
+  if (!env.TELEGRAM_BOT_USERNAME || !env.TELEGRAM_MINIAPP_SHORTNAME) return null;
+  return `https://t.me/${env.TELEGRAM_BOT_USERNAME}/${env.TELEGRAM_MINIAPP_SHORTNAME}?startapp=request_${requestId}`;
+}
+
+/**
+ * Одна попытка отправки сообщения через Bot API. Возвращает успех/неуспех,
+ * не бросает — сетевые ошибки и ошибки API логируются.
+ */
+export async function sendTelegramMessage(
+  env: AppEnv,
+  chatId: string,
+  html: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<boolean> {
   try {
     const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: html, parse_mode: "HTML" })
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: html,
+        parse_mode: "HTML",
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+      })
     });
     if (!res.ok) {
-      console.error("sendAdminNotification: Telegram API вернул ошибку", res.status, await res.text());
+      console.error("sendTelegramMessage: Telegram API вернул ошибку", res.status, await res.text());
+      return false;
     }
+    return true;
   } catch (err) {
-    console.error("sendAdminNotification: не удалось отправить уведомление", err);
+    console.error("sendTelegramMessage: не удалось отправить сообщение", err);
+    return false;
+  }
+}
+
+/**
+ * Отправляет уведомление в чат администраторов через Bot API. Best-effort
+ * с одной немедленной повторной попыткой: сбой не должен ломать создание
+ * заявки/сообщения обратной связи (заявка в любом случае видна в админке).
+ */
+export async function sendAdminNotification(
+  env: AppEnv,
+  chatId: string,
+  html: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<void> {
+  if (await sendTelegramMessage(env, chatId, html, replyMarkup)) return;
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  if (!(await sendTelegramMessage(env, chatId, html, replyMarkup))) {
+    console.error("sendAdminNotification: уведомление не доставлено после повторной попытки");
   }
 }

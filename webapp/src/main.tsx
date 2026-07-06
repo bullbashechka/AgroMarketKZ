@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ApiError } from "./lib/api";
 import { AuthProvider } from "./lib/auth";
+import { consumeStartParam } from "./lib/startParam";
 import { initTelegram } from "./lib/telegram";
 import { initThemeSync } from "./lib/theme";
 import { router } from "./router";
@@ -15,6 +16,9 @@ import "./styles/components.css";
 // (тема применяется без флэша светлой/тёмной версии).
 initTelegram();
 initThemeSync();
+// Deep-link из Telegram-уведомления (startapp) — до первого рендера, чтобы
+// приложение сразу открылось на нужном экране.
+consumeStartParam(router);
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -37,6 +37,9 @@ export function RequestItem({ request, onChangeStatus, pending }: RequestItemPro
       <a href={`tel:${request.contactPhone}`} className="request-item-phone">
         {request.contactPhone}
       </a>
+      {request.contactPhoneVerified && (
+        <span className="phone-verified">✓ подтверждён через Telegram</span>
+      )}
 
       <p className="request-item-source">{sourceLabel(request)}</p>
 

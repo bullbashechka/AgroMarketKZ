@@ -22,6 +22,7 @@ export const requestSchema = z.object({
   cardPriceAmountSnapshot: z.number().int().nullable(),
   contactName: z.string(),
   contactPhone: z.string(),
+  contactPhoneVerified: z.boolean(),
   comment: z.string().nullable(),
   status: requestStatusSchema,
   createdAt: z.iso.datetime(),

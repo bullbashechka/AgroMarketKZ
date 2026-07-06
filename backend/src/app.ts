@@ -13,6 +13,7 @@ import { feedbackRoutes } from "./routes/feedback";
 import { profileRoutes } from "./routes/profile";
 import { requestsRoutes } from "./routes/requests";
 import { settingsRoutes } from "./routes/settings";
+import { telegramRoutes } from "./routes/telegram";
 
 type AppOptions = {
   /** Локальный override окружения (Bun.env). На Workers не передаётся — используется c.env. */
@@ -64,6 +65,7 @@ export function createApp(options: AppOptions = {}) {
   app.route("/favorites", favoritesRoutes);
   app.route("/requests", requestsRoutes);
   app.route("/feedback", feedbackRoutes);
+  app.route("/telegram", telegramRoutes);
   app.route("/admin", adminRoutes);
 
   return app;
