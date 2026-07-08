@@ -7,6 +7,7 @@ export interface FeedbackRow {
   user_id: string;
   contact_name: string;
   contact_phone: string;
+  contact_phone_verified: boolean;
   message: string;
   created_at: Date;
 }
@@ -17,6 +18,7 @@ export function toFeedbackMessage(row: FeedbackRow): FeedbackMessage {
     userId: row.user_id,
     contactName: row.contact_name,
     contactPhone: row.contact_phone,
+    contactPhoneVerified: row.contact_phone_verified,
     message: row.message,
     createdAt: row.created_at.toISOString()
   };
@@ -38,9 +40,14 @@ export async function createFeedback(
   input: CreateFeedbackInput
 ): Promise<FeedbackRow> {
   const sql = getDb(env);
+  // Флаг подтверждённости телефона снапшотится так же, как в заявках.
   const [row] = await sql<FeedbackRow[]>`
-    insert into feedback_messages (user_id, contact_name, contact_phone, message)
-    values (${userId}, ${input.contactName}, ${input.contactPhone}, ${input.message})
+    insert into feedback_messages (user_id, contact_name, contact_phone, contact_phone_verified, message)
+    values (
+      ${userId}, ${input.contactName}, ${input.contactPhone},
+      coalesce((select verified_phone = ${input.contactPhone} from users where id = ${userId}), false),
+      ${input.message}
+    )
     returning *
   `;
   return row!;

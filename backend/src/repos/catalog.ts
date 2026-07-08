@@ -1,4 +1,11 @@
-import type { CardDetail, CardListItem, CardListQuery, Category, CatalogType } from "@agromarket/contracts";
+import type {
+  CardDetail,
+  CardListItem,
+  CardListQuery,
+  CatalogType,
+  Category,
+  CategoryListItem
+} from "@agromarket/contracts";
 import { getDb } from "../db";
 import type { AppEnv } from "../env";
 import { paginateRows, type PaginatedResult } from "../lib/pagination";
@@ -15,6 +22,10 @@ export interface CategoryRow {
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
+}
+
+export interface CategoryListRow extends CategoryRow {
+  card_count: number;
 }
 
 export interface CardListRow {
@@ -71,6 +82,13 @@ export function toCategory(row: CategoryRow): Category {
   };
 }
 
+export function toCategoryListItem(row: CategoryListRow): CategoryListItem {
+  return {
+    ...toCategory(row),
+    cardCount: row.card_count
+  };
+}
+
 export function toCardListItem(row: CardListRow, env: AppEnv): CardListItem {
   return {
     id: row.id,
@@ -120,16 +138,23 @@ export function toCardDetail(
 
 // --- Запросы к БД ---
 
-/** Активные категории вкладки, в порядке, заданном админом. */
-export async function listCategories(env: AppEnv, type: CatalogType): Promise<Category[]> {
+/**
+ * Активные категории вкладки с числом опубликованных карточек, в порядке, заданном админом.
+ * Категории без карточек скрываются от пользователей (их видит только админ-раздел).
+ */
+export async function listCategories(env: AppEnv, type: CatalogType): Promise<CategoryListItem[]> {
   const sql = getDb(env);
-  const rows = await sql<CategoryRow[]>`
-    select id, type, name, sort_order, is_active, created_at, updated_at
-    from categories
-    where type = ${type} and is_active
-    order by sort_order, name
+  const rows = await sql<CategoryListRow[]>`
+    select
+      cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.created_at, cat.updated_at,
+      count(c.id)::int as card_count
+    from categories cat
+    join cards c on c.category_id = cat.id and c.archived_at is null
+    where cat.type = ${type} and cat.is_active
+    group by cat.id
+    order by cat.sort_order, cat.name
   `;
-  return rows.map(toCategory);
+  return rows.map(toCategoryListItem);
 }
 
 /**

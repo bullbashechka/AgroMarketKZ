@@ -9,6 +9,12 @@ export interface AppEnv {
   WEBAPP_ORIGIN?: string;
   JWT_SECRET: string;
   TELEGRAM_BOT_TOKEN: string;
+  /** Секрет вебхука (secret_token из setWebhook); без него вебхук отвечает 401. */
+  TELEGRAM_WEBHOOK_SECRET?: string;
+  /** Username бота без @ — для t.me deep-link-кнопок; без него кнопки опускаются. */
+  TELEGRAM_BOT_USERNAME?: string;
+  /** Shortname Mini App из /newapp BotFather — вторая часть t.me deep-link. */
+  TELEGRAM_MINIAPP_SHORTNAME?: string;
   ADMIN_ALLOWLIST: string;
   DATABASE_URL: string;
   SUPABASE_URL: string;

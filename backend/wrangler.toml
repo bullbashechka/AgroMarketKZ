@@ -8,6 +8,10 @@ compatibility_flags = ["nodejs_compat"]
 WEBAPP_ORIGIN = "http://localhost:5173"
 SUPABASE_URL = "https://replace-with-project-ref.supabase.co"
 SUPABASE_STORAGE_BUCKET = "card-images"
+# Прод-бот (Этап 10): username без @ и shortname Mini App из /newapp — для deep-link-кнопок.
+TELEGRAM_BOT_USERNAME = "replace_with_bot_username"
+TELEGRAM_MINIAPP_SHORTNAME = "replace_with_miniapp_shortname"
 
 # Секреты на проде задаются через `wrangler secret put` (Этап 10), НЕ в [vars]:
-#   JWT_SECRET, TELEGRAM_BOT_TOKEN, ADMIN_ALLOWLIST, DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+#   JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, ADMIN_ALLOWLIST,
+#   DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY

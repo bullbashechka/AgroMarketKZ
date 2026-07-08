@@ -1,6 +1,6 @@
 import {
+  adminCategoryListResponse,
   categoryListQuery,
-  categoryListResponse,
   categorySchema,
   createCategoryInput,
   updateCategoryInput
@@ -18,7 +18,7 @@ adminCategoriesRoutes.get("/", async (c) => {
   const env = getEnv(c);
   const { type } = categoryListQuery.parse(c.req.query());
   const categories = await listCategoriesAdmin(env, type);
-  return c.json(categoryListResponse.parse(categories));
+  return c.json(adminCategoryListResponse.parse(categories));
 });
 
 adminCategoriesRoutes.post("/", async (c) => {

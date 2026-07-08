@@ -1,0 +1,1161 @@
+/* ---------- Существующие компоненты (Login/Register/профиль) — имена сохранены ---------- */
+
+.shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-6);
+}
+
+.card {
+  width: min(100%, 560px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: 0 24px 80px rgb(37 74 28 / 12%);
+  padding: var(--space-8);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-3);
+  color: var(--color-primary);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.description {
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-muted);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.status-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 0;
+}
+
+.status-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-alt);
+  padding: 14px var(--space-4);
+}
+
+dt {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+
+dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 700;
+}
+
+.ok {
+  color: var(--color-primary);
+}
+
+.warning {
+  color: var(--amber-700);
+}
+
+.error {
+  color: var(--color-danger);
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.api-url {
+  margin: var(--space-6) 0 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+.form {
+  display: grid;
+  gap: 18px;
+  margin: var(--space-6) 0 0;
+}
+
+.field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.field-label {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-alt);
+  padding: 14px var(--space-4);
+  font-size: 17px;
+  color: var(--color-text);
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-focus);
+}
+
+.field-error {
+  color: var(--color-danger);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.button {
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 16px 20px;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.button-primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.button-secondary {
+  background: var(--color-surface-alt);
+  color: var(--color-primary-hover);
+}
+
+.button-danger {
+  background: var(--color-danger-fill);
+  color: var(--white);
+}
+
+.tg-widget {
+  margin: var(--space-5) 0 0;
+}
+
+@media (max-width: 480px) {
+  .shell {
+    padding: var(--space-4);
+  }
+
+  .card {
+    border-radius: 22px;
+    padding: var(--space-6);
+  }
+
+  .status-list div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  dd {
+    text-align: left;
+  }
+}
+
+/* ---------- Каркас: layout, навигация, экраны ---------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-content {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4)
+    calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + var(--space-4));
+}
+
+.tabbar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-nav-bg);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  transition: transform 0.2s ease;
+}
+
+.tabbar--hidden {
+  transform: translateY(110%);
+}
+
+.tabbar-inner {
+  display: flex;
+  width: 100%;
+  max-width: var(--content-max);
+  height: var(--tabbar-h);
+}
+
+.tabbar-item {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  color: var(--color-nav-inactive);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tabbar-item svg {
+  width: 24px;
+  height: 24px;
+}
+
+.tabbar-item--active {
+  color: var(--color-nav-active);
+}
+
+.screen-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+}
+
+.back-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.screen-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/* ---------- Skeleton / ошибки ---------- */
+
+.skeleton {
+  border-radius: var(--radius-control);
+  background: linear-gradient(
+    90deg,
+    var(--color-skeleton) 25%,
+    var(--color-skeleton-shine) 37%,
+    var(--color-skeleton) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+.skeleton-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.error-state {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: var(--space-6);
+  text-align: left;
+}
+
+/* ---------- Каталог (задел под Этап 6) ---------- */
+
+.grid-cards {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.category-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: var(--space-5) var(--space-6);
+  color: var(--color-text);
+  font-size: 18px;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.category-chip:hover {
+  border-color: var(--color-primary);
+}
+
+.category-chip-count {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--color-surface-alt);
+  padding: 2px 10px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tab-cta {
+  width: 100%;
+  margin: var(--space-6) 0 0;
+}
+
+.select-filter {
+  margin: 0 0 var(--space-5);
+}
+
+/* ---------- Поиск и фильтр цены ---------- */
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-alt);
+  padding: 10px var(--space-4);
+}
+
+.search-bar-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.search-bar-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-size: 16px;
+}
+
+.search-bar-input:focus {
+  outline: none;
+}
+
+.search-bar-clear {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.filter-seg {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 var(--space-5);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-alt);
+  padding: 4px;
+}
+
+.filter-seg-item {
+  flex: 1;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  padding: 10px 8px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.filter-seg-item--active {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 8%);
+}
+
+/* ---------- Список карточек (маркетплейс) ---------- */
+
+.cards-list--updating {
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.card-tile {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.card-tile:hover {
+  border-color: var(--color-primary);
+}
+
+.card-tile-img {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: var(--color-surface-alt);
+}
+
+.card-tile-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card-tile-img-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--color-surface-alt), var(--color-skeleton));
+}
+
+.card-tile-body {
+  display: grid;
+  gap: 4px;
+  padding: var(--space-4);
+}
+
+.card-tile-title {
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.card-tile-price {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.card-tile-spec {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.heart-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 85%);
+  color: var(--ink-500);
+  cursor: pointer;
+}
+
+.heart-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.heart-btn--active {
+  color: var(--danger-500);
+}
+
+.load-more {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-5) 0 0;
+}
+
+.empty-state {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: var(--space-6);
+  text-align: left;
+}
+
+/* ---------- Карточка товара/услуги ---------- */
+
+.gallery {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  margin: 0 0 var(--space-5);
+}
+
+.gallery--empty {
+  aspect-ratio: 4 / 3;
+  background: var(--color-surface-alt);
+}
+
+.gallery-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.gallery-track::-webkit-scrollbar {
+  display: none;
+}
+
+.gallery-slide {
+  flex: 0 0 100%;
+  aspect-ratio: 4 / 3;
+  scroll-snap-align: start;
+}
+
+.gallery-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gallery-dots {
+  position: absolute;
+  bottom: var(--space-3);
+  left: 50%;
+  display: flex;
+  gap: 6px;
+  transform: translateX(-50%);
+}
+
+.gallery-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 55%);
+}
+
+.gallery-dot--active {
+  background: var(--white);
+}
+
+.card-detail-body {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-6);
+}
+
+.card-detail-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.card-detail-price {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.specs-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+}
+
+.specs-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-alt);
+  padding: 12px var(--space-4);
+}
+
+.specs-list dt {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+
+.specs-list dd {
+  margin: 0;
+  text-align: right;
+}
+
+.card-actions {
+  position: sticky;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + var(--space-4));
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgb(37 74 28 / 16%);
+  padding: var(--space-3);
+}
+
+.card-actions .button {
+  flex: 1;
+}
+
+.card-actions .heart-btn {
+  position: static;
+  flex-shrink: 0;
+  background: var(--color-surface-alt);
+  color: var(--ink-500);
+}
+
+/* ---------- Шторка снизу (bottom sheet) ---------- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(0 0 0 / 45%);
+  animation: sheet-fade-in 0.2s ease;
+}
+
+@keyframes sheet-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.sheet {
+  width: 100%;
+  max-width: var(--content-max);
+  max-height: 85vh;
+  overflow-y: auto;
+  border-radius: 28px 28px 0 0;
+  background: var(--color-surface);
+  padding: var(--space-6) var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+  animation: sheet-slide-up 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes sheet-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+.sheet-actions {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.sheet-action {
+  display: block;
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-alt);
+  padding: 16px var(--space-4);
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.sheet-action--primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.sheet-result {
+  display: grid;
+  gap: var(--space-5);
+  justify-items: center;
+  padding: var(--space-4) 0;
+  text-align: center;
+}
+
+.input--textarea {
+  resize: vertical;
+  min-height: 90px;
+  font-family: inherit;
+}
+
+/* ---------- Успех (галочка) ---------- */
+
+.success-check {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
+  padding: var(--space-4) 0;
+  text-align: center;
+}
+
+.success-check-icon {
+  width: 88px;
+  height: 88px;
+  color: var(--color-primary);
+  animation: success-scale-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes success-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.success-check-circle {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: success-draw 0.5s 0.05s ease-out forwards;
+}
+
+.success-check-mark {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: success-draw 0.35s 0.35s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+@keyframes success-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.success-check-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.success-check-description {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 15px;
+}
+
+/* ---------- Списки строк (вкладка «Общее») ---------- */
+
+.list-rows {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-5) 0 0;
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: 0 1px 0 var(--color-border);
+  padding: 16px var(--space-4);
+  color: var(--color-text);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.list-row-title {
+  flex: 1;
+  font-weight: 700;
+}
+
+.list-row-value {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.list-row-chevron {
+  color: var(--color-text-muted);
+  font-size: 20px;
+}
+
+.category-row {
+  width: 100%;
+  border: none;
+  font: inherit;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: var(--space-2);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.badge--muted {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+
+/* ---------- Список карточек (админ) ---------- */
+
+.admin-card-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: 0 1px 0 var(--color-border);
+  padding: 10px var(--space-4);
+  color: var(--color-text);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.admin-card-row-thumb {
+  flex-shrink: 0;
+  overflow: hidden;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--color-surface-alt);
+}
+
+.admin-card-row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.admin-card-row-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--color-surface-alt), var(--color-skeleton));
+}
+
+.admin-card-row-body {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-card-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.admin-card-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* ---------- Фото карточки (редактор, админ) ---------- */
+
+.thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--space-3);
+}
+
+.thumb {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-alt);
+  padding: 0;
+  cursor: pointer;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb--error {
+  border-color: var(--color-danger);
+}
+
+.thumb-cover {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 60%);
+  padding: 2px 8px;
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.thumb-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 45%);
+  color: var(--white);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.thumb-overlay--error {
+  background: rgb(220 38 38 / 55%);
+}
+
+.thumb-spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid rgb(255 255 255 / 40%);
+  border-top-color: var(--white);
+  border-radius: 50%;
+  animation: thumb-spin 0.8s linear infinite;
+}
+
+@keyframes thumb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.thumb-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 28px;
+}
+
+/* ---------- Характеристики (редактор карточки, админ) ---------- */
+
+.spec-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.spec-row-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.spec-row-error {
+  grid-column: 1 / -1;
+}
+
+.admin-section-title {
+  margin-top: var(--space-6);
+}
+
+.list-row-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--color-danger-fill);
+  padding: 2px 9px;
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ---------- Пользователи (админ, read-only) ---------- */
+
+.user-row {
+  display: grid;
+  gap: 4px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: 0 1px 0 var(--color-border);
+  padding: 16px var(--space-4);
+}
+
+.user-row-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.user-row-name {
+  font-weight: 700;
+}
+
+.user-row-username {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.user-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* ---------- Заявки (админ) ---------- */
+
+.request-item {
+  display: grid;
+  gap: 6px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: 0 1px 0 var(--color-border);
+  padding: 16px var(--space-4);
+}
+
+.request-item-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.request-item-name {
+  font-weight: 700;
+}
+
+.request-item-date {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.request-item-phone {
+  color: var(--color-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* Отметка «телефон подтверждён через Telegram» (Этап 8). */
+.phone-verified {
+  display: block;
+  color: var(--color-success, #2e7d32);
+  font-size: 13px;
+}
+
+.request-item-source {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.request-item-comment {
+  margin: 0;
+  font-size: 15px;
+}
+
+.request-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 0;
+}
+
+.request-status {
+  border-radius: 999px;
+  background: var(--color-surface-alt);
+  padding: 4px 10px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.request-status--new {
+  background: var(--color-info-fill);
+  color: var(--white);
+}
+
+.request-status--in_progress {
+  background: var(--amber-700);
+  color: var(--white);
+}

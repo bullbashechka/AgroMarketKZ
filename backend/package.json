@@ -8,7 +8,8 @@
     "dev:worker": "wrangler dev",
     "build": "bun build ./src/index.ts --target bun --outdir ./dist && bun build ./src/worker.ts --target browser --outdir ./dist-worker",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "webhook:set": "bun --env-file=../.env scripts/set-webhook.ts"
   },
   "dependencies": {
     "@agromarket/contracts": "workspace:*",

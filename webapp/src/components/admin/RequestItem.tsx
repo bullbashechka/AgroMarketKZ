@@ -1,0 +1,60 @@
+import { catalogTypeTabLabels, requestStatusLabels, type Request, type RequestStatus } from "@agromarket/contracts";
+import { formatDateTime, formatPrice } from "../../lib/format";
+
+const nextAction: Record<RequestStatus, { label: string; next: RequestStatus }> = {
+  new: { label: "Взять в работу", next: "in_progress" },
+  in_progress: { label: "Закрыть", next: "closed" },
+  closed: { label: "Вернуть в работу", next: "in_progress" }
+};
+
+interface RequestItemProps {
+  request: Request;
+  onChangeStatus: (status: RequestStatus) => void;
+  pending?: boolean;
+}
+
+function sourceLabel(request: Request): string {
+  if (request.source === "card") {
+    return `Карточка: «${request.cardTitleSnapshot ?? "удалена"}»`;
+  }
+  if (request.source === "tab") {
+    return `Вкладка: ${request.tabType ? catalogTypeTabLabels[request.tabType] : "—"}`;
+  }
+  return "Из профиля";
+}
+
+/** Заявка в списке админа: контакты, источник, комментарий, кнопка смены статуса. */
+export function RequestItem({ request, onChangeStatus, pending }: RequestItemProps) {
+  const action = nextAction[request.status];
+
+  return (
+    <div className="request-item">
+      <div className="request-item-header">
+        <span className="request-item-name">{request.contactName}</span>
+        <span className="request-item-date">{formatDateTime(request.createdAt)}</span>
+      </div>
+
+      <a href={`tel:${request.contactPhone}`} className="request-item-phone">
+        {request.contactPhone}
+      </a>
+      {request.contactPhoneVerified && (
+        <span className="phone-verified">✓ подтверждён через Telegram</span>
+      )}
+
+      <p className="request-item-source">{sourceLabel(request)}</p>
+
+      {request.source === "card" && request.cardPriceTypeSnapshot && (
+        <p className="muted">{formatPrice(request.cardPriceTypeSnapshot, request.cardPriceAmountSnapshot)}</p>
+      )}
+
+      {request.comment && <p className="request-item-comment">«{request.comment}»</p>}
+
+      <div className="request-item-footer">
+        <span className={`request-status request-status--${request.status}`}>{requestStatusLabels[request.status]}</span>
+        <button type="button" className="button button-secondary" onClick={() => onChangeStatus(action.next)} disabled={pending}>
+          {pending ? "…" : action.label}
+        </button>
+      </div>
+    </div>
+  );
+}

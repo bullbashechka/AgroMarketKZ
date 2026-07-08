@@ -30,7 +30,7 @@ function toHex(bytes: Uint8Array): string {
 }
 
 /** Сравнение строк за постоянное время (защита от тайминг-атак). */
-function timingSafeEqual(a: string, b: string): boolean {
+export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) {
@@ -96,6 +96,63 @@ export async function validateInitData(initData: string, botToken: string): Prom
     firstName: user.first_name ?? null,
     lastName: user.last_name ?? null
   };
+}
+
+/** Окно свежести подписанного контакта: payload создаётся в момент шаринга. */
+const CONTACT_MAX_AGE_SEC = 10 * 60;
+
+/** Подтверждённый Telegram контакт из requestContact. */
+export interface VerifiedContact {
+  phoneNumber: string;
+  userId: number;
+}
+
+/**
+ * Проверяет подписанный ответ requestContact из Mini App (строка `event.response`
+ * вида `contact=<json>&auth_date=…&hash=…`). Подпись считается тем же алгоритмом,
+ * что и initData (secret = HMAC("WebAppData", bot_token)). Возвращает телефон и
+ * telegram id владельца контакта; принадлежность контакта текущему пользователю
+ * проверяет вызывающая сторона.
+ */
+export async function validateContactResponse(
+  response: string,
+  botToken: string
+): Promise<VerifiedContact> {
+  const params = new URLSearchParams(response);
+  const hash = params.get("hash");
+  if (!hash) {
+    throw new HttpError(400, "Отсутствует подпись контакта Telegram");
+  }
+
+  const dataCheckString = buildDataCheckString([...params.entries()]);
+  const secretKey = await hmacSha256(encoder.encode("WebAppData"), botToken);
+  const computed = toHex(await hmacSha256(secretKey, dataCheckString));
+
+  if (!timingSafeEqual(computed, hash)) {
+    throw new HttpError(401, "Не удалось подтвердить контакт Telegram");
+  }
+
+  const authDate = Number(params.get("auth_date"));
+  const now = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(authDate) || now - authDate > CONTACT_MAX_AGE_SEC) {
+    throw new HttpError(401, "Данные контакта устарели, поделитесь контактом ещё раз");
+  }
+
+  const contactRaw = params.get("contact");
+  if (!contactRaw) {
+    throw new HttpError(400, "Отсутствуют данные контакта Telegram");
+  }
+  let contact: { phone_number?: string; user_id?: number };
+  try {
+    contact = JSON.parse(contactRaw) as { phone_number?: string; user_id?: number };
+  } catch {
+    throw new HttpError(400, "Некорректные данные контакта Telegram");
+  }
+  if (!contact.phone_number || typeof contact.user_id !== "number") {
+    throw new HttpError(400, "Некорректные данные контакта Telegram");
+  }
+
+  return { phoneNumber: contact.phone_number, userId: contact.user_id };
 }
 
 /**

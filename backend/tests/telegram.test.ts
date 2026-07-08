@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WidgetLoginInput } from "@agromarket/contracts";
-import { validateInitData, validateWidgetLogin } from "../src/lib/telegram";
+import { validateContactResponse, validateInitData, validateWidgetLogin } from "../src/lib/telegram";
 
 const BOT_TOKEN = "123456:TEST-BOT-TOKEN";
 const encoder = new TextEncoder();
@@ -80,6 +80,54 @@ describe("validateInitData", () => {
   test("отклоняет устаревший auth_date (>24ч)", async () => {
     const initData = await buildInitData(now() - 25 * 60 * 60);
     await expect(validateInitData(initData, BOT_TOKEN)).rejects.toThrow();
+  });
+});
+
+/** Собирает валидную подписанную строку ответа requestContact. */
+async function buildContactResponse(
+  authDate: number,
+  contact: Record<string, unknown> | null = { phone_number: "77011234567", user_id: 777, first_name: "Aidos" }
+): Promise<string> {
+  const entries: [string, string][] = [["auth_date", String(authDate)]];
+  if (contact) entries.push(["contact", JSON.stringify(contact)]);
+  const secret = await hmac(encoder.encode("WebAppData"), BOT_TOKEN);
+  const hash = hex(await hmac(secret, dataCheckString(entries)));
+  const params = new URLSearchParams(entries);
+  params.set("hash", hash);
+  return params.toString();
+}
+
+describe("validateContactResponse", () => {
+  test("принимает валидную подпись и возвращает телефон с user_id", async () => {
+    const response = await buildContactResponse(now());
+    const contact = await validateContactResponse(response, BOT_TOKEN);
+    expect(contact).toEqual({ phoneNumber: "77011234567", userId: 777 });
+  });
+
+  test("отклоняет подделанную подпись", async () => {
+    const response = await buildContactResponse(now());
+    const tampered = response.replace(/hash=[0-9a-f]+/, "hash=deadbeef");
+    await expect(validateContactResponse(tampered, BOT_TOKEN)).rejects.toThrow();
+  });
+
+  test("отклоняет чужой токен бота", async () => {
+    const response = await buildContactResponse(now());
+    await expect(validateContactResponse(response, "999:OTHER")).rejects.toThrow();
+  });
+
+  test("отклоняет устаревший auth_date (>10 мин)", async () => {
+    const response = await buildContactResponse(now() - 11 * 60);
+    await expect(validateContactResponse(response, BOT_TOKEN)).rejects.toThrow();
+  });
+
+  test("отклоняет payload без contact", async () => {
+    const response = await buildContactResponse(now(), null);
+    await expect(validateContactResponse(response, BOT_TOKEN)).rejects.toThrow();
+  });
+
+  test("отклоняет contact без телефона или user_id", async () => {
+    const response = await buildContactResponse(now(), { first_name: "Aidos" });
+    await expect(validateContactResponse(response, BOT_TOKEN)).rejects.toThrow();
   });
 });
 

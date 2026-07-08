@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { getEnv, type HonoEnv } from "../env";
 import { runInBackground } from "../lib/background";
 import { assertUnderLimit } from "../lib/rateLimit";
-import { formatRequestNotification, sendAdminNotification } from "../lib/telegramBot";
+import { buildRequestDeepLink, formatRequestNotification, sendAdminNotification } from "../lib/telegramBot";
 import { requireAuth } from "../middleware/auth";
 import { requireRegistered } from "../middleware/registered";
 import { countRecentRequests, createRequest, toRequest } from "../repos/requests";
@@ -35,10 +35,15 @@ requestsRoutes.post("/", async (c) => {
       cardPriceAmountSnapshot: row.card_price_amount_snapshot,
       contactName: row.contact_name,
       contactPhone: row.contact_phone,
+      contactPhoneVerified: row.contact_phone_verified,
       comment: row.comment,
       telegramUsername: user?.telegram_username ?? null
     });
-    runInBackground(c, sendAdminNotification(env, chatId, html));
+    const deepLink = buildRequestDeepLink(env, row.id);
+    const replyMarkup = deepLink
+      ? { inline_keyboard: [[{ text: "Открыть заявку", url: deepLink }]] }
+      : undefined;
+    runInBackground(c, sendAdminNotification(env, chatId, html, replyMarkup));
   }
 
   return c.json(requestSchema.parse(toRequest(row)), 201);

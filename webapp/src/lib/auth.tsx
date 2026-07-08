@@ -1,7 +1,13 @@
-import type { AuthResponse, Profile, RegisterInput, WidgetLoginInput } from "@agromarket/contracts";
+import type {
+  AuthResponse,
+  Profile,
+  RegisterInput,
+  UpdateProfileInput,
+  WidgetLoginInput
+} from "@agromarket/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, type ReactNode } from "react";
-import { ApiError, apiGet, apiPost } from "./api";
+import { ApiError, apiGet, apiPost, apiPut } from "./api";
 import { getInitData, isTelegramContext } from "./telegram";
 import { getToken, setToken } from "./token";
 
@@ -54,6 +60,11 @@ interface AuthContextValue {
   loginPending: boolean;
   register: (data: RegisterInput) => Promise<Profile>;
   registerPending: boolean;
+  /** Редактирование контактов в профиле (экран «Мои контакты» + авто-обновление из формы заявки). */
+  updateProfile: (data: UpdateProfileInput) => Promise<Profile>;
+  updateProfilePending: boolean;
+  /** Повторить bootstrap профиля после сбоя сети (status === "error"). */
+  retry: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -82,6 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     onSuccess: (profile) => qc.setQueryData(PROFILE_KEY, profile)
   });
 
+  const updateProfileMutation = useMutation({
+    mutationFn: (data: UpdateProfileInput) => apiPut<Profile>("/profile", data),
+    onSuccess: (profile) => qc.setQueryData(PROFILE_KEY, profile)
+  });
+
   let status: AuthStatus;
   if (profileQuery.data) {
     status = "ready";
@@ -105,7 +121,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loginWidget: loginMutation.mutate,
     loginPending: loginMutation.isPending,
     register: registerMutation.mutateAsync,
-    registerPending: registerMutation.isPending
+    registerPending: registerMutation.isPending,
+    updateProfile: updateProfileMutation.mutateAsync,
+    updateProfilePending: updateProfileMutation.isPending,
+    retry: () => {
+      profileQuery.refetch();
+    }
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

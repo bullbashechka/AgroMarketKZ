@@ -13,6 +13,7 @@ export interface UserRow {
   telegram_last_name: string | null;
   contact_name: string | null;
   contact_phone: string | null;
+  verified_phone: string | null;
   registered_at: Date | null;
   created_at: Date;
 }
@@ -87,6 +88,16 @@ export async function updateContacts(
   return row!;
 }
 
+/**
+ * Сохраняет телефон, подтверждённый подписанным контактом Telegram (E.164).
+ * «Телефон подтверждён» далее — производное сравнение contact_phone = verified_phone,
+ * поэтому редактирование номера ничего сбрасывать не должно.
+ */
+export async function setVerifiedPhone(env: AppEnv, userId: string, phone: string): Promise<void> {
+  const sql = getDb(env);
+  await sql`update users set verified_phone = ${phone} where id = ${userId}`;
+}
+
 /** Зарегистрированные пользователи (админ) — база собранных контактов, новые сверху. */
 export async function listRegisteredUsers(
   env: AppEnv,
@@ -114,6 +125,7 @@ export function toProfile(row: UserRow, env: AppEnv): Profile {
     telegramLastName: row.telegram_last_name,
     contactName: row.contact_name,
     contactPhone: row.contact_phone,
+    phoneVerified: row.contact_phone !== null && row.contact_phone === row.verified_phone,
     isRegistered: row.registered_at !== null,
     registeredAt: row.registered_at ? row.registered_at.toISOString() : null,
     isAdmin: isAdmin(telegramId, env),

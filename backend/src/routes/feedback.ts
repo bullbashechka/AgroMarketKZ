@@ -30,6 +30,7 @@ feedbackRoutes.post("/", async (c) => {
     const html = formatFeedbackNotification({
       contactName: row.contact_name,
       contactPhone: row.contact_phone,
+      contactPhoneVerified: row.contact_phone_verified,
       message: row.message,
       telegramUsername: user?.telegram_username ?? null
     });

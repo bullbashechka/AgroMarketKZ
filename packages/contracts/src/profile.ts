@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { contactNameSchema } from "./primitives";
-import { kzPhoneSchema } from "./phone";
+import { phoneSchema } from "./phone";
 
 /** Профиль пользователя (ответ API). `isAdmin` вычисляется backend по allowlist. */
 export const profileSchema = z.object({
@@ -11,6 +11,7 @@ export const profileSchema = z.object({
   telegramLastName: z.string().nullable(),
   contactName: z.string().nullable(),
   contactPhone: z.string().nullable(),
+  phoneVerified: z.boolean(),
   isRegistered: z.boolean(),
   registeredAt: z.iso.datetime().nullable(),
   isAdmin: z.boolean(),
@@ -22,7 +23,7 @@ export type Profile = z.infer<typeof profileSchema>;
 /** Регистрация при первом входе: имя + телефон. */
 export const registerInput = z.object({
   contactName: contactNameSchema,
-  contactPhone: kzPhoneSchema
+  contactPhone: phoneSchema
 });
 
 export type RegisterInput = z.infer<typeof registerInput>;
@@ -30,3 +31,20 @@ export type RegisterInput = z.infer<typeof registerInput>;
 /** Редактирование контактных данных в профиле — те же поля. */
 export const updateProfileInput = registerInput;
 export type UpdateProfileInput = z.infer<typeof updateProfileInput>;
+
+/**
+ * Верификация телефона подписанным контактом Telegram: `response` — сырая строка
+ * из события requestContact Mini App (подписана ботом, проверяется на сервере).
+ */
+export const verifyContactInput = z.object({
+  response: z.string().min(1, { error: "Пустой ответ Telegram" })
+});
+
+export type VerifyContactInput = z.infer<typeof verifyContactInput>;
+
+/** Ответ верификации: нормализованный (E.164) подтверждённый номер для предзаполнения. */
+export const verifyContactResponse = z.object({
+  phone: z.string()
+});
+
+export type VerifyContactResponse = z.infer<typeof verifyContactResponse>;
