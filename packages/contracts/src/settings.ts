@@ -12,6 +12,16 @@ export const platformSettingsSchema = z.object({
 
 export type PlatformSettings = z.infer<typeof platformSettingsSchema>;
 
+/** Какие каналы настроены — без раскрытия телефонов и ссылок гостю. */
+export const contactCapabilitiesSchema = z.object({
+  phone: z.boolean(),
+  whatsapp: z.boolean(),
+  telegram: z.boolean(),
+  email: z.boolean(),
+});
+
+export type ContactCapabilities = z.infer<typeof contactCapabilitiesSchema>;
+
 /** Настройки площадки для админа — те же поля + чат для уведомлений о заявках. */
 export const adminPlatformSettingsSchema = platformSettingsSchema.extend({
   adminChatId: z.string().nullable()

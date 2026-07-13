@@ -1,5 +1,6 @@
 import type {
   AdminCardListResponse,
+  AdminCardDetail,
   AdminCategory,
   AdminPlatformSettings,
   AdminUserListResponse,
@@ -9,7 +10,8 @@ import type {
   CatalogType,
   CategoryListItem,
   PlatformSettings,
-  PriceType,
+  PriceFilter,
+  ContactCapabilities,
   Request,
   RequestListResponse,
   RequestStatus
@@ -27,14 +29,14 @@ interface CardsQueryParams {
   type: CatalogType;
   categoryId?: string;
   search?: string;
-  priceType?: PriceType;
+  price?: PriceFilter;
 }
 
 function buildCardsQuery(params: CardsQueryParams, offset: number): string {
   const query = new URLSearchParams({ type: params.type, offset: String(offset) });
   if (params.categoryId) query.set("categoryId", params.categoryId);
   if (params.search) query.set("search", params.search);
-  if (params.priceType) query.set("priceType", params.priceType);
+  if (params.price) query.set("price", params.price);
   return query.toString();
 }
 
@@ -46,7 +48,7 @@ export const cardsInfiniteQueryOptions = (params: CardsQueryParams) =>
       params.type,
       params.categoryId ?? null,
       params.search ?? "",
-      params.priceType ?? null
+      params.price ?? null
     ] as const,
     queryFn: ({ pageParam }) => apiGet<CardListResponse>(`/catalog/cards?${buildCardsQuery(params, pageParam)}`),
     initialPageParam: 0,
@@ -72,6 +74,12 @@ export const settingsQueryOptions = queryOptions({
   queryKey: ["settings"] as const,
   queryFn: () => apiGet<PlatformSettings>("/settings"),
   staleTime: 5 * 60_000
+});
+
+export const contactCapabilitiesQueryOptions = queryOptions({
+  queryKey: ["settings-capabilities"] as const,
+  queryFn: () => apiGet<ContactCapabilities>("/settings/capabilities"),
+  staleTime: 5 * 60_000,
 });
 
 // --- Админ ---
@@ -105,7 +113,7 @@ export const adminCardsInfiniteQueryOptions = (params: AdminCardsQueryParams) =>
 export const adminCardQueryOptions = (cardId: string) =>
   queryOptions({
     queryKey: ["admin-card", cardId] as const,
-    queryFn: () => apiGet<CardDetail>(`/admin/cards/${cardId}`)
+    queryFn: () => apiGet<AdminCardDetail>(`/admin/cards/${cardId}`)
   });
 
 /** Категории вкладки (админ) — включая неактивные, со счётчиками карточек. */
@@ -122,8 +130,7 @@ export const adminRequestsInfiniteQueryOptions = (status: RequestStatus) =>
     queryFn: ({ pageParam }) =>
       apiGet<RequestListResponse>(`/admin/requests?status=${status}&offset=${pageParam}`),
     initialPageParam: 0,
-    getNextPageParam: (lastPage) => lastPage.nextOffset,
-    placeholderData: keepPreviousData
+    getNextPageParam: (lastPage) => lastPage.nextOffset
   });
 
 /** Заявка по id (админ) — деталка, в т.ч. по deep-link из Telegram-уведомления. */

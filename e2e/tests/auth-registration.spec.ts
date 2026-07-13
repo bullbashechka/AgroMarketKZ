@@ -1,24 +1,27 @@
-import { test, expect } from "@playwright/test";
-import { BASE_URL, TELEGRAM_BOT_TOKEN } from "../helpers/env";
-import { loginAsTelegramUser } from "../helpers/telegramAuth";
+import { expect, test } from "../fixtures/auth.fixture";
+import { api } from "../helpers/api";
 
-test("регистрация при первом входе: имя + телефон", async ({ browser }) => {
-  // Свежий telegram id на каждый прогон — гарантированно незарегистрированный пользователь.
-  const freshUser = { id: Math.floor(900_100_000 + Math.random() * 100_000), first_name: "E2E", last_name: "Fresh" };
-  const { token } = await loginAsTelegramUser(process.env.E2E_API_URL ?? "http://localhost:3000", TELEGRAM_BOT_TOKEN, freshUser);
+test("гость просматривает каталог, а регистрация возобновляет добавление в избранное", async ({
+  unregisteredUserPage: page,
+  adminToken,
+}) => {
+  await page.goto("/products");
+  await expect(page.getByTestId("tab-products")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("register-name-input")).toHaveCount(0);
 
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await page.goto(BASE_URL);
-  await page.evaluate((t) => window.localStorage.setItem("agromarket.jwt", t), token);
-  await page.reload();
+  const cards = await api.get<{ items: Array<{ id: string; categoryId: string }> }>(
+    "/catalog/cards?type=product&limit=1",
+    adminToken,
+  );
+  const card = cards.items[0];
+  test.skip(!card, "Нет опубликованных карточек товаров");
+  await page.goto(`/products/${card!.categoryId}/${card!.id}`);
+  await page.getByTestId("favorite-toggle").click();
 
   await expect(page.getByTestId("register-name-input")).toBeVisible({ timeout: 15_000 });
   await page.getByTestId("register-name-input").fill("Айдос Тестов");
   await page.getByTestId("register-phone-input").fill("+77011234567");
   await page.getByTestId("register-submit").click();
 
-  await expect(page.getByTestId("tab-services")).toBeVisible({ timeout: 15_000 });
-
-  await context.close();
+  await expect(page.getByTestId("favorite-toggle")).toHaveAttribute("aria-pressed", "true", { timeout: 15_000 });
 });

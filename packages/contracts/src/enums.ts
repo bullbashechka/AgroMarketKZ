@@ -6,8 +6,14 @@ import { z } from "zod";
 export const catalogTypeSchema = z.enum(["product", "service"]);
 export type CatalogType = z.infer<typeof catalogTypeSchema>;
 
-export const priceTypeSchema = z.enum(["fixed", "on_request"]);
+export const priceTypeSchema = z.enum(["fixed", "from", "on_request"]);
 export type PriceType = z.infer<typeof priceTypeSchema>;
+
+export const priceFilterSchema = z.enum(["with_price", "on_request"]);
+export type PriceFilter = z.infer<typeof priceFilterSchema>;
+
+export const publicationStatusSchema = z.enum(["draft", "published", "archived"]);
+export type PublicationStatus = z.infer<typeof publicationStatusSchema>;
 
 export const requestSourceSchema = z.enum(["card", "tab", "profile"]);
 export type RequestSource = z.infer<typeof requestSourceSchema>;
@@ -28,6 +34,7 @@ export const catalogTypeTabLabels: Record<CatalogType, string> = {
 
 export const priceTypeLabels: Record<PriceType, string> = {
   fixed: "Фиксированная цена",
+  from: "Цена от",
   on_request: "Цена по запросу"
 };
 

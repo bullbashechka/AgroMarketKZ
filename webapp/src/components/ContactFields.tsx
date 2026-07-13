@@ -8,15 +8,16 @@ interface ContactFieldsProps {
   onNameChange: (value: string) => void;
   onPhoneChange: (value: string) => void;
   errors: { contactName?: string; contactPhone?: string };
+  showShare?: boolean;
 }
 
 /** Общие поля имя+телефон, переиспользуются в форме заявки, обратной связи и редактировании профиля. */
-export function ContactFields({ name, phone, onNameChange, onPhoneChange, errors }: ContactFieldsProps) {
+export function ContactFields({ name, phone, onNameChange, onPhoneChange, errors, showShare = true }: ContactFieldsProps) {
   const inTelegram = isTelegramContext();
 
   async function handleShareContact() {
     const shared = await sharePhoneFromTelegram();
-    if (shared) onPhoneChange(shared);
+    if (shared) onPhoneChange(shared.phone);
   }
 
   return (
@@ -31,7 +32,7 @@ export function ContactFields({ name, phone, onNameChange, onPhoneChange, errors
           maxLength={NAME_MAX}
           placeholder="Например, Айдос"
         />
-        {errors.contactName && <span className="field-error">{errors.contactName}</span>}
+        {errors.contactName && <span className="field-error" role="alert">{errors.contactName}</span>}
       </label>
 
       <label className="field">
@@ -44,10 +45,10 @@ export function ContactFields({ name, phone, onNameChange, onPhoneChange, errors
           inputMode="tel"
           placeholder="+7 701 234 56 78"
         />
-        {errors.contactPhone && <span className="field-error">{errors.contactPhone}</span>}
+        {errors.contactPhone && <span className="field-error" role="alert">{errors.contactPhone}</span>}
       </label>
 
-      {inTelegram && (
+      {inTelegram && showShare && (
         <button type="button" className="button button-secondary" onClick={handleShareContact}>
           Поделиться контактом
         </button>

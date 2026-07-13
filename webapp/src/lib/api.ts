@@ -6,7 +6,8 @@ const apiUrl = (import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
-    message: string
+    message: string,
+    public readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -36,7 +37,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!response.ok) {
     const message =
       (payload as { error?: string } | null)?.error ?? "Не удалось выполнить запрос";
-    throw new ApiError(response.status, message);
+    throw new ApiError(
+      response.status,
+      message,
+      (payload as { retryAfterSeconds?: number } | null)?.retryAfterSeconds,
+    );
   }
 
   return payload as T;

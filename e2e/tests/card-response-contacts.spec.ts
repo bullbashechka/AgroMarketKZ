@@ -21,7 +21,8 @@ test.describe("Отклик — контакты", () => {
     await page.getByTestId("card-respond-button").click();
 
     await expect(page.getByTestId("response-phone")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("response-phone")).toHaveAttribute("href", /^tel:/);
+    const externalRequests: string[] = [];
+    page.context().on("request", (request) => externalRequests.push(request.url()));
 
     const [whatsappPopup] = await Promise.all([
       page.waitForEvent("popup", { timeout: 15_000 }),
@@ -34,7 +35,10 @@ test.describe("Отклик — контакты", () => {
       page.waitForEvent("popup", { timeout: 15_000 }),
       page.getByTestId("response-telegram").click()
     ]);
-    expect(telegramPopup.url()).toMatch(/t\.me|telegram/);
+    await expect.poll(
+      () => externalRequests.some((url) => /t\.me|telegram/.test(url)),
+      { timeout: 10_000 },
+    ).toBe(true);
     await telegramPopup.close();
 
     await expect(page.getByTestId("response-request")).toBeVisible();

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CATEGORY_NAME_MAX } from "./constants";
+import { CATEGORY_NAME_MAX, MAX_SPECS, SPEC_KEY_MAX } from "./constants";
 import { catalogTypeSchema } from "./enums";
 import { requiredText } from "./primitives";
 
@@ -10,6 +10,7 @@ export const categorySchema = z.object({
   name: z.string(),
   sortOrder: z.number().int(),
   isActive: z.boolean(),
+  requiredSpecs: z.array(z.string()),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
 });
@@ -37,7 +38,8 @@ export const adminCategoryListResponse = z.array(adminCategorySchema);
 export const createCategoryInput = z.object({
   type: catalogTypeSchema,
   name: requiredText(CATEGORY_NAME_MAX, "Укажите название категории"),
-  sortOrder: z.number().int().min(0).default(0)
+  sortOrder: z.number().int().min(0).default(0),
+  requiredSpecs: z.array(requiredText(SPEC_KEY_MAX, "Укажите название характеристики")).max(MAX_SPECS).default([]),
 });
 
 export type CreateCategoryInput = z.infer<typeof createCategoryInput>;
@@ -45,7 +47,14 @@ export type CreateCategoryInput = z.infer<typeof createCategoryInput>;
 /** Переименование/перемещение категории (админ). Тип категории не меняется. */
 export const updateCategoryInput = z.object({
   name: requiredText(CATEGORY_NAME_MAX, "Укажите название категории").optional(),
-  sortOrder: z.number().int().min(0).optional()
+  sortOrder: z.number().int().min(0).optional(),
+  requiredSpecs: z.array(requiredText(SPEC_KEY_MAX, "Укажите название характеристики")).max(MAX_SPECS).optional(),
+}).superRefine((input, ctx) => {
+  if (!input.requiredSpecs) return;
+  const normalized = input.requiredSpecs.map((item) => item.trim().toLocaleLowerCase("ru"));
+  if (new Set(normalized).size !== normalized.length) {
+    ctx.addIssue({ code: "custom", path: ["requiredSpecs"], message: "Обязательные характеристики не должны повторяться" });
+  }
 });
 
 export type UpdateCategoryInput = z.infer<typeof updateCategoryInput>;

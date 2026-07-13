@@ -11,8 +11,12 @@ export interface RequestRow {
   card_id: string | null;
   tab_type: "product" | "service" | null;
   card_title_snapshot: string | null;
-  card_price_type_snapshot: "fixed" | "on_request" | null;
+  card_price_type_snapshot: "fixed" | "from" | "on_request" | null;
   card_price_amount_snapshot: number | null;
+  card_price_unit_snapshot: string | null;
+  card_price_reason_snapshot: string | null;
+  client_request_id: string | null;
+  request_payload_hash: string | null;
   contact_name: string;
   contact_phone: string;
   contact_phone_verified: boolean;
@@ -20,6 +24,14 @@ export interface RequestRow {
   status: "new" | "in_progress" | "closed";
   created_at: Date;
   updated_at: Date;
+}
+
+interface CardSnapshot {
+  title: string;
+  price_type: "fixed" | "from" | "on_request";
+  price_amount: number | null;
+  price_unit: string | null;
+  price_reason: string | null;
 }
 
 export function toRequest(row: RequestRow): RequestDto {
@@ -32,6 +44,9 @@ export function toRequest(row: RequestRow): RequestDto {
     cardTitleSnapshot: row.card_title_snapshot,
     cardPriceTypeSnapshot: row.card_price_type_snapshot,
     cardPriceAmountSnapshot: row.card_price_amount_snapshot,
+    cardPriceUnitSnapshot: row.card_price_unit_snapshot,
+    cardPriceReasonSnapshot: row.card_price_reason_snapshot,
+    clientRequestId: row.client_request_id,
     contactName: row.contact_name,
     contactPhone: row.contact_phone,
     contactPhoneVerified: row.contact_phone_verified,
@@ -43,13 +58,32 @@ export function toRequest(row: RequestRow): RequestDto {
 }
 
 /** Число заявок пользователя за последние 10 минут — для мягкого антиспам-лимита. */
-export async function countRecentRequests(env: AppEnv, userId: string): Promise<number> {
+export async function requestRateLimitState(
+  env: AppEnv,
+  userId: string,
+): Promise<{ count: number; retryAfterSeconds: number }> {
   const sql = getDb(env);
-  const [row] = await sql<{ count: string }[]>`
-    select count(*) from requests
+  const [row] = await sql<{ count: string; oldest: Date | null }[]>`
+    select count(*), min(created_at) as oldest from requests
     where user_id = ${userId} and created_at > now() - interval '10 minutes'
   `;
-  return Number(row?.count ?? 0);
+  const retryAfterSeconds = row?.oldest
+    ? Math.max(1, Math.ceil((row.oldest.getTime() + 10 * 60_000 - Date.now()) / 1000))
+    : 0;
+  return { count: Number(row?.count ?? 0), retryAfterSeconds };
+}
+
+export async function findRequestByClientId(
+  env: AppEnv,
+  userId: string,
+  clientRequestId: string,
+): Promise<RequestRow | undefined> {
+  const sql = getDb(env);
+  const [row] = await sql<RequestRow[]>`
+    select * from requests
+    where user_id = ${userId} and client_request_id = ${clientRequestId}
+  `;
+  return row;
 }
 
 /**
@@ -61,51 +95,102 @@ export async function countRecentRequests(env: AppEnv, userId: string): Promise<
 export async function createRequest(
   env: AppEnv,
   userId: string,
-  input: CreateRequestInput
-): Promise<RequestRow> {
+  input: CreateRequestInput,
+  requestPayloadHash: string,
+  verifiedContactPhone: string | null,
+): Promise<{ row: RequestRow; created: boolean }> {
   const sql = getDb(env);
-  const phoneVerified = sql`coalesce((select verified_phone = ${input.contactPhone} from users where id = ${userId}), false)`;
+  return sql.begin(async (tx) => {
+    const [existing] = await tx<RequestRow[]>`
+      select * from requests
+      where user_id = ${userId} and client_request_id = ${input.clientRequestId}
+    `;
+    if (existing) {
+      if (existing.request_payload_hash !== requestPayloadHash) {
+        throw new HttpError(409, "Эта попытка отправки уже использована для другой заявки");
+      }
+      return { row: existing, created: false };
+    }
 
-  if (input.source === "card") {
-    const [card] = await sql<
-      { title: string; price_type: "fixed" | "on_request"; price_amount: number | null; archived_at: Date | null }[]
-    >`select title, price_type, price_amount, archived_at from cards where id = ${input.cardId}`;
-    if (!card) {
-      throw new HttpError(404, "Карточка не найдена");
+    const [user] = await tx<{
+      registered_at: Date | null;
+      verified_phone: string | null;
+    }[]>`
+      select registered_at, verified_phone from users where id = ${userId} for update
+    `;
+    if (!user) throw new HttpError(404, "Пользователь не найден");
+
+    // Конкурентная exact-повторная отправка ждала lock пользователя: победитель уже
+    // мог закоммититься. Повторяем replay-check до проверки доступности карточки.
+    const [committedReplay] = await tx<RequestRow[]>`
+      select * from requests
+      where user_id = ${userId} and client_request_id = ${input.clientRequestId}
+    `;
+    if (committedReplay) {
+      if (committedReplay.request_payload_hash !== requestPayloadHash) {
+        throw new HttpError(409, "Эта попытка отправки уже использована для другой заявки");
+      }
+      return { row: committedReplay, created: false };
     }
-    if (card.archived_at !== null) {
-      throw new HttpError(409, "Карточка снята с публикации");
+
+    const contactPhoneVerified =
+      user.verified_phone === input.contactPhone || verifiedContactPhone === input.contactPhone;
+
+    let card: CardSnapshot | undefined;
+    if (input.source === "card") {
+      [card] = await tx<CardSnapshot[]>`
+        select title, price_type, price_amount, price_unit, price_reason
+        from cards
+        where id = ${input.cardId} and published_at is not null and archived_at is null
+      `;
+      if (!card) throw new HttpError(409, "Объявление уже недоступно. Заявка не отправлена");
     }
-    const [row] = await sql<RequestRow[]>`
+
+    const [inserted] = await tx<RequestRow[]>`
       insert into requests (
-        user_id, source, card_id, card_title_snapshot,
-        card_price_type_snapshot, card_price_amount_snapshot,
+        user_id, source, card_id, tab_type,
+        card_title_snapshot, card_price_type_snapshot, card_price_amount_snapshot,
+        card_price_unit_snapshot, card_price_reason_snapshot,
+        client_request_id, request_payload_hash,
         contact_name, contact_phone, contact_phone_verified, comment
       ) values (
-        ${userId}, 'card', ${input.cardId}, ${card.title},
-        ${card.price_type}, ${card.price_amount},
-        ${input.contactName}, ${input.contactPhone}, ${phoneVerified}, ${input.comment ?? null}
+        ${userId}, ${input.source}, ${input.source === "card" ? input.cardId : null},
+        ${input.source === "tab" ? input.tabType : null},
+        ${card?.title ?? null}, ${card?.price_type ?? null}, ${card?.price_amount ?? null},
+        ${card?.price_unit ?? null}, ${card?.price_reason ?? null},
+        ${input.clientRequestId}, ${requestPayloadHash},
+        ${input.contactName}, ${input.contactPhone}, ${contactPhoneVerified}, ${input.comment ?? null}
       )
+      on conflict (user_id, client_request_id) where client_request_id is not null do nothing
       returning *
     `;
-    return row!;
-  }
 
-  if (input.source === "tab") {
-    const [row] = await sql<RequestRow[]>`
-      insert into requests (user_id, source, tab_type, contact_name, contact_phone, contact_phone_verified, comment)
-      values (${userId}, 'tab', ${input.tabType}, ${input.contactName}, ${input.contactPhone}, ${phoneVerified}, ${input.comment ?? null})
-      returning *
-    `;
-    return row!;
-  }
+    if (!inserted) {
+      const [replayed] = await tx<RequestRow[]>`
+        select * from requests
+        where user_id = ${userId} and client_request_id = ${input.clientRequestId}
+      `;
+      if (!replayed || replayed.request_payload_hash !== requestPayloadHash) {
+        throw new HttpError(409, "Эта попытка отправки уже использована для другой заявки");
+      }
+      return { row: replayed, created: false };
+    }
 
-  const [row] = await sql<RequestRow[]>`
-    insert into requests (user_id, source, contact_name, contact_phone, contact_phone_verified, comment)
-    values (${userId}, 'profile', ${input.contactName}, ${input.contactPhone}, ${phoneVerified}, ${input.comment ?? null})
-    returning *
-  `;
-  return row!;
+    if (user.registered_at === null) {
+      await tx`
+        update users set
+          contact_name = ${input.contactName},
+          contact_phone = ${input.contactPhone},
+          verified_phone = case
+            when ${verifiedContactPhone}::text = ${input.contactPhone} then ${input.contactPhone}
+            else verified_phone
+          end,
+          registered_at = now()
+        where id = ${userId}
+      `;
+    }
+    return { row: inserted, created: true };
+  });
 }
 
 /** Список заявок (админ), с фильтром по статусу и постраничной выдачей. */

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { SEARCH_MAX } from "./constants";
 import { cardListItemSchema } from "./card";
 import { catalogTypeSchema } from "./enums";
+import { publicationStatusSchema } from "./enums";
 import { paginated, paginationQuerySchema } from "./pagination";
 import { profileSchema } from "./profile";
 
@@ -24,6 +25,10 @@ export type AdminCardListQuery = z.infer<typeof adminCardListQuery>;
 export const adminCardListItemSchema = cardListItemSchema.extend({
   sortOrder: z.number().int(),
   archivedAt: z.iso.datetime().nullable(),
+  publishedAt: z.iso.datetime().nullable(),
+  publicationStatus: publicationStatusSchema,
+  needsReview: z.boolean(),
+  reviewIssues: z.array(z.string()),
   updatedAt: z.iso.datetime()
 });
 

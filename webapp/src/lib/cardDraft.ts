@@ -16,6 +16,10 @@ export interface CardDraft {
   description: string;
   priceType: PriceType;
   priceAmount: string;
+  priceUnit: string;
+  priceReason: string;
+  location: string;
+  availability: string;
   specs: CardDraftSpec[];
   images: DraftImage[];
 }

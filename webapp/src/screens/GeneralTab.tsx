@@ -4,14 +4,34 @@ import { useState, type MouseEvent, type ReactNode } from "react";
 import { RequestSheet } from "../components/RequestSheet";
 import { useAuth } from "../lib/auth";
 import { adminNewRequestsBadgeQueryOptions } from "../lib/queries";
+import { useRegistrationIntent } from "../lib/registrationIntent";
 
-function ListRow({ href, title, value, badge }: { href: string; title: string; value?: string; badge?: ReactNode }) {
+function ListRow({
+  href,
+  title,
+  value,
+  badge,
+  registrationReason,
+}: {
+  href: string;
+  title: string;
+  value?: string;
+  badge?: ReactNode;
+  registrationReason?: string;
+}) {
   const navigate = useNavigate();
+  const { profile } = useAuth();
+  const { requireRegistration } = useRegistrationIntent();
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
     event.preventDefault();
-    navigate({ href });
+    const go = () => navigate({ href });
+    if (registrationReason && !profile?.isRegistered) {
+      requireRegistration(go, registrationReason);
+      return;
+    }
+    go();
   }
 
   return (
@@ -68,9 +88,22 @@ export function GeneralTab() {
       </section>
 
       <div className="list-rows">
-        <ListRow href="/general/contacts" title="Мои контакты" value={profile.contactName ?? "—"} />
-        <ListRow href="/general/favorites" title="Избранное" />
-        <ListRow href="/general/feedback" title="Обратная связь" />
+        <ListRow
+          href="/general/contacts"
+          title="Мои контакты"
+          value={profile.contactName ?? "Не указаны"}
+          registrationReason="Укажите контакты, чтобы сохранить их в профиле."
+        />
+        <ListRow
+          href="/general/favorites"
+          title="Избранное"
+          registrationReason="Сохраните контакты, чтобы пользоваться избранным."
+        />
+        <ListRow
+          href="/general/feedback"
+          title="Обратная связь"
+          registrationReason="Сохраните контакты перед обращением в поддержку."
+        />
       </div>
 
       <button

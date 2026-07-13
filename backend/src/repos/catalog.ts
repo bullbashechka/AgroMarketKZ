@@ -20,6 +20,7 @@ export interface CategoryRow {
   name: string;
   sort_order: number;
   is_active: boolean;
+  required_specs: string[];
   created_at: Date;
   updated_at: Date;
 }
@@ -33,8 +34,11 @@ export interface CardListRow {
   type: "product" | "service";
   category_id: string;
   title: string;
-  price_type: "fixed" | "on_request";
+  price_type: "fixed" | "from" | "on_request";
   price_amount: number | null;
+  price_unit: string | null;
+  location: string | null;
+  availability: string | null;
   first_image_path: string | null;
   first_spec_key: string | null;
   first_spec_value: string | null;
@@ -46,9 +50,14 @@ export interface CardRow {
   category_id: string;
   title: string;
   description: string;
-  price_type: "fixed" | "on_request";
+  price_type: "fixed" | "from" | "on_request";
   price_amount: number | null;
+  price_unit: string | null;
+  price_reason: string | null;
+  location: string | null;
+  availability: string | null;
   sort_order: number;
+  published_at: Date | null;
   archived_at: Date | null;
   created_at: Date;
   updated_at: Date;
@@ -77,6 +86,7 @@ export function toCategory(row: CategoryRow): Category {
     name: row.name,
     sortOrder: row.sort_order,
     isActive: row.is_active,
+    requiredSpecs: row.required_specs,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString()
   };
@@ -97,8 +107,14 @@ export function toCardListItem(row: CardListRow, env: AppEnv): CardListItem {
     title: row.title,
     priceType: row.price_type,
     priceAmount: row.price_amount,
+    priceUnit: row.price_unit,
     imageUrl: row.first_image_path ? publicImageUrl(env, row.first_image_path) : null,
-    shortSpec: row.first_spec_key ? `${row.first_spec_key}: ${row.first_spec_value}` : null
+    shortSpec:
+      row.location && row.availability
+        ? `${row.location} · ${row.availability}`
+        : row.first_spec_key
+          ? `${row.first_spec_key}: ${row.first_spec_value}`
+          : null
   };
 }
 
@@ -116,7 +132,12 @@ export function toCardDetail(
     description: row.description,
     priceType: row.price_type,
     priceAmount: row.price_amount,
+    priceUnit: row.price_unit,
+    priceReason: row.price_reason,
+    location: row.location,
+    availability: row.availability,
     sortOrder: row.sort_order,
+    publishedAt: row.published_at ? row.published_at.toISOString() : null,
     archivedAt: row.archived_at ? row.archived_at.toISOString() : null,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -146,10 +167,12 @@ export async function listCategories(env: AppEnv, type: CatalogType): Promise<Ca
   const sql = getDb(env);
   const rows = await sql<CategoryListRow[]>`
     select
-      cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.created_at, cat.updated_at,
+      cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.required_specs,
+      cat.created_at, cat.updated_at,
       count(c.id)::int as card_count
     from categories cat
-    join cards c on c.category_id = cat.id and c.archived_at is null
+    join cards c on c.category_id = cat.id
+      and c.published_at is not null and c.archived_at is null
     where cat.type = ${type} and cat.is_active
     group by cat.id
     order by cat.sort_order, cat.name
@@ -167,6 +190,7 @@ export async function listCards(env: AppEnv, query: CardListQuery): Promise<Pagi
   const rows = await sql<CardListRow[]>`
     select
       c.id, c.type, c.category_id, c.title, c.price_type, c.price_amount,
+      c.price_unit, c.location, c.availability,
       img.storage_path as first_image_path,
       spec.key as first_spec_key, spec.value as first_spec_value
     from cards c
@@ -178,9 +202,14 @@ export async function listCards(env: AppEnv, query: CardListQuery): Promise<Pagi
     ) spec on true
     where c.type = ${query.type}
       and c.archived_at is null
+      and c.published_at is not null
       and (${query.categoryId ?? null}::uuid is null or c.category_id = ${query.categoryId ?? null}::uuid)
       and (${searchPattern}::text is null or c.title ilike ${searchPattern})
-      and (${query.priceType ?? null}::price_type is null or c.price_type = ${query.priceType ?? null}::price_type)
+      and (
+        ${query.price ?? null}::text is null
+        or (${query.price ?? null}::text = 'with_price' and c.price_type in ('fixed', 'from'))
+        or (${query.price ?? null}::text = 'on_request' and c.price_type = 'on_request')
+      )
     order by c.sort_order, c.title
     limit ${query.limit + 1} offset ${query.offset}
   `;
@@ -188,14 +217,14 @@ export async function listCards(env: AppEnv, query: CardListQuery): Promise<Pagi
   return paginateRows(items, query.limit, query.offset);
 }
 
-/** Полная карточка по id, включая архивные (фронт показывает заглушку «снято с публикации»). */
-export async function getCardById(env: AppEnv, id: string): Promise<CardDetail | undefined> {
+async function getCard(env: AppEnv, id: string, includeDraft: boolean): Promise<CardDetail | undefined> {
   const sql = getDb(env);
   const [row] = await sql<CardRow[]>`
     select id, type, category_id, title, description, price_type, price_amount,
-      sort_order, archived_at, created_at, updated_at
+      price_unit, price_reason, location, availability, sort_order,
+      published_at, archived_at, created_at, updated_at
     from cards
-    where id = ${id}
+    where id = ${id} and (${includeDraft} or published_at is not null)
   `;
   if (!row) {
     return undefined;
@@ -209,4 +238,14 @@ export async function getCardById(env: AppEnv, id: string): Promise<CardDetail |
     from card_specs where card_id = ${id} order by sort_order
   `;
   return toCardDetail(row, images, specs, env);
+}
+
+/** Публичная деталка: черновики не существуют для пользователя, скрытые дают заглушку. */
+export async function getCardById(env: AppEnv, id: string): Promise<CardDetail | undefined> {
+  return getCard(env, id, false);
+}
+
+/** Админская деталка: включает серверные черновики. */
+export async function getCardByIdAdmin(env: AppEnv, id: string): Promise<CardDetail | undefined> {
+  return getCard(env, id, true);
 }

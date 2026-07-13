@@ -1,17 +1,22 @@
 import type { CardListItem } from "@agromarket/contracts";
 import type { MouseEvent } from "react";
 import { useIsFavorite, useToggleFavorite } from "../lib/favorites";
+import { useRegistrationIntent } from "../lib/registrationIntent";
 
 /** Сердечко избранного — переиспользуется в списке карточек и внутри самой карточки. */
 export function FavoriteButton({ item }: { item: CardListItem }) {
   const isFavorite = useIsFavorite(item.id);
   const toggle = useToggleFavorite();
+  const { requireRegistration } = useRegistrationIntent();
 
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
     // Кнопка часто лежит поверх кликабельной карточки — не даём тапу открыть карточку.
     event.preventDefault();
     event.stopPropagation();
-    toggle.mutate({ item, isFavorite });
+    requireRegistration(
+      () => toggle.mutate({ item, isFavorite }),
+      "Сохраните контакты, чтобы добавлять объявления в избранное.",
+    );
   }
 
   return (
@@ -22,6 +27,7 @@ export function FavoriteButton({ item }: { item: CardListItem }) {
       onClick={handleClick}
       aria-pressed={isFavorite}
       aria-label={isFavorite ? "Убрать из избранного" : "В избранное"}
+      disabled={toggle.isPending}
     >
       <svg viewBox="0 0 24 24" fill={isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
         <path

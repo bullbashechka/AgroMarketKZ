@@ -13,9 +13,10 @@ export function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function formatPrice(priceType: PriceType, priceAmount: number | null): string {
+function formatPrice(priceType: PriceType, priceAmount: number | null, priceUnit: string | null): string {
   if (priceType === "on_request" || priceAmount === null) return priceTypeLabels.on_request;
-  return `${priceAmount.toLocaleString("ru-RU")} ₸`;
+  const prefix = priceType === "from" ? "от " : "";
+  return `${prefix}${priceAmount.toLocaleString("ru-RU")} ₸${priceUnit ? ` ${priceUnit}` : ""}`;
 }
 
 /** Строка телефона с отметкой верификации через Telegram. */
@@ -30,6 +31,8 @@ export interface RequestNotificationInput {
   cardTitleSnapshot: string | null;
   cardPriceTypeSnapshot: PriceType | null;
   cardPriceAmountSnapshot: number | null;
+  cardPriceUnitSnapshot: string | null;
+  cardPriceReasonSnapshot: string | null;
   contactName: string;
   contactPhone: string;
   contactPhoneVerified: boolean;
@@ -44,8 +47,11 @@ export function formatRequestNotification(input: RequestNotificationInput): stri
   if (input.source === "card" && input.cardTitleSnapshot && input.cardPriceTypeSnapshot) {
     lines.push(`Карточка: ${escapeHtml(input.cardTitleSnapshot)}`);
     lines.push(
-      `Цена: ${escapeHtml(formatPrice(input.cardPriceTypeSnapshot, input.cardPriceAmountSnapshot))}`
+      `Цена: ${escapeHtml(formatPrice(input.cardPriceTypeSnapshot, input.cardPriceAmountSnapshot, input.cardPriceUnitSnapshot))}`
     );
+    if (input.cardPriceReasonSnapshot) {
+      lines.push(`Расчёт: ${escapeHtml(input.cardPriceReasonSnapshot)}`);
+    }
   }
   if (input.source === "tab" && input.tabType) {
     lines.push(`Вкладка: ${escapeHtml(catalogTypeTabLabels[input.tabType])}`);

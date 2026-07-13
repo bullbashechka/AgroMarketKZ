@@ -63,6 +63,8 @@ interface AuthContextValue {
   /** Редактирование контактов в профиле (экран «Мои контакты» + авто-обновление из формы заявки). */
   updateProfile: (data: UpdateProfileInput) => Promise<Profile>;
   updateProfilePending: boolean;
+  /** Обновить профиль после атомарной регистрации внутри первой заявки. */
+  refreshProfile: () => Promise<Profile | undefined>;
   /** Повторить bootstrap профиля после сбоя сети (status === "error"). */
   retry: () => void;
 }
@@ -124,6 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     registerPending: registerMutation.isPending,
     updateProfile: updateProfileMutation.mutateAsync,
     updateProfilePending: updateProfileMutation.isPending,
+    refreshProfile: async () => (await profileQuery.refetch()).data,
     retry: () => {
       profileQuery.refetch();
     }

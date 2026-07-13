@@ -59,7 +59,7 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
         type={type}
         categoryId={categoryId}
         search={activeQuery || undefined}
-        priceType={search.price}
+        price={search.price}
         emptyState={
           activeQuery ? (
             <div className="empty-state">

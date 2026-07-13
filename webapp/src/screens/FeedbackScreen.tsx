@@ -1,6 +1,6 @@
 import { createFeedbackInput, FEEDBACK_MESSAGE_MAX } from "@agromarket/contracts";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ContactFields } from "../components/ContactFields";
 import { Screen } from "../components/Screen";
 import { SuccessCheck } from "../components/SuccessCheck";
@@ -9,11 +9,16 @@ import { useAuth } from "../lib/auth";
 import { zodFieldErrors } from "../lib/formErrors";
 import { telegramLink, whatsappLink } from "../lib/format";
 import { settingsQueryOptions } from "../lib/queries";
+import { useRegistrationIntent } from "../lib/registrationIntent";
 import { openExternalLink, openTelegramDeepLink } from "../lib/telegram";
 
 export function FeedbackScreen() {
   const { profile } = useAuth();
-  const settingsQuery = useQuery(settingsQueryOptions);
+  const { requireRegistration } = useRegistrationIntent();
+  const settingsQuery = useQuery({
+    ...settingsQueryOptions,
+    enabled: profile?.isRegistered === true,
+  });
   const settings = settingsQuery.data;
 
   const [name, setName] = useState(profile?.contactName ?? "");
@@ -25,6 +30,29 @@ export function FeedbackScreen() {
   const mutation = useMutation({
     mutationFn: (input: ReturnType<typeof createFeedbackInput.parse>) => apiPost("/feedback", input)
   });
+
+  useEffect(() => {
+    if (!profile?.isRegistered) return;
+    if (!name) setName(profile.contactName ?? "");
+    if (!phone) setPhone(profile.contactPhone ?? "");
+  }, [profile?.isRegistered, profile?.contactName, profile?.contactPhone, name, phone]);
+
+  if (!profile?.isRegistered) {
+    return (
+      <Screen back title="Обратная связь" fallbackTo="/general">
+        <div className="empty-state">
+          <p>Сохраните контакты перед обращением в поддержку.</p>
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={() => requireRegistration(() => {}, "Сохраните контакты перед обращением в поддержку.")}
+          >
+            Указать контакты
+          </button>
+        </div>
+      </Screen>
+    );
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();

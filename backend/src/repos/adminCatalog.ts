@@ -1,5 +1,6 @@
 import type {
   AdminCardListItem,
+  AdminCardDetail,
   AdminCardListQuery,
   AdminCategory,
   CardDetail,
@@ -14,16 +15,15 @@ import { getDb } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { paginateRows, type PaginatedResult } from "../lib/pagination";
+import { getPublicationIssues, getPublicationStatus } from "../lib/publication";
 import { escapeLike } from "../lib/search";
 import {
-  type CardImageRow,
   type CardListRow,
   type CardRow,
-  type CardSpecRow,
   type CategoryRow,
-  toCardDetail,
   toCardListItem,
-  toCategory
+  toCategory,
+  getCardByIdAdmin,
 } from "./catalog";
 
 function isPgError(err: unknown, code: string): boolean {
@@ -49,8 +49,11 @@ export async function listCategoriesAdmin(env: AppEnv, type: CatalogType): Promi
   const rows = await sql<AdminCategoryRow[]>`
     select
       cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.created_at, cat.updated_at,
+      cat.required_specs,
       count(c.id)::int as card_count,
-      count(c.id) filter (where c.archived_at is null)::int as active_card_count
+      count(c.id) filter (
+        where c.published_at is not null and c.archived_at is null
+      )::int as active_card_count
     from categories cat
     left join cards c on c.category_id = cat.id
     where cat.type = ${type}
@@ -65,9 +68,9 @@ export async function createCategory(env: AppEnv, input: CreateCategoryInput): P
   const sql = getDb(env);
   try {
     const [row] = await sql<CategoryRow[]>`
-      insert into categories (type, name, sort_order)
-      values (${input.type}, ${input.name}, ${input.sortOrder})
-      returning id, type, name, sort_order, is_active, created_at, updated_at
+      insert into categories (type, name, sort_order, required_specs)
+      values (${input.type}, ${input.name}, ${input.sortOrder}, ${input.requiredSpecs})
+      returning id, type, name, sort_order, is_active, required_specs, created_at, updated_at
     `;
     return toCategory(row!);
   } catch (err) {
@@ -85,14 +88,15 @@ export async function updateCategory(
   input: UpdateCategoryInput
 ): Promise<Category> {
   const sql = getDb(env);
-  const columns: Record<string, string | number> = {};
+  const columns: Record<string, string | number | string[]> = {};
   if (input.name !== undefined) columns.name = input.name;
   if (input.sortOrder !== undefined) columns.sort_order = input.sortOrder;
+  if (input.requiredSpecs !== undefined) columns.required_specs = input.requiredSpecs;
 
   const keys = Object.keys(columns);
   if (keys.length === 0) {
     const [row] = await sql<CategoryRow[]>`
-      select id, type, name, sort_order, is_active, created_at, updated_at
+      select id, type, name, sort_order, is_active, required_specs, created_at, updated_at
       from categories where id = ${id}
     `;
     if (!row) throw new HttpError(404, "Категория не найдена");
@@ -103,7 +107,7 @@ export async function updateCategory(
     const [row] = await sql<CategoryRow[]>`
       update categories set ${sql(columns, ...keys)}
       where id = ${id}
-      returning id, type, name, sort_order, is_active, created_at, updated_at
+      returning id, type, name, sort_order, is_active, required_specs, created_at, updated_at
     `;
     if (!row) throw new HttpError(404, "Категория не найдена");
     return toCategory(row);
@@ -141,16 +145,38 @@ export async function deleteCategory(env: AppEnv, id: string): Promise<void> {
 // --- Карточки ---
 
 interface AdminCardListRow extends CardListRow {
+  description: string;
+  price_reason: string | null;
   sort_order: number;
+  published_at: Date | null;
   archived_at: Date | null;
+  image_count: number;
+  spec_keys: string[];
+  required_specs: string[];
   updated_at: Date;
 }
 
 function toAdminCardListItem(row: AdminCardListRow, env: AppEnv): AdminCardListItem {
+  const reviewIssues = getPublicationIssues({
+    description: row.description,
+    priceType: row.price_type,
+    priceAmount: row.price_amount,
+    priceUnit: row.price_unit,
+    priceReason: row.price_reason,
+    location: row.location,
+    availability: row.availability,
+    imageCount: row.image_count,
+    specs: row.spec_keys.map((key) => ({ key, value: "filled" })),
+    requiredSpecs: row.required_specs,
+  });
   return {
     ...toCardListItem(row, env),
     sortOrder: row.sort_order,
+    publishedAt: row.published_at ? row.published_at.toISOString() : null,
     archivedAt: row.archived_at ? row.archived_at.toISOString() : null,
+    publicationStatus: getPublicationStatus(row.published_at, row.archived_at),
+    needsReview: reviewIssues.length > 0,
+    reviewIssues,
     updatedAt: row.updated_at.toISOString()
   };
 }
@@ -165,16 +191,26 @@ export async function adminListCards(
   const archivedFilter = query.archived === "active" ? false : query.archived === "archived" ? true : null;
   const rows = await sql<AdminCardListRow[]>`
     select
-      c.id, c.type, c.category_id, c.title, c.price_type, c.price_amount,
-      c.sort_order, c.archived_at, c.updated_at,
-      img.storage_path as first_image_path,
-      spec.key as first_spec_key, spec.value as first_spec_value
+      c.id, c.type, c.category_id, c.title, c.description, c.price_type, c.price_amount,
+      c.price_unit, c.price_reason, c.location, c.availability,
+      c.sort_order, c.published_at, c.archived_at, c.updated_at,
+      cat.required_specs,
+      img.first_image_path, img.image_count,
+      spec.first_spec_key, spec.first_spec_value, spec.spec_keys
     from cards c
+    join categories cat on cat.id = c.category_id
     left join lateral (
-      select storage_path from card_images where card_id = c.id order by sort_order limit 1
+      select
+        (array_agg(storage_path order by sort_order))[1] as first_image_path,
+        count(*)::int as image_count
+      from card_images where card_id = c.id
     ) img on true
     left join lateral (
-      select key, value from card_specs where card_id = c.id order by sort_order limit 1
+      select
+        (array_agg(key order by sort_order))[1] as first_spec_key,
+        (array_agg(value order by sort_order))[1] as first_spec_value,
+        coalesce(array_agg(key order by sort_order), '{}') as spec_keys
+      from card_specs where card_id = c.id
     ) spec on true
     where (${query.type ?? null}::catalog_type is null or c.type = ${query.type ?? null}::catalog_type)
       and (${query.categoryId ?? null}::uuid is null or c.category_id = ${query.categoryId ?? null}::uuid)
@@ -187,26 +223,65 @@ export async function adminListCards(
   return paginateRows(items, query.limit, query.offset);
 }
 
-/** Создание карточки со всеми полями (изображения + характеристики) в транзакции. */
-export async function createCard(env: AppEnv, input: CreateCardInput): Promise<CardDetail> {
+async function toAdminCardDetail(env: AppEnv, detail: CardDetail): Promise<AdminCardDetail> {
+  const sql = getDb(env);
+  const [category] = await sql<{ required_specs: string[] }[]>`
+    select required_specs from categories where id = ${detail.categoryId}
+  `;
+  const reviewIssues = getPublicationIssues({
+    description: detail.description,
+    priceType: detail.priceType,
+    priceAmount: detail.priceAmount,
+    priceUnit: detail.priceUnit,
+    priceReason: detail.priceReason,
+    location: detail.location,
+    availability: detail.availability,
+    imageCount: detail.images.length,
+    specs: detail.specs,
+    requiredSpecs: category?.required_specs ?? [],
+  });
+  return {
+    ...detail,
+    publicationStatus: getPublicationStatus(
+      detail.publishedAt ? new Date(detail.publishedAt) : null,
+      detail.archivedAt ? new Date(detail.archivedAt) : null,
+    ),
+    needsReview: reviewIssues.length > 0,
+    reviewIssues,
+  };
+}
+
+export async function getAdminCardDetail(env: AppEnv, id: string): Promise<AdminCardDetail | undefined> {
+  const detail = await getCardByIdAdmin(env, id);
+  return detail ? toAdminCardDetail(env, detail) : undefined;
+}
+
+/** Создаёт серверный черновик вместе с уже успешно загруженными фото и характеристиками. */
+export async function createCard(env: AppEnv, input: CreateCardInput): Promise<AdminCardDetail> {
   const sql = getDb(env);
   try {
-    return await sql.begin(async (tx) => {
+    const cardId = await sql.begin(async (tx) => {
       const [card] = await tx<CardRow[]>`
-        insert into cards (type, category_id, title, description, price_type, price_amount, sort_order)
+        insert into cards (
+          type, category_id, title, description, price_type, price_amount,
+          price_unit, price_reason, location, availability, sort_order
+        )
         values (
           ${input.type}, ${input.categoryId}, ${input.title}, ${input.description},
-          ${input.priceType}, ${input.priceType === "fixed" ? input.priceAmount : null}, ${input.sortOrder}
+          ${input.priceType}, ${input.priceType === "on_request" ? null : input.priceAmount ?? null},
+          ${input.priceUnit ?? null}, ${input.priceType === "fixed" ? null : input.priceReason ?? null},
+          ${input.location ?? null}, ${input.availability ?? null}, ${input.sortOrder}
         )
         returning
-          id, type, category_id, title, description, price_type, price_amount,
-          sort_order, archived_at, created_at, updated_at
+          id, type, category_id, title, description, price_type, price_amount, price_unit,
+          price_reason, location, availability, sort_order, published_at, archived_at,
+          created_at, updated_at
       `;
-      const cardId = card!.id;
+      const createdId = card!.id;
 
       if (input.images.length > 0) {
         const imageRows = input.images.map((img) => ({
-          card_id: cardId,
+          card_id: createdId,
           storage_path: img.storagePath,
           alt_text: img.altText ?? null,
           sort_order: img.sortOrder
@@ -215,7 +290,7 @@ export async function createCard(env: AppEnv, input: CreateCardInput): Promise<C
       }
       if (input.specs.length > 0) {
         const specRows = input.specs.map((s) => ({
-          card_id: cardId,
+          card_id: createdId,
           key: s.key,
           value: s.value,
           sort_order: s.sortOrder
@@ -223,16 +298,9 @@ export async function createCard(env: AppEnv, input: CreateCardInput): Promise<C
         await tx`insert into card_specs ${tx(specRows, "card_id", "key", "value", "sort_order")}`;
       }
 
-      const images = await tx<CardImageRow[]>`
-        select id, storage_path, alt_text, sort_order from card_images
-        where card_id = ${cardId} order by sort_order
-      `;
-      const specs = await tx<CardSpecRow[]>`
-        select id, key, value, sort_order from card_specs
-        where card_id = ${cardId} order by sort_order
-      `;
-      return toCardDetail(card!, images, specs, env);
+      return createdId;
     });
+    return (await getAdminCardDetail(env, cardId))!;
   } catch (err) {
     if (isPgError(err, "23503")) {
       throw new HttpError(400, "Категория не подходит по типу карточки");
@@ -250,10 +318,10 @@ export async function updateCard(
   env: AppEnv,
   id: string,
   input: UpdateCardInput
-): Promise<{ detail: CardDetail; removedPaths: string[] }> {
+): Promise<{ detail: AdminCardDetail; removedPaths: string[] }> {
   const sql = getDb(env);
   try {
-    return await sql.begin(async (tx) => {
+    const result = await sql.begin(async (tx) => {
       const oldImages = await tx<{ storage_path: string }[]>`
         select storage_path from card_images where card_id = ${id}
       `;
@@ -265,12 +333,17 @@ export async function updateCard(
           title = ${input.title},
           description = ${input.description},
           price_type = ${input.priceType},
-          price_amount = ${input.priceType === "fixed" ? input.priceAmount : null},
+          price_amount = ${input.priceType === "on_request" ? null : input.priceAmount ?? null},
+          price_unit = ${input.priceUnit ?? null},
+          price_reason = ${input.priceType === "fixed" ? null : input.priceReason ?? null},
+          location = ${input.location ?? null},
+          availability = ${input.availability ?? null},
           sort_order = ${input.sortOrder}
         where id = ${id}
         returning
-          id, type, category_id, title, description, price_type, price_amount,
-          sort_order, archived_at, created_at, updated_at
+          id, type, category_id, title, description, price_type, price_amount, price_unit,
+          price_reason, location, availability, sort_order, published_at, archived_at,
+          created_at, updated_at
       `;
       if (!card) {
         throw new HttpError(404, "Карточка не найдена");
@@ -298,20 +371,31 @@ export async function updateCard(
         await tx`insert into card_specs ${tx(specRows, "card_id", "key", "value", "sort_order")}`;
       }
 
-      const images = await tx<CardImageRow[]>`
-        select id, storage_path, alt_text, sort_order from card_images
-        where card_id = ${id} order by sort_order
+      const [category] = await tx<{ required_specs: string[] }[]>`
+        select required_specs from categories where id = ${input.categoryId}
       `;
-      const specs = await tx<CardSpecRow[]>`
-        select id, key, value, sort_order from card_specs
-        where card_id = ${id} order by sort_order
-      `;
+      const issues = getPublicationIssues({
+        description: card.description,
+        priceType: card.price_type,
+        priceAmount: card.price_amount,
+        priceUnit: card.price_unit,
+        priceReason: card.price_reason,
+        location: card.location,
+        availability: card.availability,
+        imageCount: input.images.length,
+        specs: input.specs,
+        requiredSpecs: category?.required_specs ?? [],
+      });
+      if (card.published_at !== null && card.archived_at === null && issues.length > 0) {
+        throw new HttpError(400, `Сначала скройте карточку или исправьте: ${issues.join("; ")}`);
+      }
 
       const newPaths = new Set(input.images.map((img) => img.storagePath));
       const removedPaths = oldImages.map((r) => r.storage_path).filter((p) => !newPaths.has(p));
 
-      return { detail: toCardDetail(card, images, specs, env), removedPaths };
+      return { removedPaths };
     });
+    return { detail: (await getAdminCardDetail(env, id))!, removedPaths: result.removedPaths };
   } catch (err) {
     if (err instanceof HttpError) throw err;
     if (isPgError(err, "23503")) {
@@ -334,13 +418,66 @@ export async function deleteCard(env: AppEnv, id: string): Promise<string[]> {
   return images.map((r) => r.storage_path);
 }
 
-/** Скрывает/публикует карточку (флаг `archivedAt`). 404, если не найдена. */
-export async function setCardArchived(env: AppEnv, id: string, archived: boolean): Promise<void> {
+/** Публикует черновик или повторно открывает скрытую карточку после серверной проверки. */
+export async function publishCard(env: AppEnv, id: string): Promise<AdminCardDetail> {
   const sql = getDb(env);
-  const rows = archived
-    ? await sql<{ id: string }[]>`update cards set archived_at = now() where id = ${id} returning id`
-    : await sql<{ id: string }[]>`update cards set archived_at = null where id = ${id} returning id`;
-  if (!rows[0]) {
-    throw new HttpError(404, "Карточка не найдена");
+  await sql.begin(async (tx) => {
+    const [card] = await tx<CardRow[]>`
+      select
+        c.id, c.type, c.category_id, c.title, c.description, c.price_type, c.price_amount,
+        c.price_unit, c.price_reason, c.location, c.availability, c.sort_order,
+        c.published_at, c.archived_at, c.created_at, c.updated_at
+      from cards c where c.id = ${id}
+      for update
+    `;
+    if (!card) throw new HttpError(404, "Карточка не найдена");
+
+    const [category] = await tx<{ required_specs: string[] }[]>`
+      select required_specs from categories where id = ${card.category_id}
+    `;
+    const images = await tx<{ count: string }[]>`
+      select count(*) from card_images where card_id = ${id}
+    `;
+    const specs = await tx<{ key: string; value: string }[]>`
+      select key, value from card_specs where card_id = ${id}
+    `;
+    const issues = getPublicationIssues({
+      description: card.description,
+      priceType: card.price_type,
+      priceAmount: card.price_amount,
+      priceUnit: card.price_unit,
+      priceReason: card.price_reason,
+      location: card.location,
+      availability: card.availability,
+      imageCount: Number(images[0]?.count ?? 0),
+      specs,
+      requiredSpecs: category?.required_specs ?? [],
+    });
+    if (issues.length > 0) {
+      throw new HttpError(400, `Карточка не готова к публикации: ${issues.join("; ")}`);
+    }
+    await tx`
+      update cards set
+        published_at = coalesce(published_at, now()),
+        archived_at = null
+      where id = ${id}
+    `;
+  });
+  return (await getAdminCardDetail(env, id))!;
+}
+
+/** Скрывает опубликованную карточку, не превращая её обратно в черновик. */
+export async function archiveCard(env: AppEnv, id: string): Promise<AdminCardDetail> {
+  const sql = getDb(env);
+  const [row] = await sql<{ id: string }[]>`
+    update cards set archived_at = now()
+    where id = ${id} and published_at is not null
+    returning id
+  `;
+  if (!row) {
+    const [exists] = await sql<{ id: string }[]>`select id from cards where id = ${id}`;
+    if (!exists) throw new HttpError(404, "Карточка не найдена");
+    throw new HttpError(409, "Черновик ещё не опубликован");
   }
+  return (await getAdminCardDetail(env, id))!;
 }

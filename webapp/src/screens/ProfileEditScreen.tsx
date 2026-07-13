@@ -7,9 +7,11 @@ import { SuccessCheck } from "../components/SuccessCheck";
 import { ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { zodFieldErrors } from "../lib/formErrors";
+import { useRegistrationIntent } from "../lib/registrationIntent";
 
 export function ProfileEditScreen() {
   const { profile, updateProfile, updateProfilePending } = useAuth();
+  const { requireRegistration } = useRegistrationIntent();
   const navigate = useNavigate();
 
   const [name, setName] = useState(profile?.contactName ?? "");
@@ -33,6 +35,23 @@ export function ProfileEditScreen() {
     } catch (error) {
       setErrors({ form: error instanceof ApiError ? error.message : "Не удалось сохранить данные" });
     }
+  }
+
+  if (!profile?.isRegistered) {
+    return (
+      <Screen back title="Мои контакты" fallbackTo="/general">
+        <div className="empty-state">
+          <p>Укажите контакты, чтобы сохранить их в профиле.</p>
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={() => requireRegistration(() => {}, "Укажите контакты, чтобы сохранить их в профиле.")}
+          >
+            Указать контакты
+          </button>
+        </div>
+      </Screen>
+    );
   }
 
   if (success) {

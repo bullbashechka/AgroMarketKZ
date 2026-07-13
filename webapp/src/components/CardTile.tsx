@@ -27,7 +27,7 @@ export function CardTile({ item }: { item: CardListItem }) {
       </div>
       <div className="card-tile-body">
         <p className="card-tile-title">{item.title}</p>
-        <p className="card-tile-price">{formatPrice(item.priceType, item.priceAmount)}</p>
+        <p className="card-tile-price">{formatPrice(item.priceType, item.priceAmount, item.priceUnit)}</p>
         {item.shortSpec && <p className="card-tile-spec">{item.shortSpec}</p>}
       </div>
     </a>

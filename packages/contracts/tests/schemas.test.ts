@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createCardInput } from "../src/card";
+import { createCardInput, publishCardInput } from "../src/card";
 import { createRequestInput } from "../src/request";
 import { contactNameSchema } from "../src/primitives";
 import { createUploadUrlInput } from "../src/upload";
@@ -13,40 +13,72 @@ const baseCard = {
   type: "product" as const,
   categoryId: UUID,
   title: "Пшеница",
-  images: oneImage
+  description: "Пшеница третьего класса",
+  priceUnit: "за тонну",
+  location: "Костанайская область",
+  availability: "В наличии",
+  images: oneImage,
 };
 
 describe("createCardInput — цена", () => {
   test("fixed с положительной ценой валиден", () => {
-    const r = createCardInput.safeParse({ ...baseCard, priceType: "fixed", priceAmount: 120000 });
+    const r = publishCardInput.safeParse({ ...baseCard, priceType: "fixed", priceAmount: 120000 });
     expect(r.success).toBe(true);
   });
 
-  test("on_request без цены валиден", () => {
-    const r = createCardInput.safeParse({ ...baseCard, priceType: "on_request" });
+  test("from с ценой и необязательной причиной валиден", () => {
+    const r = publishCardInput.safeParse({
+      ...baseCard,
+      priceType: "from",
+      priceAmount: 90000,
+      priceReason: "Зависит от объёма",
+    });
     expect(r.success).toBe(true);
   });
 
-  test("fixed без цены — ошибка", () => {
-    const r = createCardInput.safeParse({ ...baseCard, priceType: "fixed" });
+  test("on_request требует причину и не принимает сумму", () => {
+    expect(
+      publishCardInput.safeParse({
+        ...baseCard,
+        priceType: "on_request",
+        priceAmount: null,
+        priceReason: "Зависит от региона и объёма",
+      }).success,
+    ).toBe(true);
+    expect(publishCardInput.safeParse({ ...baseCard, priceType: "on_request" }).success).toBe(false);
+  });
+
+  test("fixed без цены — ошибка публикации, но валидный черновик", () => {
+    const r = publishCardInput.safeParse({ ...baseCard, priceType: "fixed", priceAmount: null });
     expect(r.success).toBe(false);
+    expect(
+      createCardInput.safeParse({
+        type: "product",
+        categoryId: UUID,
+        title: "Незавершённая карточка",
+        priceType: "fixed",
+      }).success,
+    ).toBe(true);
   });
 });
 
 describe("createCardInput — фото и характеристики", () => {
-  test("без фото — ошибка (нужно ≥1)", () => {
-    const r = createCardInput.safeParse({
+  test("без фото — ошибка публикации, но черновик сохраняется", () => {
+    const payload = {
       ...baseCard,
       images: [],
-      priceType: "on_request"
-    });
-    expect(r.success).toBe(false);
+      priceType: "fixed" as const,
+      priceAmount: 120000,
+    };
+    expect(publishCardInput.safeParse(payload).success).toBe(false);
+    expect(createCardInput.safeParse(payload).success).toBe(true);
   });
 
   test("дублирующиеся ключи характеристик — ошибка", () => {
     const r = createCardInput.safeParse({
       ...baseCard,
-      priceType: "on_request",
+      priceType: "fixed",
+      priceAmount: 120000,
       specs: [
         { key: "Регион", value: "Алматы" },
         { key: "регион", value: "Астана" }
@@ -57,7 +89,11 @@ describe("createCardInput — фото и характеристики", () => {
 });
 
 describe("createRequestInput — источник", () => {
-  const contacts = { contactName: "Айбек", contactPhone: "87011234567" };
+  const contacts = {
+    clientRequestId: UUID,
+    contactName: "Айбек",
+    contactPhone: "87011234567",
+  };
 
   test("card требует cardId и нормализует телефон", () => {
     const r = createRequestInput.safeParse({ source: "card", cardId: UUID, ...contacts });

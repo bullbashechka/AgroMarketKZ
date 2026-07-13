@@ -61,7 +61,7 @@ export function CatalogTab({ type, section, title }: CatalogTabProps) {
           <CardsList
             type={type}
             search={activeQuery}
-            priceType={search.price}
+            price={search.price}
             emptyState={
               <div className="empty-state">
                 <p>Ничего не найдено по запросу «{activeQuery}».</p>

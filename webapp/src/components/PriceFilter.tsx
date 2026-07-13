@@ -1,14 +1,14 @@
-import type { PriceType } from "@agromarket/contracts";
+import type { PriceFilter as PriceFilterValue } from "@agromarket/contracts";
 
-const options: { value: PriceType | undefined; label: string }[] = [
+const options: { value: PriceFilterValue | undefined; label: string }[] = [
   { value: undefined, label: "Все" },
-  { value: "fixed", label: "С ценой" },
+  { value: "with_price", label: "С ценой" },
   { value: "on_request", label: "По запросу" }
 ];
 
 interface PriceFilterProps {
-  value: PriceType | undefined;
-  onChange: (value: PriceType | undefined) => void;
+  value: PriceFilterValue | undefined;
+  onChange: (value: PriceFilterValue | undefined) => void;
 }
 
 /** Сегмент-переключатель фильтра по цене: все / с ценой / по запросу. */
