@@ -84,6 +84,7 @@ export function AdminCardsScreen() {
       <button
         type="button"
         className="button button-primary tab-cta"
+        data-testid="admin-card-new"
         onClick={() => navigate({ href: `/admin/cards/new?type=${type}` })}
       >
         + Добавить карточку

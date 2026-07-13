@@ -105,7 +105,12 @@ function RequestSheetContent({ source, onClose }: { source: RequestSource; onClo
 
       {errors.form && <p className="field-error">{errors.form}</p>}
 
-      <button type="submit" className="button button-primary" disabled={mutation.isPending}>
+      <button
+        type="submit"
+        className="button button-primary"
+        data-testid="request-submit"
+        disabled={mutation.isPending}
+      >
         {mutation.isPending ? "Отправляем…" : "Отправить заявку"}
       </button>
     </form>

@@ -45,7 +45,12 @@ export function CardScreen({ section }: { section: TabSection }) {
           >
             В каталог
           </button>
-          <button type="button" className="button button-primary" onClick={() => setRequestOpen(true)}>
+          <button
+            type="button"
+            className="button button-primary"
+            data-testid="card-request-cta"
+            onClick={() => setRequestOpen(true)}
+          >
             Оставить заявку
           </button>
         </div>
@@ -83,7 +88,12 @@ export function CardScreen({ section }: { section: TabSection }) {
       </div>
 
       <div className="card-actions">
-        <button type="button" className="button button-primary" onClick={() => setResponseOpen(true)}>
+        <button
+          type="button"
+          className="button button-primary"
+          data-testid="card-respond-button"
+          onClick={() => setResponseOpen(true)}
+        >
           Откликнуться
         </button>
         <FavoriteButton
@@ -129,7 +139,7 @@ function ResponseOptions({ onRequestClick }: { onRequestClick: () => void }) {
       {settingsQuery.isPending && <SkeletonList rows={2} />}
 
       {settings?.contactPhone && (
-        <a className="sheet-action" href={`tel:${settings.contactPhone}`}>
+        <a className="sheet-action" data-testid="response-phone" href={`tel:${settings.contactPhone}`}>
           Позвонить
         </a>
       )}
@@ -137,6 +147,7 @@ function ResponseOptions({ onRequestClick }: { onRequestClick: () => void }) {
         <button
           type="button"
           className="sheet-action"
+          data-testid="response-whatsapp"
           onClick={() => openExternalLink(whatsappLink(settings.whatsappPhone!))}
         >
           WhatsApp
@@ -146,13 +157,19 @@ function ResponseOptions({ onRequestClick }: { onRequestClick: () => void }) {
         <button
           type="button"
           className="sheet-action"
+          data-testid="response-telegram"
           onClick={() => openTelegramDeepLink(telegramLink(settings.telegramContact!))}
         >
           Telegram
         </button>
       )}
 
-      <button type="button" className="sheet-action sheet-action--primary" onClick={onRequestClick}>
+      <button
+        type="button"
+        className="sheet-action sheet-action--primary"
+        data-testid="response-request"
+        onClick={onRequestClick}
+      >
         Оставить заявку
       </button>
     </div>

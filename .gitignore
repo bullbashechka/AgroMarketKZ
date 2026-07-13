@@ -23,6 +23,12 @@ backend/.dev.vars
 # Logs
 *.log
 
+# Playwright
+test-results/
+playwright-report/
+e2e/test-results/
+e2e/playwright-report/
+
 # OS/editor files
 .DS_Store
 .idea/

@@ -233,7 +233,12 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
 
       <label className="field">
         <span className="field-label">Категория</span>
-        <select className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+        <select
+          className="input"
+          data-testid="card-editor-category"
+          value={categoryId}
+          onChange={(e) => setCategoryId(e.target.value)}
+        >
           <option value="">Выберите категорию</option>
           {(categoriesQuery.data ?? []).map((category) => (
             <option key={category.id} value={category.id}>
@@ -246,7 +251,13 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
 
       <label className="field">
         <span className="field-label">Название</span>
-        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={CARD_TITLE_MAX} />
+        <input
+          className="input"
+          data-testid="card-editor-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={CARD_TITLE_MAX}
+        />
         {errors.title && <span className="field-error">{errors.title}</span>}
       </label>
 
@@ -269,6 +280,7 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
           <span className="field-label">Цена, ₸</span>
           <input
             className="input"
+            data-testid="card-editor-price"
             value={priceAmount}
             onChange={(e) => setPriceAmount(e.target.value.replace(/[^\d]/g, ""))}
             inputMode="numeric"
@@ -290,7 +302,7 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
 
       {errors.form && <p className="field-error">{errors.form}</p>}
 
-      <button type="submit" className="button button-primary" disabled={!canSave}>
+      <button type="submit" className="button button-primary" data-testid="card-editor-save" disabled={!canSave}>
         {saveMutation.isPending ? "Сохраняем…" : "Сохранить"}
       </button>
 
@@ -299,7 +311,12 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
           <button type="button" className="button button-secondary" onClick={() => archiveMutation.mutate()} disabled={archiveMutation.isPending}>
             {initial.archivedAt ? "Показать пользователям" : "Скрыть от пользователей"}
           </button>
-          <button type="button" className="button button-danger" onClick={() => setDeleteOpen(true)}>
+          <button
+            type="button"
+            className="button button-danger"
+            data-testid="card-editor-delete"
+            onClick={() => setDeleteOpen(true)}
+          >
             Удалить карточку
           </button>
         </>

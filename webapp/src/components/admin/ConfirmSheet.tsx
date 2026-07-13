@@ -31,6 +31,7 @@ export function ConfirmSheet({
           <button
             type="button"
             className={`button ${danger ? "button-danger" : "button-primary"}`}
+            data-testid="confirm-sheet-confirm"
             onClick={onConfirm}
             disabled={pending}
           >

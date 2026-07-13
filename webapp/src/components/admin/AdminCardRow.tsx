@@ -20,7 +20,7 @@ export function AdminCardRow({ item, categoryName, href }: AdminCardRowProps) {
   }
 
   return (
-    <a href={href} className="admin-card-row" onClick={handleClick}>
+    <a href={href} className="admin-card-row" data-testid="admin-card-row" data-card-id={item.id} onClick={handleClick}>
       <div className="admin-card-row-thumb">
         {item.imageUrl ? <img src={item.imageUrl} alt="" /> : <div className="admin-card-row-thumb-placeholder" />}
       </div>

@@ -93,6 +93,8 @@ export function AdminCategoriesScreen() {
                   key={category.id}
                   type="button"
                   className="list-row category-row"
+                  data-testid="admin-category-row"
+                  data-category-id={category.id}
                   onClick={() => setSheet({ mode: "actions", category })}
                 >
                   <span className="list-row-title">
@@ -110,7 +112,12 @@ export function AdminCategoriesScreen() {
             </div>
           )}
 
-          <button type="button" className="button button-primary tab-cta" onClick={() => setSheet({ mode: "create" })}>
+          <button
+            type="button"
+            className="button button-primary tab-cta"
+            data-testid="admin-category-new"
+            onClick={() => setSheet({ mode: "create" })}
+          >
             + Добавить категорию
           </button>
         </>
@@ -130,6 +137,7 @@ export function AdminCategoriesScreen() {
             <button
               type="button"
               className="sheet-action"
+              data-testid="admin-category-delete"
               onClick={() => {
                 const category = sheet.category;
                 setSheet(
@@ -233,6 +241,7 @@ function CategoryNameForm({
         <span className="field-label">Название</span>
         <input
           className="input"
+          data-testid="admin-category-name-input"
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={CATEGORY_NAME_MAX}
@@ -240,7 +249,7 @@ function CategoryNameForm({
         />
         {error && <span className="field-error">{error}</span>}
       </label>
-      <button type="submit" className="button button-primary" disabled={pending}>
+      <button type="submit" className="button button-primary" data-testid="admin-category-save" disabled={pending}>
         {pending ? "Сохраняем…" : "Сохранить"}
       </button>
     </form>

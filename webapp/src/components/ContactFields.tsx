@@ -25,6 +25,7 @@ export function ContactFields({ name, phone, onNameChange, onPhoneChange, errors
         <span className="field-label">Имя</span>
         <input
           className="input"
+          data-testid="request-name-input"
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
           maxLength={NAME_MAX}
@@ -37,6 +38,7 @@ export function ContactFields({ name, phone, onNameChange, onPhoneChange, errors
         <span className="field-label">Телефон</span>
         <input
           className="input"
+          data-testid="request-phone-input"
           value={phone}
           onChange={(e) => onPhoneChange(e.target.value)}
           inputMode="tel"
