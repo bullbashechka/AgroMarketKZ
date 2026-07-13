@@ -15,7 +15,7 @@ function ListRow({ href, title, value, badge }: { href: string; title: string; v
   }
 
   return (
-    <a href={href} className="list-row" onClick={handleClick}>
+    <a href={href} className="list-row" data-testid={`general-link-${href}`} onClick={handleClick}>
       <span className="list-row-title">{title}</span>
       {badge}
       {value && <span className="list-row-value">{value}</span>}
@@ -73,7 +73,12 @@ export function GeneralTab() {
         <ListRow href="/general/feedback" title="Обратная связь" />
       </div>
 
-      <button type="button" className="button button-primary tab-cta" onClick={() => setRequestOpen(true)}>
+      <button
+        type="button"
+        className="button button-primary tab-cta"
+        data-testid="tab-request-cta"
+        onClick={() => setRequestOpen(true)}
+      >
         Оставить заявку
       </button>
 

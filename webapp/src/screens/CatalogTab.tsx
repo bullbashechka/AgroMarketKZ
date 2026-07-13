@@ -92,7 +92,12 @@ export function CatalogTab({ type, section, title }: CatalogTabProps) {
         </>
       )}
 
-      <button type="button" className="button button-primary tab-cta" onClick={() => setRequestOpen(true)}>
+      <button
+        type="button"
+        className="button button-primary tab-cta"
+        data-testid="tab-request-cta"
+        onClick={() => setRequestOpen(true)}
+      >
         Оставить заявку
       </button>
 
@@ -116,7 +121,7 @@ function CategoryChip({ category, section }: { category: CategoryListItem; secti
   }
 
   return (
-    <a href={href} className="category-chip" onClick={handleClick}>
+    <a href={href} className="category-chip" data-testid="category-chip" data-category-id={category.id} onClick={handleClick}>
       <span>{category.name}</span>
       <span className="category-chip-count">{category.cardCount}</span>
     </a>

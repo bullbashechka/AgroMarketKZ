@@ -18,6 +18,7 @@ export function FavoriteButton({ item }: { item: CardListItem }) {
     <button
       type="button"
       className={`heart-btn${isFavorite ? " heart-btn--active" : ""}`}
+      data-testid="favorite-toggle"
       onClick={handleClick}
       aria-pressed={isFavorite}
       aria-label={isFavorite ? "Убрать из избранного" : "В избранное"}

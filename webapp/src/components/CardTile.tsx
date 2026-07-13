@@ -16,7 +16,7 @@ export function CardTile({ item }: { item: CardListItem }) {
   }
 
   return (
-    <a href={href} className="card-tile" onClick={handleClick}>
+    <a href={href} className="card-tile" data-testid="card-tile" data-card-id={item.id} onClick={handleClick}>
       <div className="card-tile-img">
         {item.imageUrl ? (
           <img src={item.imageUrl} alt={item.title} loading="lazy" />

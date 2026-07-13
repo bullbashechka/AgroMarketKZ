@@ -28,7 +28,7 @@ export function RequestItem({ request, onChangeStatus, pending }: RequestItemPro
   const action = nextAction[request.status];
 
   return (
-    <div className="request-item">
+    <div className="request-item" data-testid="admin-request-row" data-request-id={request.id}>
       <div className="request-item-header">
         <span className="request-item-name">{request.contactName}</span>
         <span className="request-item-date">{formatDateTime(request.createdAt)}</span>
@@ -50,8 +50,19 @@ export function RequestItem({ request, onChangeStatus, pending }: RequestItemPro
       {request.comment && <p className="request-item-comment">«{request.comment}»</p>}
 
       <div className="request-item-footer">
-        <span className={`request-status request-status--${request.status}`}>{requestStatusLabels[request.status]}</span>
-        <button type="button" className="button button-secondary" onClick={() => onChangeStatus(action.next)} disabled={pending}>
+        <span
+          className={`request-status request-status--${request.status}`}
+          data-testid="request-status-value"
+        >
+          {requestStatusLabels[request.status]}
+        </span>
+        <button
+          type="button"
+          className="button button-secondary"
+          data-testid="request-status-next"
+          onClick={() => onChangeStatus(action.next)}
+          disabled={pending}
+        >
           {pending ? "…" : action.label}
         </button>
       </div>

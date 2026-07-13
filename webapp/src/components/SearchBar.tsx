@@ -20,6 +20,7 @@ export function SearchBar({ value, onChange, placeholder = "Поиск по на
       </svg>
       <input
         className="search-bar-input"
+        data-testid="search-input"
         type="search"
         inputMode="search"
         value={value}

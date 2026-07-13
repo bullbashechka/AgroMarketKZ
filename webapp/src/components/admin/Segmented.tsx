@@ -19,6 +19,7 @@ export function Segmented<T extends string>({ options, value, onChange, ariaLabe
           key={opt.value}
           type="button"
           role="tab"
+          data-testid={`segmented-${opt.value}`}
           aria-selected={value === opt.value}
           className={`filter-seg-item${value === opt.value ? " filter-seg-item--active" : ""}`}
           onClick={() => onChange(opt.value)}

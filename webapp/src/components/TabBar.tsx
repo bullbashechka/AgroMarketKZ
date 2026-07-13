@@ -63,6 +63,7 @@ export function TabBar() {
           <button
             key={tab.section}
             type="button"
+            data-testid={`tab-${tab.section}`}
             className={`tabbar-item${tab.section === activeSection ? " tabbar-item--active" : ""}`}
             onClick={() => handleTap(tab.section)}
           >

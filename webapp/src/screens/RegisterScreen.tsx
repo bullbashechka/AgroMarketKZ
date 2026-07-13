@@ -61,6 +61,7 @@ export function RegisterScreen() {
             <span className="field-label">Имя</span>
             <input
               className="input"
+              data-testid="register-name-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={100}
@@ -73,6 +74,7 @@ export function RegisterScreen() {
             <span className="field-label">Телефон</span>
             <input
               className="input"
+              data-testid="register-phone-input"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               inputMode="tel"
@@ -82,14 +84,24 @@ export function RegisterScreen() {
           </label>
 
           {inTelegram && (
-            <button type="button" className="button button-secondary" onClick={handleShareContact}>
+            <button
+              type="button"
+              className="button button-secondary"
+              data-testid="register-share-contact"
+              onClick={handleShareContact}
+            >
               Поделиться контактом
             </button>
           )}
 
           {errors.form && <p className="field-error">{errors.form}</p>}
 
-          <button type="submit" className="button button-primary" disabled={registerPending}>
+          <button
+            type="submit"
+            className="button button-primary"
+            data-testid="register-submit"
+            disabled={registerPending}
+          >
             {registerPending ? "Сохраняем…" : "Продолжить"}
           </button>
         </form>

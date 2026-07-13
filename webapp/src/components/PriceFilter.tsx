@@ -20,6 +20,7 @@ export function PriceFilter({ value, onChange }: PriceFilterProps) {
           key={opt.label}
           type="button"
           role="tab"
+          data-testid={`price-filter-${opt.value ?? "all"}`}
           aria-selected={value === opt.value}
           className={`filter-seg-item${value === opt.value ? " filter-seg-item--active" : ""}`}
           onClick={() => onChange(opt.value)}
