@@ -1,5 +1,10 @@
 import type { Context } from "hono";
 
+/** Минимальный structural-контракт нативного Cloudflare Rate Limiting binding. */
+export interface RateLimitBinding {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 /**
  * Полный набор переменных окружения backend.
  * На Cloudflare Workers приходят как `c.env` (bindings/secrets),
@@ -20,6 +25,9 @@ export interface AppEnv {
   SUPABASE_URL: string;
   SUPABASE_STORAGE_BUCKET: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  /** Отсутствуют при локальном запуске без Wrangler и тогда являются no-op. */
+  API_READ_RATE_LIMITER?: RateLimitBinding;
+  API_MUTATION_RATE_LIMITER?: RateLimitBinding;
 }
 
 /** Аутентифицированный пользователь, кладётся `requireAuth` в контекст. */

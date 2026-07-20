@@ -15,3 +15,21 @@ TELEGRAM_MINIAPP_SHORTNAME = "replace_with_miniapp_shortname"
 # Секреты на проде задаются через `wrangler secret put` (Этап 10), НЕ в [vars]:
 #   JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, ADMIN_ALLOWLIST,
 #   DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+
+# Начальные пороги требуют наблюдения и настройки по production-трафику.
+# Перед deployment проверить namespace_id на уникальность в пределах Cloudflare account.
+[[ratelimits]]
+name = "API_READ_RATE_LIMITER"
+namespace_id = "2026072001"
+
+  [ratelimits.simple]
+  limit = 120
+  period = 60
+
+[[ratelimits]]
+name = "API_MUTATION_RATE_LIMITER"
+namespace_id = "2026072002"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60

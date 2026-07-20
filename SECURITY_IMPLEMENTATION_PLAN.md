@@ -40,6 +40,8 @@
 
 ### M3 — request body limit
 
+**Статус:** реализован application-level лимит 256 KiB с единым JSON 413 для объявленного и потокового переполнения.
+
 1. Подключить встроенный `bodyLimit` из текущей версии Hono в [backend/src/app.ts](./backend/src/app.ts).
 2. Ввести единую константу лимита JSON: 256 KiB.
 3. Подключить middleware после CORS, но до маршрутов и вызовов `c.req.json()`.
@@ -49,6 +51,8 @@
 7. Cloudflare body-size rule использовать только как дополнительный рубеж, если поле полного размера доступно на выбранном тарифе.
 
 ### M2 — perimeter и application rate limiting
+
+**Статус:** repository/application часть реализована. Production WAF rollout, проверка уникальности namespace ID и настройка порогов по наблюдаемому трафику остаются deployment gate.
 
 1. Создать Cloudflare WAF Rate Limiting Rules только для production API hostname:
    - отдельное правило для `/auth/*`;
@@ -70,6 +74,8 @@
 ## 5. Этап 2 — пул БД и нагрузка
 
 ### M5 — connection management
+
+**Статус:** repository-часть реализована: параметры пула заданы явно и добавлен guarded dependency-free runner. Проверка production `DATABASE_URL`, тарифных лимитов и connection metrics, а также acceptance load остаются deployment gate после M1.
 
 1. Явно закрепить параметры `postgres()` в [backend/src/db.ts](./backend/src/db.ts):
    - `max: 3`;

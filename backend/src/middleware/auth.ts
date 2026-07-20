@@ -2,6 +2,7 @@ import { createMiddleware } from "hono/factory";
 import { getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { verifyToken } from "../lib/jwt";
+import { enforceAuthenticatedRateLimit } from "./rateLimit";
 
 /** Требует валидный JWT в `Authorization: Bearer`; кладёт пользователя в контекст. */
 export const requireAuth = createMiddleware<HonoEnv>(async (c, next) => {
@@ -18,5 +19,6 @@ export const requireAuth = createMiddleware<HonoEnv>(async (c, next) => {
     throw new HttpError(401, "Недействительный или истёкший токен");
   }
 
+  await enforceAuthenticatedRateLimit(c);
   await next();
 });

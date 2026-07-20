@@ -60,3 +60,28 @@ tests/              # юнит-тесты (telegram, jwt, admin)
 | `PUT` | `/profile` | Bearer | `{ contactName, contactPhone }` | `Profile` |
 
 `contactPhone` принимается только как казахстанский мобильный (`+7 7xx`), нормализуется к `+77XXXXXXXXX`; иначе `400`. Ошибки — единый JSON `{ error, issues? }` со статусами `400/401/403/404/500`.
+
+## Ограничение запросов и rate limiting
+
+После CORS и до маршрутов все request bodies API ограничены 256 KiB. Переполнение возвращает `413` с JSON `{"error":"Размер запроса превышает 256 KiB"}`. Загрузка файлов по signed URL выполняется клиентом напрямую в Supabase Storage и через backend body не проходит.
+
+В production Worker использует нативные Cloudflare Rate Limiting bindings:
+
+- `API_READ_RATE_LIMITER`: 120 запросов за 60 секунд, ключ — `userId`;
+- `API_MUTATION_RATE_LIMITER`: 30 запросов за 60 секунд, ключ — `userId:routeGroup`.
+
+Локальный запуск без bindings работает в режиме no-op. Отказ limiter возвращает `429`, заголовок `Retry-After: 60` и JSON-поле `retryAfterSeconds: 60`. Счётчики Cloudflare являются location-local и eventually consistent, поэтому не используются как точный бизнес-счётчик; существующие бизнес-лимиты хранятся отдельно.
+
+Перед deployment проверить namespace `2026072001` и `2026072002` на уникальность в пределах Cloudflare account. WAF для `/auth/*` и общего API остаётся production rollout: observe/log → настройка порогов по трафику → blocking. `OPTIONS` и `/telegram/webhook` исключаются из строгого общего IP-правила.
+
+## Пул БД и нагрузочный runner
+
+На один Worker isolate `postgres.js` явно ограничен параметрами `max: 3`, `idle_timeout: 20`, `connect_timeout: 10`, `prepare: false`; `max_lifetime` остаётся библиотечным default. Production `DATABASE_URL` должен указывать на Supabase transaction pooler через порт `6543`. Session-bound prepared statements с transaction pooler несовместимы, поэтому `prepare` не включать.
+
+Runner запускается только вручную командой `bun run load:test`. Обязательные env guards: `LOAD_TEST_API_URL`, точное подтверждение origin в `LOAD_TEST_ALLOW_TARGET`, `LOAD_TEST_TELEGRAM_BOT_TOKEN` (или fallback `TELEGRAM_BOT_TOKEN`), `LOAD_TEST_USERS`, `LOAD_TEST_CONCURRENCY`, `LOAD_TEST_DURATION_SECONDS`. Значения ограничены сверху: 2 000 пользователей, concurrency 200 и 1 800 секунд. Даже default journey требует `LOAD_TEST_ALLOW_TARGET`, поскольку `/auth/telegram` выполняет DB upsert. Oversized probe выполняется один раз и требует `413`.
+
+`LOAD_TEST_RATE_LIMIT_PROBE=1` включает отдельного пользователя. После отдельной auth с request timeout 30 секунд runner выполняет read burst с абсолютным deadline 45 секунд — короче 60-секундного limiter window — и максимумом 200 запросов. Запросы планируются batches по 10 с фиксированной concurrency 10; после первого `429` новые batches не планируются, а все уже in-flight responses полностью consumed/settled. Runner проверяет положительный `Retry-After` и совпадающий `retryAfterSeconds`. Из-за location-local/eventually consistent счётчиков Cloudflare отсутствие `429` в пределах deadline/лимита считается провалом probe и оценивается в контексте конкретной location.
+
+Default mode не вызывает `/profile/register`, `/requests` и `/feedback`. `LOAD_TEST_ENABLE_MUTATIONS=1` дополнительно требует `LOAD_TEST_ALLOW_WRITE_TARGET`, точно равный origin, и `LOAD_TEST_NOTIFICATIONS_DISABLED_CONFIRMED=1`. Mutation mode создаёт durable test users, requests и feedback; он разрешён только на dedicated staging/dev с отключёнными notifications и внешним reset/cleanup после запуска.
+
+Acceptance load выполняется только после M1 и должен быть не ниже `2×` ожидаемого launch peak. Во время запуска одновременно наблюдаются Supabase client/backend connections, ошибки `53300` и pool exhaustion, Worker `5xx`, p95/p99 и тарифные connection limits. Сам runner без Supabase/Cloudflare Observability не доказывает production capacity.
