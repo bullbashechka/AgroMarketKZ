@@ -34,10 +34,20 @@ export const test = base.extend<AuthFixtures>({
     const { token } = await loginAsTelegramUser(process.env.E2E_API_URL ?? "http://localhost:3000", TELEGRAM_BOT_TOKEN, TEST_ADMIN);
     await use(token);
   },
-  unregisteredUserPage: async ({ browser, userToken }, use) => {
+  unregisteredUserPage: async ({ browser }, use) => {
+    const freshUser = {
+      id: Math.floor(900_300_000 + Math.random() * 100_000),
+      first_name: "E2E",
+      last_name: "Guest",
+    };
+    const { token } = await loginAsTelegramUser(
+      process.env.E2E_API_URL ?? "http://localhost:3000",
+      TELEGRAM_BOT_TOKEN,
+      freshUser,
+    );
     const context = await browser.newContext();
     const page = await context.newPage();
-    await injectSession(page, userToken);
+    await injectSession(page, token);
     await page.reload();
     await use(page);
     await context.close();

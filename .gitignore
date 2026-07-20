@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+.pnp/
+.pnp.*
 
 # Build outputs
 dist/
@@ -9,6 +11,8 @@ webapp/dist/
 packages/*/dist/
 .wrangler/
 backend/.wrangler/
+.vite/
+*.tsbuildinfo
 
 # Environment files
 .env
@@ -22,13 +26,23 @@ backend/.dev.vars
 
 # Logs
 *.log
+coverage/
+.nyc_output/
 
 # Playwright
 test-results/
 playwright-report/
 e2e/test-results/
 e2e/playwright-report/
+blob-report/
+playwright/.cache/
 
 # OS/editor files
 .DS_Store
 .idea/
+.vscode/
+*.swp
+*.swo
+
+# Local AI tool state
+.claude/

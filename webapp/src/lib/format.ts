@@ -20,10 +20,11 @@ export function cardHref(card: { type: CatalogType; categoryId: string; id: stri
   return `/${section}/${card.categoryId}/${card.id}`;
 }
 
-/** Цена для отображения: «1 500 000 ₸» либо «Цена по запросу». */
-export function formatPrice(priceType: PriceType, priceAmount: number | null): string {
+/** Цена для отображения вместе с единицей. */
+export function formatPrice(priceType: PriceType, priceAmount: number | null, priceUnit: string | null = null): string {
   if (priceType === "on_request" || priceAmount === null) return "Цена по запросу";
-  return `${priceFormatter.format(priceAmount)} ₸`;
+  const prefix = priceType === "from" ? "от " : "";
+  return `${prefix}${priceFormatter.format(priceAmount)} ₸${priceUnit ? ` ${priceUnit}` : ""}`;
 }
 
 /** Только цифры телефона (с кодом страны, без «+») — для wa.me/tel-ссылок. */

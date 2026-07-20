@@ -44,7 +44,9 @@ export function RequestItem({ request, onChangeStatus, pending }: RequestItemPro
       <p className="request-item-source">{sourceLabel(request)}</p>
 
       {request.source === "card" && request.cardPriceTypeSnapshot && (
-        <p className="muted">{formatPrice(request.cardPriceTypeSnapshot, request.cardPriceAmountSnapshot)}</p>
+        <p className="muted">
+          {formatPrice(request.cardPriceTypeSnapshot, request.cardPriceAmountSnapshot, request.cardPriceUnitSnapshot)}
+        </p>
       )}
 
       {request.comment && <p className="request-item-comment">«{request.comment}»</p>}

@@ -1,4 +1,9 @@
-import type { AdminPlatformSettings, PlatformSettings, UpdateSettingsInput } from "@agromarket/contracts";
+import type {
+  AdminPlatformSettings,
+  ContactCapabilities,
+  PlatformSettings,
+  UpdateSettingsInput,
+} from "@agromarket/contracts";
 import { getDb } from "../db";
 import type { AppEnv } from "../env";
 
@@ -36,6 +41,16 @@ async function getSettingsRow(env: AppEnv): Promise<SettingsRow | undefined> {
 /** Публичные контакты площадки. Доступны без авторизации — нужны в браузере до входа. */
 export async function getSettings(env: AppEnv): Promise<PlatformSettings> {
   return toPlatformSettings(await getSettingsRow(env));
+}
+
+export async function getContactCapabilities(env: AppEnv): Promise<ContactCapabilities> {
+  const row = await getSettingsRow(env);
+  return {
+    phone: Boolean(row?.contact_phone),
+    whatsapp: Boolean(row?.whatsapp_phone),
+    telegram: Boolean(row?.telegram_contact),
+    email: Boolean(row?.email),
+  };
 }
 
 /** Настройки площадки для админа (включает `adminChatId`). */

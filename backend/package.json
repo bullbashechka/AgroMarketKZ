@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --env-file=../.env --watch src/index.ts",
     "dev:worker": "wrangler dev",
-    "build": "bun build ./src/index.ts --target bun --outdir ./dist && bun build ./src/worker.ts --target browser --outdir ./dist-worker",
+    "build": "bun build ./src/index.ts --target bun --outdir ./dist && wrangler deploy --dry-run --outdir ./dist-worker",
     "deploy": "wrangler deploy",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "webhook:set": "bun --env-file=../.env scripts/set-webhook.ts"

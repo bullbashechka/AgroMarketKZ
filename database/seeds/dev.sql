@@ -47,6 +47,10 @@ seed_cards as (
     'Сортовые семена для весеннего сева, подходят для северных регионов Казахстана.' as description,
     'fixed'::price_type as price_type,
     120000 as price_amount,
+    'за тонну' as price_unit,
+    null::text as price_reason,
+    'Северный Казахстан' as location,
+    'В наличии' as availability,
     10 as sort_order,
     'Семена и посадочный материал' as category_name
   union all
@@ -54,8 +58,12 @@ seed_cards as (
     'product'::catalog_type,
     'Комплексное удобрение NPK',
     'Минеральное удобрение для зерновых и кормовых культур. Поставка мешками или биг-бэгами.',
-    'on_request'::price_type,
-    null::integer,
+    'from'::price_type,
+    95000,
+    'за тонну',
+    'Зависит от объёма и формата поставки',
+    'Казахстан',
+    'Срок поставки по согласованию',
     20,
     'Удобрения и средства защиты'
   union all
@@ -65,6 +73,10 @@ seed_cards as (
     'Трактор после технического обслуживания, готов к полевым работам.',
     'fixed'::price_type,
     8500000,
+    'за штуку',
+    null::text,
+    'Костанайская область',
+    'В наличии',
     30,
     'Сельхозтехника'
   union all
@@ -74,6 +86,10 @@ seed_cards as (
     'Подбор технологии выращивания, оценка состояния посевов и рекомендации по обработке.',
     'fixed'::price_type,
     25000,
+    'за консультацию',
+    null::text,
+    'Казахстан',
+    'Запись на ближайшую неделю',
     10,
     'Агрономические услуги'
   union all
@@ -83,6 +99,10 @@ seed_cards as (
     'Организация перевозки зерновых автотранспортом с подбором маршрута и тоннажа.',
     'on_request'::price_type,
     null::integer,
+    'за рейс',
+    'Зависит от маршрута, тоннажа и срока подачи транспорта',
+    'По Казахстану',
+    'Срок подачи по согласованию',
     20,
     'Логистика и перевозки'
   union all
@@ -92,6 +112,10 @@ seed_cards as (
     'Диагностика и ремонт тракторов, комбайнов и навесного оборудования на месте.',
     'on_request'::price_type,
     null::integer,
+    'за выезд',
+    'Зависит от удалённости, модели техники и объёма ремонта',
+    'По согласованию',
+    'Выезд по записи',
     30,
     'Ремонт техники'
 )
@@ -102,6 +126,11 @@ insert into cards (
   description,
   price_type,
   price_amount,
+  price_unit,
+  price_reason,
+  location,
+  availability,
+  published_at,
   sort_order
 )
 select
@@ -111,6 +140,11 @@ select
   seed_cards.description,
   seed_cards.price_type,
   seed_cards.price_amount,
+  seed_cards.price_unit,
+  seed_cards.price_reason,
+  seed_cards.location,
+  seed_cards.availability,
+  now(),
   seed_cards.sort_order
 from seed_cards
 join category_map

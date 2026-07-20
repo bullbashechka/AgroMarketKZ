@@ -1,14 +1,14 @@
-import type { CatalogType, PriceType, RequestStatus } from "@agromarket/contracts";
+import type { CatalogType, PriceFilter, RequestStatus } from "@agromarket/contracts";
 
 export interface CatalogSearch {
   q?: string;
-  price?: PriceType;
+  price?: PriceFilter;
 }
 
 /** `validateSearch` для роутов каталога/категории — из сырых query-параметров URL. */
 export function catalogSearchSchema(search: Record<string, unknown>): CatalogSearch {
   const q = typeof search.q === "string" && search.q.trim().length > 0 ? search.q : undefined;
-  const price = search.price === "fixed" || search.price === "on_request" ? search.price : undefined;
+  const price = search.price === "with_price" || search.price === "on_request" ? search.price : undefined;
   return { q, price };
 }
 

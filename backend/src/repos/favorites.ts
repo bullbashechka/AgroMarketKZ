@@ -7,7 +7,10 @@ import { type CardListRow, toCardListItem } from "./catalog";
 /** Добавляет карточку в избранное. 404, если карточки не существует. Идемпотентно. */
 export async function addFavorite(env: AppEnv, userId: string, cardId: string): Promise<void> {
   const sql = getDb(env);
-  const [card] = await sql<{ id: string }[]>`select id from cards where id = ${cardId}`;
+  const [card] = await sql<{ id: string }[]>`
+    select id from cards
+    where id = ${cardId} and published_at is not null and archived_at is null
+  `;
   if (!card) {
     throw new HttpError(404, "Карточка не найдена");
   }
@@ -30,6 +33,7 @@ export async function listFavorites(env: AppEnv, userId: string): Promise<CardLi
   const rows = await sql<CardListRow[]>`
     select
       c.id, c.type, c.category_id, c.title, c.price_type, c.price_amount,
+      c.price_unit, c.location, c.availability,
       img.storage_path as first_image_path,
       spec.key as first_spec_key, spec.value as first_spec_value
     from favorites f
@@ -40,7 +44,8 @@ export async function listFavorites(env: AppEnv, userId: string): Promise<CardLi
     left join lateral (
       select key, value from card_specs where card_id = c.id order by sort_order limit 1
     ) spec on true
-    where f.user_id = ${userId} and c.archived_at is null
+    where f.user_id = ${userId}
+      and c.published_at is not null and c.archived_at is null
     order by f.created_at desc
   `;
   return rows.map((row) => toCardListItem(row, env));

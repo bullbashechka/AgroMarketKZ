@@ -10,10 +10,12 @@ interface SpecsEditorProps {
   specs: SpecRow[];
   onChange: (specs: SpecRow[]) => void;
   errors: Record<string, string>;
+  requiredKeys?: string[];
 }
 
 /** Характеристики «ключ — значение»: добавление/удаление строк, лимит MAX_SPECS. */
-export function SpecsEditor({ specs, onChange, errors }: SpecsEditorProps) {
+export function SpecsEditor({ specs, onChange, errors, requiredKeys = [] }: SpecsEditorProps) {
+  const required = new Set(requiredKeys.map((key) => key.trim().toLocaleLowerCase("ru")));
   function updateRow(localId: string, patch: Partial<SpecRow>) {
     onChange(specs.map((row) => (row.localId === localId ? { ...row, ...patch } : row)));
   }
@@ -31,28 +33,34 @@ export function SpecsEditor({ specs, onChange, errors }: SpecsEditorProps) {
       <span className="field-label">Характеристики</span>
       {specs.map((row, idx) => (
         <div key={row.localId} className="spec-row">
+          {required.has(row.key.trim().toLocaleLowerCase("ru")) && <span className="badge">Обязательно</span>}
           <input
             className="input"
+            data-testid={`card-spec-key-${idx}`}
             value={row.key}
             onChange={(e) => updateRow(row.localId, { key: e.target.value })}
             maxLength={SPEC_KEY_MAX}
             placeholder="Например, Мощность"
+            readOnly={required.has(row.key.trim().toLocaleLowerCase("ru"))}
           />
           <input
             className="input"
+            data-testid={`card-spec-value-${idx}`}
             value={row.value}
             onChange={(e) => updateRow(row.localId, { value: e.target.value })}
             maxLength={SPEC_VALUE_MAX}
             placeholder="Например, 82 л.с."
           />
-          <button
-            type="button"
-            className="spec-row-remove"
-            onClick={() => removeRow(row.localId)}
-            aria-label="Удалить характеристику"
-          >
-            ×
-          </button>
+          {!required.has(row.key.trim().toLocaleLowerCase("ru")) && (
+            <button
+              type="button"
+              className="spec-row-remove"
+              onClick={() => removeRow(row.localId)}
+              aria-label="Удалить характеристику"
+            >
+              ×
+            </button>
+          )}
           {(errors[`specs.${idx}.key`] || errors[`specs.${idx}.value`]) && (
             <span className="field-error spec-row-error">
               {errors[`specs.${idx}.key`] ?? errors[`specs.${idx}.value`]}

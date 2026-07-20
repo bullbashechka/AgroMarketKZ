@@ -27,10 +27,12 @@ export function AdminCardRow({ item, categoryName, href }: AdminCardRowProps) {
       <div className="admin-card-row-body">
         <span className="admin-card-row-title">
           {item.title}
-          {item.archivedAt && <span className="badge badge--muted">Скрыта</span>}
+          {item.publicationStatus === "draft" && <span className="badge badge--muted">Черновик</span>}
+          {item.publicationStatus === "archived" && <span className="badge badge--muted">Скрыта</span>}
+          {item.needsReview && <span className="badge badge--warning">Нужно дополнить</span>}
         </span>
         <span className="admin-card-row-meta">
-          {categoryName ?? "—"} · {formatPrice(item.priceType, item.priceAmount)}
+          {categoryName ?? "—"} · {formatPrice(item.priceType, item.priceAmount, item.priceUnit)}
         </span>
       </div>
       <span className="list-row-chevron" aria-hidden="true">

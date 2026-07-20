@@ -20,6 +20,9 @@ export const requestSchema = z.object({
   cardTitleSnapshot: z.string().nullable(),
   cardPriceTypeSnapshot: priceTypeSchema.nullable(),
   cardPriceAmountSnapshot: z.number().int().nullable(),
+  cardPriceUnitSnapshot: z.string().nullable(),
+  cardPriceReasonSnapshot: z.string().nullable(),
+  clientRequestId: z.uuid().nullable(),
   contactName: z.string(),
   contactPhone: z.string(),
   contactPhoneVerified: z.boolean(),
@@ -34,8 +37,10 @@ export type Request = z.infer<typeof requestSchema>;
 // Контактные поля общие для всех источников. Имя и телефон предзаполняются из профиля,
 // но всё равно валидируются на отправке.
 const contactFields = {
+  clientRequestId: z.uuid({ error: "Некорректный идентификатор отправки" }),
   contactName: contactNameSchema,
   contactPhone: phoneSchema,
+  contactResponse: z.string().min(1).optional(),
   comment: optionalText(REQUEST_COMMENT_MAX)
 };
 

@@ -57,13 +57,18 @@ export async function upsertFromTelegram(env: AppEnv, tg: TelegramUser): Promise
 export async function register(
   env: AppEnv,
   userId: string,
-  data: { contactName: string; contactPhone: string }
+  data: { contactName: string; contactPhone: string },
+  verifiedPhone: string | null = null,
 ): Promise<UserRow> {
   const sql = getDb(env);
   const [row] = await sql<UserRow[]>`
     update users set
       contact_name = ${data.contactName},
       contact_phone = ${data.contactPhone},
+      verified_phone = case
+        when ${verifiedPhone}::text = ${data.contactPhone} then ${data.contactPhone}
+        else verified_phone
+      end,
       registered_at = coalesce(registered_at, now())
     where id = ${userId}
     returning *
@@ -93,11 +98,6 @@ export async function updateContacts(
  * «Телефон подтверждён» далее — производное сравнение contact_phone = verified_phone,
  * поэтому редактирование номера ничего сбрасывать не должно.
  */
-export async function setVerifiedPhone(env: AppEnv, userId: string, phone: string): Promise<void> {
-  const sql = getDb(env);
-  await sql`update users set verified_phone = ${phone} where id = ${userId}`;
-}
-
 /** Зарегистрированные пользователи (админ) — база собранных контактов, новые сверху. */
 export async function listRegisteredUsers(
   env: AppEnv,

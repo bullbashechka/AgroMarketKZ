@@ -10,13 +10,12 @@ import { z } from "zod";
 import { getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { requireAuth } from "../middleware/auth";
-import { requireRegistered } from "../middleware/registered";
 import { getCardById, listCards, listCategories } from "../repos/catalog";
 
 export const catalogRoutes = new Hono<HonoEnv>();
 
-// Каталог закрыт от парсеров: доступен только авторизованным зарегистрированным пользователям.
-catalogRoutes.use("*", requireAuth, requireRegistered);
+// Каталог закрыт от парсеров, но доступен сразу после Telegram-авторизации — до сбора телефона.
+catalogRoutes.use("*", requireAuth);
 
 /** Категории вкладки с числом карточек; пустые категории скрыты от пользователей. */
 catalogRoutes.get("/categories", async (c) => {

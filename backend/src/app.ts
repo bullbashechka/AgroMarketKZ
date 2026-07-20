@@ -40,7 +40,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.onError((err, c) => {
     if (err instanceof HttpError) {
-      return c.json({ error: err.message }, err.status as ContentfulStatusCode);
+      return c.json({ error: err.message, ...err.details }, err.status as ContentfulStatusCode);
     }
     if (err instanceof ZodError) {
       return c.json({ error: "Проверьте корректность данных", issues: err.issues }, 400);

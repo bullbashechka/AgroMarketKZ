@@ -2,7 +2,7 @@ import { z } from "zod";
 import { SEARCH_MAX } from "./constants";
 import { cardListItemSchema } from "./card";
 import { categorySchema, categoryListItemSchema } from "./category";
-import { catalogTypeSchema, priceTypeSchema } from "./enums";
+import { catalogTypeSchema, priceFilterSchema } from "./enums";
 import { paginated, paginationQuerySchema } from "./pagination";
 
 /** Список категорий вкладки. */
@@ -33,7 +33,7 @@ export const cardListQuery = paginationQuerySchema.extend({
     .max(SEARCH_MAX)
     .optional()
     .transform((value) => (value && value.length > 0 ? value : undefined)),
-  priceType: priceTypeSchema.optional()
+  price: priceFilterSchema.optional()
 });
 
 export type CardListQuery = z.infer<typeof cardListQuery>;

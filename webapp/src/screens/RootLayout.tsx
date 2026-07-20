@@ -4,8 +4,8 @@ import { AppShell } from "../components/AppShell";
 import { ErrorState } from "../components/ErrorState";
 import { Skeleton } from "../components/Skeleton";
 import { useAuth } from "../lib/auth";
+import { RegistrationIntentProvider } from "../lib/registrationIntent";
 import { LoginScreen } from "./LoginScreen";
-import { RegisterScreen } from "./RegisterScreen";
 
 const RouterDevtools = import.meta.env.DEV
   ? lazy(() =>
@@ -27,7 +27,7 @@ function FullScreenLoading() {
 
 /** Гейт авторизации + общий каркас с нижней навигацией. Login/Register рендерятся вне AppShell. */
 export function RootLayout() {
-  const { status, profile, error, retry } = useAuth();
+  const { status, error, retry } = useAuth();
 
   let content: React.ReactNode;
   if (status === "loading") {
@@ -40,13 +40,13 @@ export function RootLayout() {
         <ErrorState message={error ?? undefined} onRetry={retry} />
       </main>
     );
-  } else if (profile && !profile.isRegistered) {
-    content = <RegisterScreen />;
   } else {
     content = (
-      <AppShell>
-        <Outlet />
-      </AppShell>
+      <RegistrationIntentProvider>
+        <AppShell>
+          <Outlet />
+        </AppShell>
+      </RegistrationIntentProvider>
     );
   }
 

@@ -68,8 +68,10 @@ export function useImageUploads(initial: DraftImage[] = []) {
       publicUrl: img.publicUrl
     }))
   );
+  const imagesRef = useRef(images);
   const filesRef = useRef(new Map<string, File>());
   const blobUrlsRef = useRef(new Set<string>());
+  const uploadsInFlightRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -78,13 +80,17 @@ export function useImageUploads(initial: DraftImage[] = []) {
   }, []);
 
   const update = useCallback((localId: string, patch: Partial<EditorImage>) => {
-    setImages((prev) => prev.map((img) => (img.localId === localId ? { ...img, ...patch } : img)));
+    const next = imagesRef.current.map((img) => (img.localId === localId ? { ...img, ...patch } : img));
+    imagesRef.current = next;
+    setImages(next);
   }, []);
 
   const startUpload = useCallback(
     (localId: string, file: File) => {
       filesRef.current.set(localId, file);
-      void runUpload(file, (patch) => update(localId, patch));
+      void runUpload(file, (patch) => update(localId, patch)).finally(() => {
+        uploadsInFlightRef.current = Math.max(0, uploadsInFlightRef.current - 1);
+      });
     },
     [update]
   );
@@ -92,63 +98,72 @@ export function useImageUploads(initial: DraftImage[] = []) {
   const addFiles = useCallback(
     (files: FileList | File[]) => {
       const incoming = Array.from(files);
-      setImages((prev) => {
-        const room = Math.max(0, MAX_IMAGES - prev.length);
-        const accepted = incoming.slice(0, room);
-        const created = accepted.map((file) => {
-          const localId = crypto.randomUUID();
-          const previewUrl = URL.createObjectURL(file);
-          blobUrlsRef.current.add(previewUrl);
-          return { file, localId, previewUrl };
-        });
-        // Запускаем загрузку после коммита состояния, чтобы update() не гнался за setImages.
-        queueMicrotask(() => created.forEach(({ localId, file }) => startUpload(localId, file)));
-        const next: EditorImage[] = created.map(({ localId, previewUrl }) => ({
-          localId,
-          status: "compressing",
-          previewUrl,
-          storagePath: null,
-          publicUrl: null
-        }));
-        return [...prev, ...next];
+      const room = Math.max(0, MAX_IMAGES - imagesRef.current.length);
+      const accepted = incoming.slice(0, room);
+      const created = accepted.map((file) => {
+        const localId = crypto.randomUUID();
+        const previewUrl = URL.createObjectURL(file);
+        blobUrlsRef.current.add(previewUrl);
+        return { file, localId, previewUrl };
       });
+      uploadsInFlightRef.current += created.length;
+      const queued: EditorImage[] = created.map(({ localId, previewUrl }) => ({
+        localId,
+        status: "compressing",
+        previewUrl,
+        storagePath: null,
+        publicUrl: null
+      }));
+      const next = [...imagesRef.current, ...queued];
+      imagesRef.current = next;
+      setImages(next);
+      queueMicrotask(() => created.forEach(({ localId, file }) => startUpload(localId, file)));
     },
     [startUpload]
   );
 
   const remove = useCallback((localId: string) => {
-    setImages((prev) => {
-      const target = prev.find((img) => img.localId === localId);
-      if (target && blobUrlsRef.current.has(target.previewUrl)) {
-        URL.revokeObjectURL(target.previewUrl);
-        blobUrlsRef.current.delete(target.previewUrl);
-      }
-      filesRef.current.delete(localId);
-      return prev.filter((img) => img.localId !== localId);
-    });
+    const target = imagesRef.current.find((img) => img.localId === localId);
+    if (target && blobUrlsRef.current.has(target.previewUrl)) {
+      URL.revokeObjectURL(target.previewUrl);
+      blobUrlsRef.current.delete(target.previewUrl);
+    }
+    filesRef.current.delete(localId);
+    const next = imagesRef.current.filter((img) => img.localId !== localId);
+    imagesRef.current = next;
+    setImages(next);
   }, []);
 
   const makeCover = useCallback((localId: string) => {
-    setImages((prev) => {
-      const idx = prev.findIndex((img) => img.localId === localId);
-      if (idx <= 0) return prev;
-      const copy = [...prev];
-      const [item] = copy.splice(idx, 1);
-      copy.unshift(item!);
-      return copy;
-    });
+    const idx = imagesRef.current.findIndex((img) => img.localId === localId);
+    if (idx <= 0) return;
+    const next = [...imagesRef.current];
+    const [item] = next.splice(idx, 1);
+    next.unshift(item!);
+    imagesRef.current = next;
+    setImages(next);
   }, []);
 
   const retry = useCallback(
     (localId: string) => {
       const file = filesRef.current.get(localId);
       if (!file) return;
-      void runUpload(file, (patch) => update(localId, patch));
+      uploadsInFlightRef.current += 1;
+      void runUpload(file, (patch) => update(localId, patch)).finally(() => {
+        uploadsInFlightRef.current = Math.max(0, uploadsInFlightRef.current - 1);
+      });
     },
     [update]
   );
 
   const ready = images.length >= MIN_IMAGES && images.every((img) => img.status === "done");
+  const settled = images.every((img) => img.status === "done" || img.status === "error");
+  const hasErrors = images.some((img) => img.status === "error");
+  const isSettledNow = useCallback(
+    () => uploadsInFlightRef.current === 0
+      && imagesRef.current.every((img) => img.status === "done" || img.status === "error"),
+    [],
+  );
 
-  return { images, addFiles, remove, makeCover, retry, ready };
+  return { images, addFiles, remove, makeCover, retry, ready, settled, hasErrors, isSettledNow };
 }

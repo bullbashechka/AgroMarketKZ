@@ -9,20 +9,25 @@ import { requestTelegramContact } from "./telegram";
  * сбой сети) — деградируем до неверифицированного номера из ответа Telegram.
  * `null` — пользователь отказался или мы вне Telegram.
  */
-export async function sharePhoneFromTelegram(): Promise<string | null> {
+export interface SharedPhone {
+  phone: string;
+  contactResponse?: string;
+}
+
+export async function sharePhoneFromTelegram(): Promise<SharedPhone | null> {
   const shared = await requestTelegramContact();
   if (!shared) return null;
 
   if (shared.response) {
     try {
-      const { phone } = await apiPost<VerifyContactResponse>("/profile/contact", {
+      const verified = await apiPost<VerifyContactResponse>("/profile/contact", {
         response: shared.response
       });
-      return phone;
+      return { phone: verified.phone, contactResponse: verified.response };
     } catch {
       // Верификация не удалась — номер всё равно пригоден для предзаполнения.
     }
   }
 
-  return shared.unsafePhone;
+  return shared.unsafePhone ? { phone: shared.unsafePhone } : null;
 }

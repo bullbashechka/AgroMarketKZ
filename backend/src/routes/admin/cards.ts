@@ -1,7 +1,7 @@
 import {
   adminCardListQuery,
   adminCardListResponse,
-  cardDetailSchema,
+  adminCardDetailSchema,
   createCardInput,
   updateCardInput
 } from "@agromarket/contracts";
@@ -13,12 +13,13 @@ import { HttpError } from "../../lib/errors";
 import { deleteStorageObjects } from "../../lib/storage";
 import {
   adminListCards,
+  archiveCard,
   createCard,
   deleteCard,
-  setCardArchived,
+  getAdminCardDetail,
+  publishCard,
   updateCard
 } from "../../repos/adminCatalog";
-import { getCardById } from "../../repos/catalog";
 
 export const adminCardsRoutes = new Hono<HonoEnv>();
 
@@ -40,18 +41,18 @@ adminCardsRoutes.get("/", async (c) => {
 adminCardsRoutes.get("/:id", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
-  const card = await getCardById(env, id);
+  const card = await getAdminCardDetail(env, id);
   if (!card) {
     throw new HttpError(404, "Карточка не найдена");
   }
-  return c.json(cardDetailSchema.parse(card));
+  return c.json(adminCardDetailSchema.parse(card));
 });
 
 adminCardsRoutes.post("/", async (c) => {
   const env = getEnv(c);
   const input = createCardInput.parse(await c.req.json());
   const card = await createCard(env, input);
-  return c.json(cardDetailSchema.parse(card), 201);
+  return c.json(adminCardDetailSchema.parse(card), 201);
 });
 
 /** Полная замена полей карточки. Удалённые из галереи фото чистятся из Storage после коммита. */
@@ -63,7 +64,7 @@ adminCardsRoutes.put("/:id", async (c) => {
   if (removedPaths.length > 0) {
     runInBackground(c, deleteStorageObjects(env, removedPaths));
   }
-  return c.json(cardDetailSchema.parse(detail));
+  return c.json(adminCardDetailSchema.parse(detail));
 });
 
 /** Удаление карточки. Фото чистятся из Storage best-effort после удаления записи. */
@@ -80,15 +81,21 @@ adminCardsRoutes.delete("/:id", async (c) => {
 adminCardsRoutes.post("/:id/archive", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
-  await setCardArchived(env, id, true);
-  const card = await getCardById(env, id);
-  return c.json(cardDetailSchema.parse(card));
+  const card = await archiveCard(env, id);
+  return c.json(adminCardDetailSchema.parse(card));
 });
 
+adminCardsRoutes.post("/:id/publish", async (c) => {
+  const env = getEnv(c);
+  const id = requireCardId(c);
+  const card = await publishCard(env, id);
+  return c.json(adminCardDetailSchema.parse(card));
+});
+
+// Совместимость старых клиентов: повторное открытие теперь проходит ту же проверку публикации.
 adminCardsRoutes.post("/:id/unarchive", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
-  await setCardArchived(env, id, false);
-  const card = await getCardById(env, id);
-  return c.json(cardDetailSchema.parse(card));
+  const card = await publishCard(env, id);
+  return c.json(adminCardDetailSchema.parse(card));
 });

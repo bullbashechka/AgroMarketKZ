@@ -1,4 +1,10 @@
-import { CATEGORY_NAME_MAX, createCategoryInput, type AdminCategory, type CatalogType } from "@agromarket/contracts";
+import {
+  CATEGORY_NAME_MAX,
+  createCategoryInput,
+  updateCategoryInput,
+  type AdminCategory,
+  type CatalogType,
+} from "@agromarket/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
@@ -20,6 +26,7 @@ const typeOptions: { value: CatalogType; label: string }[] = [
 type Sheet =
   | { mode: "actions"; category: AdminCategory }
   | { mode: "rename"; category: AdminCategory }
+  | { mode: "specs"; category: AdminCategory }
   | { mode: "create" }
   | { mode: "deleteBlocked"; category: AdminCategory }
   | { mode: "deleteConfirm"; category: AdminCategory }
@@ -58,6 +65,15 @@ export function AdminCategoriesScreen() {
       invalidate();
       setSheet(null);
     }
+  });
+
+  const specsMutation = useMutation({
+    mutationFn: ({ id, requiredSpecs }: { id: string; requiredSpecs: string[] }) =>
+      apiPatch(`/admin/categories/${id}`, { requiredSpecs }),
+    onSuccess: () => {
+      invalidate();
+      setSheet(null);
+    },
   });
 
   const deleteMutation = useMutation({
@@ -137,6 +153,13 @@ export function AdminCategoriesScreen() {
             <button
               type="button"
               className="sheet-action"
+              onClick={() => setSheet({ mode: "specs", category: sheet.category })}
+            >
+              Обязательные характеристики
+            </button>
+            <button
+              type="button"
+              className="sheet-action"
               data-testid="admin-category-delete"
               onClick={() => {
                 const category = sheet.category;
@@ -148,6 +171,16 @@ export function AdminCategoriesScreen() {
               Удалить
             </button>
           </div>
+        )}
+      </BottomSheet>
+
+      <BottomSheet open={sheet?.mode === "specs"} onClose={() => setSheet(null)}>
+        {sheet?.mode === "specs" && (
+          <RequiredSpecsForm
+            category={sheet.category}
+            pending={specsMutation.isPending}
+            onSubmit={(requiredSpecs) => specsMutation.mutateAsync({ id: sheet.category.id, requiredSpecs })}
+          />
         )}
       </BottomSheet>
 
@@ -202,6 +235,72 @@ export function AdminCategoriesScreen() {
         onClose={() => setSheet(null)}
       />
     </Screen>
+  );
+}
+
+function RequiredSpecsForm({
+  category,
+  pending,
+  onSubmit,
+}: {
+  category: AdminCategory;
+  pending: boolean;
+  onSubmit: (requiredSpecs: string[]) => Promise<unknown>;
+}) {
+  const [items, setItems] = useState(category.requiredSpecs);
+  const [error, setError] = useState<string | undefined>();
+
+  function move(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= items.length) return;
+    const next = [...items];
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    setItems(next);
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(undefined);
+    const parsed = updateCategoryInput.safeParse({ requiredSpecs: items });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message);
+      return;
+    }
+    try {
+      await onSubmit(parsed.data.requiredSpecs ?? []);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Не удалось сохранить характеристики");
+    }
+  }
+
+  return (
+    <form className="form" onSubmit={submit} noValidate>
+      <h2 className="screen-title">Обязательные характеристики</h2>
+      <p className="description">{category.name}. Порядок здесь станет порядком полей в карточке.</p>
+      {items.map((item, index) => (
+        <div className="spec-row" key={`${index}-${item}`}>
+          <input
+            className="input"
+            data-testid="admin-required-spec-input"
+            value={item}
+            onChange={(event) => setItems(items.map((value, idx) => idx === index ? event.target.value : value))}
+            placeholder="Например, Год выпуска"
+          />
+          <div className="inline-actions">
+            <button type="button" className="button button-secondary" onClick={() => move(index, -1)} aria-label="Выше">↑</button>
+            <button type="button" className="button button-secondary" onClick={() => move(index, 1)} aria-label="Ниже">↓</button>
+            <button type="button" className="spec-row-remove" onClick={() => setItems(items.filter((_, idx) => idx !== index))} aria-label="Удалить">×</button>
+          </div>
+        </div>
+      ))}
+      <button type="button" className="button button-secondary" data-testid="admin-required-spec-add" onClick={() => setItems([...items, ""])}>
+        + Добавить характеристику
+      </button>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <button type="submit" className="button button-primary" data-testid="admin-required-spec-save" disabled={pending}>
+        {pending ? "Сохраняем…" : "Сохранить"}
+      </button>
+    </form>
   );
 }
 

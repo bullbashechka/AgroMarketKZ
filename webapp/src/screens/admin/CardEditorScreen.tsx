@@ -1,9 +1,11 @@
 import {
   catalogTypeLabels,
   createCardInput,
+  publishCardInput,
   DESCRIPTION_MAX,
   CARD_TITLE_MAX,
   priceTypeLabels,
+  type AdminCardDetail,
   type CardDetail,
   type CatalogType,
   type PriceType
@@ -16,6 +18,8 @@ import { ImagePicker } from "../../components/admin/ImagePicker";
 import { Segmented } from "../../components/admin/Segmented";
 import { SpecsEditor, type SpecRow } from "../../components/admin/SpecsEditor";
 import { ErrorState } from "../../components/ErrorState";
+import { BottomSheet } from "../../components/BottomSheet";
+import { CardDetailsView } from "../../components/CardDetailsView";
 import { Screen } from "../../components/Screen";
 import { SkeletonList } from "../../components/Skeleton";
 import { ApiError, apiDelete, apiPost, apiPut } from "../../lib/api";
@@ -34,6 +38,7 @@ const typeOptions: { value: CatalogType; label: string }[] = [
 
 const priceTypeOptions: { value: PriceType; label: string }[] = [
   { value: "fixed", label: priceTypeLabels.fixed },
+  { value: "from", label: priceTypeLabels.from },
   { value: "on_request", label: priceTypeLabels.on_request }
 ];
 
@@ -101,7 +106,7 @@ function CardEditorCreate() {
 
 interface CardEditorFormProps {
   mode: "create" | "edit";
-  initial?: CardDetail;
+  initial?: AdminCardDetail;
   initialType?: CatalogType;
   draft?: CardDraft;
 }
@@ -118,17 +123,38 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
   const [priceAmount, setPriceAmount] = useState(
     initial?.priceAmount != null ? String(initial.priceAmount) : draft?.priceAmount ?? ""
   );
+  const [priceUnit, setPriceUnit] = useState(initial?.priceUnit ?? draft?.priceUnit ?? "");
+  const [priceReason, setPriceReason] = useState(initial?.priceReason ?? draft?.priceReason ?? "");
+  const [location, setLocation] = useState(initial?.location ?? draft?.location ?? "");
+  const [availability, setAvailability] = useState(initial?.availability ?? draft?.availability ?? "");
   const [specs, setSpecs] = useState<SpecRow[]>(
     (initial?.specs ?? draft?.specs ?? []).map((s) => ({ localId: crypto.randomUUID(), key: s.key, value: s.value }))
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [saveAction, setSaveAction] = useState<"draft" | "publish" | null>(null);
 
   const initialImages: DraftImage[] =
     initial?.images.map((img) => ({ storagePath: img.storagePath, publicUrl: img.url })) ?? draft?.images ?? [];
   const imageUploads = useImageUploads(initialImages);
 
   const categoriesQuery = useQuery(adminCategoriesQueryOptions(type));
+  const selectedCategory = categoriesQuery.data?.find((category) => category.id === categoryId);
+
+  useEffect(() => {
+    const required = selectedCategory?.requiredSpecs ?? [];
+    if (required.length === 0) return;
+    setSpecs((current) => {
+      const keys = new Set(current.map((spec) => spec.key.trim().toLocaleLowerCase("ru")));
+      const missing = required.filter((key) => !keys.has(key.trim().toLocaleLowerCase("ru")));
+      if (missing.length === 0) return current;
+      return [
+        ...current,
+        ...missing.map((key) => ({ localId: crypto.randomUUID(), key, value: "" })),
+      ];
+    });
+  }, [selectedCategory?.requiredSpecs]);
 
   function invalidateCatalogQueries(cardId?: string) {
     qc.invalidateQueries({ queryKey: ["admin-cards"] });
@@ -139,22 +165,32 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
   }
 
   const saveMutation = useMutation({
-    mutationFn: (input: ReturnType<typeof createCardInput.parse>) =>
-      mode === "edit" && initial
-        ? apiPut<CardDetail>(`/admin/cards/${initial.id}`, input)
-        : apiPost<CardDetail>("/admin/cards", input),
+    mutationFn: async ({
+      input,
+      publish,
+    }: {
+      input: ReturnType<typeof createCardInput.parse>;
+      publish: boolean;
+    }) => {
+      const saved = mode === "edit" && initial
+        ? await apiPut<AdminCardDetail>(`/admin/cards/${initial.id}`, input)
+        : await apiPost<AdminCardDetail>("/admin/cards", input);
+      return publish
+        ? apiPost<AdminCardDetail>(`/admin/cards/${saved.id}/publish`)
+        : saved;
+    },
     onSuccess: (card) => {
       qc.setQueryData(adminCardQueryOptions(card.id).queryKey, card);
       invalidateCatalogQueries(card.id);
       if (mode === "create") clearCardDraft();
       hapticNotify("success");
-      navigate({ href: "/admin/cards" });
-    }
+      navigate({ href: mode === "create" ? `/admin/cards/${card.id}` : "/admin/cards" });
+    },
+    onSettled: () => setSaveAction(null),
   });
 
   const archiveMutation = useMutation({
-    mutationFn: () =>
-      apiPost<CardDetail>(`/admin/cards/${initial!.id}/${initial!.archivedAt ? "unarchive" : "archive"}`),
+    mutationFn: () => apiPost<AdminCardDetail>(`/admin/cards/${initial!.id}/archive`),
     onSuccess: (card) => {
       qc.setQueryData(adminCardQueryOptions(card.id).queryKey, card);
       invalidateCatalogQueries(card.id);
@@ -178,6 +214,10 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
     description,
     priceType,
     priceAmount,
+    priceUnit,
+    priceReason,
+    location,
+    availability,
     specs: specs.map(({ key, value }) => ({ key, value })),
     images: imageUploads.images.filter((img) => img.status === "done").map((img) => ({
       storagePath: img.storagePath!,
@@ -196,36 +236,107 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
     setCategoryId("");
   }
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    setErrors({});
-
-    const payload = {
+  function buildPayload(completeSpecsOnly = false) {
+    const payloadSpecs = completeSpecsOnly
+      ? specs.filter((spec) => spec.key.trim() && spec.value.trim())
+      : specs;
+    return {
       type,
       categoryId,
       title,
       description,
       sortOrder: initial?.sortOrder ?? 0,
       priceType,
-      priceAmount: priceType === "fixed" ? Number(priceAmount) : null,
-      images: imageUploads.images.map((img, idx) => ({ storagePath: img.storagePath!, sortOrder: idx })),
-      specs: specs.map((s, idx) => ({ key: s.key, value: s.value, sortOrder: idx }))
+      priceAmount: priceType === "on_request" || !priceAmount ? null : Number(priceAmount),
+      priceUnit,
+      priceReason: priceType === "fixed" ? null : priceReason,
+      location,
+      availability,
+      images: imageUploads.images
+        .filter((img) => img.status === "done")
+        .map((img, idx) => ({ storagePath: img.storagePath!, sortOrder: idx })),
+      specs: payloadSpecs.map((spec, idx) => ({ key: spec.key, value: spec.value, sortOrder: idx })),
     };
+  }
 
-    const parsed = createCardInput.safeParse(payload);
+  async function handleAction(action: "draft" | "publish") {
+    setErrors({});
+    // Незавершённая строка характеристики не должна мешать сохранить серверный черновик.
+    // При публикации полный набор по-прежнему валидируется ниже и на сервере.
+    const payload = buildPayload(action === "draft");
+    if (action === "publish" && !imageUploads.isSettledNow()) {
+      setErrors({ images: "Дождитесь завершения загрузки фото перед публикацией" });
+      return;
+    }
+    const parsed = (action === "publish" ? publishCardInput : createCardInput).safeParse(payload);
     if (!parsed.success) {
       setErrors(zodFieldErrorsByPath(parsed.error));
       return;
     }
 
+    if (action === "publish") {
+      if (imageUploads.hasErrors) {
+        setErrors({ images: "Исправьте ошибку загрузки фото перед публикацией" });
+        return;
+      }
+      const missingRequired = (selectedCategory?.requiredSpecs ?? []).filter((requiredKey) => {
+        const normalized = requiredKey.trim().toLocaleLowerCase("ru");
+        return !specs.some((spec) => spec.key.trim().toLocaleLowerCase("ru") === normalized && spec.value.trim());
+      });
+      if (missingRequired.length > 0) {
+        setErrors({ form: `Заполните обязательные характеристики: ${missingRequired.join(", ")}` });
+        return;
+      }
+    }
+
     try {
-      await saveMutation.mutateAsync(parsed.data);
+      setSaveAction(action);
+      await saveMutation.mutateAsync({ input: parsed.data, publish: action === "publish" });
     } catch (error) {
       setErrors({ form: error instanceof ApiError ? error.message : "Не удалось сохранить карточку" });
     }
   }
 
-  const canSave = imageUploads.ready && !saveMutation.isPending;
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    await handleAction("draft");
+  }
+
+  const canSave = imageUploads.settled && !saveMutation.isPending;
+  const previewPayload = buildPayload();
+  const previewCard: CardDetail = {
+    id: initial?.id ?? "00000000-0000-4000-8000-000000000001",
+    type,
+    categoryId: categoryId || "00000000-0000-4000-8000-000000000002",
+    title: title || "Карточка без названия",
+    description,
+    priceType,
+    priceAmount: previewPayload.priceAmount,
+    priceUnit: priceUnit || null,
+    priceReason: priceType === "fixed" ? null : priceReason || null,
+    location: location || null,
+    availability: availability || null,
+    sortOrder: initial?.sortOrder ?? 0,
+    publishedAt: initial?.publishedAt ?? null,
+    archivedAt: initial?.archivedAt ?? null,
+    createdAt: initial?.createdAt ?? new Date().toISOString(),
+    updatedAt: initial?.updatedAt ?? new Date().toISOString(),
+    images: imageUploads.images
+      .filter((image) => image.status === "done")
+      .map((image, index) => ({
+        id: `00000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`,
+        storagePath: image.storagePath!,
+        url: image.publicUrl!,
+        altText: null,
+        sortOrder: index,
+      })),
+    specs: specs.filter((spec) => spec.key.trim() && spec.value.trim()).map((spec, index) => ({
+      id: `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
+      key: spec.key,
+      value: spec.value,
+      sortOrder: index,
+    })),
+  };
 
   return (
     <form className="form" onSubmit={handleSubmit} noValidate>
@@ -265,6 +376,7 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
         <span className="field-label">Описание</span>
         <textarea
           className="input input--textarea"
+          data-testid="card-editor-description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           maxLength={DESCRIPTION_MAX}
@@ -275,7 +387,7 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
 
       <Segmented options={priceTypeOptions} value={priceType} onChange={setPriceType} ariaLabel="Тип цены" />
 
-      {priceType === "fixed" && (
+      {priceType !== "on_request" && (
         <label className="field">
           <span className="field-label">Цена, ₸</span>
           <input
@@ -289,28 +401,123 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
         </label>
       )}
 
-      <ImagePicker
-        images={imageUploads.images}
-        onAdd={imageUploads.addFiles}
-        onRemove={imageUploads.remove}
-        onMakeCover={imageUploads.makeCover}
-        onRetry={imageUploads.retry}
-        error={errors.images}
+      <label className="field">
+        <span className="field-label">Цена указана за</span>
+        <input
+          className="input"
+          data-testid="card-editor-price-unit"
+          list="price-unit-options"
+          value={priceUnit}
+          onChange={(event) => setPriceUnit(event.target.value)}
+          placeholder="Например, за тонну"
+        />
+        <datalist id="price-unit-options">
+          <option value="за тонну" />
+          <option value="за килограмм" />
+          <option value="за штуку" />
+          <option value="за голову" />
+          <option value="за гектар" />
+          <option value="за час" />
+          <option value="за рейс" />
+          <option value="за всю услугу" />
+        </datalist>
+        {errors.priceUnit && <span className="field-error">{errors.priceUnit}</span>}
+      </label>
+
+      {priceType !== "fixed" && (
+        <label className="field">
+          <span className="field-label">
+            {priceType === "on_request" ? "Почему цена рассчитывается индивидуально?" : "Пояснение к цене (необязательно)"}
+          </span>
+          <textarea
+            className="input input--textarea"
+            value={priceReason}
+            onChange={(event) => setPriceReason(event.target.value)}
+            rows={3}
+          />
+          {errors.priceReason && <span className="field-error">{errors.priceReason}</span>}
+        </label>
+      )}
+
+      <label className="field">
+        <span className="field-label">Регион или территория</span>
+        <input className="input" data-testid="card-editor-location" value={location} onChange={(event) => setLocation(event.target.value)} />
+        {errors.location && <span className="field-error">{errors.location}</span>}
+      </label>
+
+      <label className="field">
+        <span className="field-label">Наличие, срок поставки или исполнения</span>
+        <input className="input" data-testid="card-editor-availability" value={availability} onChange={(event) => setAvailability(event.target.value)} />
+        {errors.availability && <span className="field-error">{errors.availability}</span>}
+      </label>
+
+      {mode === "create" ? (
+        <div className="card notice-card">
+          <p className="eyebrow">Фото после черновика</p>
+          <p className="description">Сначала сохраните серверный черновик. Затем добавьте фото и опубликуйте карточку.</p>
+        </div>
+      ) : (
+        <ImagePicker
+          images={imageUploads.images}
+          onAdd={imageUploads.addFiles}
+          onRemove={imageUploads.remove}
+          onMakeCover={imageUploads.makeCover}
+          onRetry={imageUploads.retry}
+          error={errors.images}
+        />
+      )}
+
+      <SpecsEditor
+        specs={specs}
+        onChange={setSpecs}
+        errors={errors}
+        requiredKeys={selectedCategory?.requiredSpecs}
       />
 
-      <SpecsEditor specs={specs} onChange={setSpecs} errors={errors} />
+      {initial?.needsReview && initial.reviewIssues.length > 0 && (
+        <div className="card notice-card">
+          <p className="eyebrow">Нужно дополнить</p>
+          <ul>{initial.reviewIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+        </div>
+      )}
 
-      {errors.form && <p className="field-error">{errors.form}</p>}
+      {errors.form && <p className="field-error" role="alert">{errors.form}</p>}
 
       <button type="submit" className="button button-primary" data-testid="card-editor-save" disabled={!canSave}>
-        {saveMutation.isPending ? "Сохраняем…" : "Сохранить"}
+        {saveMutation.isPending && saveAction === "draft"
+          ? "Сохраняем…"
+          : initial?.publicationStatus === "published"
+            ? "Сохранить изменения"
+            : "Сохранить черновик"}
       </button>
+
+      <button type="button" className="button button-secondary" onClick={() => setPreviewOpen(true)}>
+        Предпросмотр
+      </button>
+
+      {mode === "edit" && initial?.publicationStatus !== "published" && (
+        <button
+          type="button"
+          className="button button-primary"
+          data-testid="card-editor-publish"
+          disabled={!canSave}
+          onClick={() => handleAction("publish")}
+        >
+          {saveMutation.isPending && saveAction === "publish"
+            ? "Публикуем…"
+            : initial?.publicationStatus === "archived"
+              ? "Опубликовать снова"
+              : "Опубликовать"}
+        </button>
+      )}
 
       {mode === "edit" && initial && (
         <>
-          <button type="button" className="button button-secondary" onClick={() => archiveMutation.mutate()} disabled={archiveMutation.isPending}>
-            {initial.archivedAt ? "Показать пользователям" : "Скрыть от пользователей"}
-          </button>
+          {initial.publicationStatus === "published" && (
+            <button type="button" className="button button-secondary" onClick={() => archiveMutation.mutate()} disabled={archiveMutation.isPending}>
+              {archiveMutation.isPending ? "Скрываем…" : "Скрыть от пользователей"}
+            </button>
+          )}
           <button
             type="button"
             className="button button-danger"
@@ -321,6 +528,14 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
           </button>
         </>
       )}
+
+      <BottomSheet open={previewOpen} onClose={() => setPreviewOpen(false)}>
+        <div className="form">
+          <p className="eyebrow">Предпросмотр карточки</p>
+          <CardDetailsView card={previewCard} />
+          <button type="button" className="button button-primary" onClick={() => setPreviewOpen(false)}>Вернуться к редактированию</button>
+        </div>
+      </BottomSheet>
 
       <ConfirmSheet
         open={deleteOpen}

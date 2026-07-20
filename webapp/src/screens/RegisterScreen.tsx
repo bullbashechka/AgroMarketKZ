@@ -14,20 +14,24 @@ export function RegisterScreen() {
 
   const [name, setName] = useState(initialName);
   const [phone, setPhone] = useState(profile?.contactPhone ?? "");
+  const [contactResponse, setContactResponse] = useState<string | undefined>();
   const [errors, setErrors] = useState<{ name?: string; phone?: string; form?: string }>({});
 
   const inTelegram = isTelegramContext();
 
   async function handleShareContact() {
     const shared = await sharePhoneFromTelegram();
-    if (shared) setPhone(shared);
+    if (shared) {
+      setPhone(shared.phone);
+      setContactResponse(shared.contactResponse);
+    }
   }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setErrors({});
 
-    const parsed = registerInput.safeParse({ contactName: name, contactPhone: phone });
+    const parsed = registerInput.safeParse({ contactName: name, contactPhone: phone, contactResponse });
     if (!parsed.success) {
       const next: { name?: string; phone?: string } = {};
       for (const issue of parsed.error.issues) {

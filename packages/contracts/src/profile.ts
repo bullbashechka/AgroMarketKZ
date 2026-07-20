@@ -23,7 +23,8 @@ export type Profile = z.infer<typeof profileSchema>;
 /** Регистрация при первом входе: имя + телефон. */
 export const registerInput = z.object({
   contactName: contactNameSchema,
-  contactPhone: phoneSchema
+  contactPhone: phoneSchema,
+  contactResponse: z.string().min(1).optional(),
 });
 
 export type RegisterInput = z.infer<typeof registerInput>;
@@ -44,7 +45,8 @@ export type VerifyContactInput = z.infer<typeof verifyContactInput>;
 
 /** Ответ верификации: нормализованный (E.164) подтверждённый номер для предзаполнения. */
 export const verifyContactResponse = z.object({
-  phone: z.string()
+  phone: z.string(),
+  response: z.string(),
 });
 
 export type VerifyContactResponse = z.infer<typeof verifyContactResponse>;

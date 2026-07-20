@@ -5,8 +5,13 @@ export const RATE_LIMIT_MAX = 5;
 export const RATE_LIMIT_WINDOW_MINUTES = 10;
 
 /** Бросает 429, если счётчик обращений пользователя за окно уже достиг лимита. */
-export function assertUnderLimit(count: number): void {
+export function assertUnderLimit(count: number, retryAfterSeconds = 0): void {
   if (count >= RATE_LIMIT_MAX) {
-    throw new HttpError(429, "Слишком много обращений — попробуйте через несколько минут");
+    const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+    throw new HttpError(
+      429,
+      `Слишком много обращений — повторите через ${minutes} мин.`,
+      { retryAfterSeconds },
+    );
   }
 }

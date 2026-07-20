@@ -1,13 +1,16 @@
 import type { CardListItem } from "@agromarket/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiDelete, apiPost } from "./api";
+import { useAuth } from "./auth";
 import { favoritesQueryOptions } from "./queries";
 import { hapticImpactLight } from "./telegram";
 
 /** Множество id избранных карточек — единый источник правды для сердечка на любом экране. */
 export function useFavoriteIds() {
+  const { profile } = useAuth();
   return useQuery({
     ...favoritesQueryOptions,
+    enabled: profile?.isRegistered === true,
     select: (items) => new Set(items.map((item) => item.id))
   });
 }

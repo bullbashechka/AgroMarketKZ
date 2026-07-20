@@ -17,6 +17,7 @@ test.describe("Админ — смена статуса заявки", () => {
 
     const marker = `[e2e] статус-тест ${Date.now()}`;
     const created = await api.post<{ id: string }>("/requests", freshUserToken, {
+      clientRequestId: crypto.randomUUID(),
       source: "profile",
       contactName: "E2E Статус",
       contactPhone: "+77019998877",

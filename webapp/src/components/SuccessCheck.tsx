@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { playSuccessChime } from "../lib/sound";
 import { hapticNotify } from "../lib/telegram";
 
 interface SuccessCheckProps {
@@ -11,11 +10,10 @@ interface SuccessCheckProps {
 export function SuccessCheck({ title, description }: SuccessCheckProps) {
   useEffect(() => {
     hapticNotify("success");
-    playSuccessChime();
   }, []);
 
   return (
-    <div className="success-check">
+    <div className="success-check" role="status" aria-live="polite">
       <svg className="success-check-icon" viewBox="0 0 80 80" fill="none" aria-hidden="true">
         <circle className="success-check-circle" cx="40" cy="40" r="36" stroke="currentColor" strokeWidth="4" pathLength={1} />
         <path
