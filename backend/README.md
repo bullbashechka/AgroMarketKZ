@@ -25,7 +25,7 @@ src/
   repos/users.ts    # доступ к таблице users + маппинг в Profile
   lib/
     telegram.ts     # валидация initData и Login Widget (Web Crypto, HMAC-SHA256)
-    jwt.ts          # выпуск/проверка JWT (hono/jwt, HS256, 30 дней)
+    jwt.ts          # выпуск/проверка JWT (hono/jwt, HS256, 14 дней, версия сессии)
     admin.ts        # парсинг ADMIN_ALLOWLIST, проверка прав по числовому id
     errors.ts       # HttpError (статус + сообщение)
   middleware/
@@ -44,9 +44,15 @@ tests/              # юнит-тесты (telegram, jwt, admin)
 - **Telegram Mini App** — клиент шлёт сырой `initData`; backend пересчитывает HMAC-подпись `TELEGRAM_BOT_TOKEN` (секрет `HMAC_SHA256("WebAppData", token)`), сверяет `hash` и свежесть `auth_date` (окно 24 ч).
 - **Браузер (Telegram Login Widget)** — backend проверяет подпись с секретом `SHA256(token)`.
 
-После успешной валидации создаётся/обновляется `User` (зеркало Telegram: id, username, имя — обновляется при каждом входе; контактные имя/телефон неприкосновенны) и выдаётся **JWT на 30 дней** (`Authorization: Bearer`). В Telegram токен молча перевыпускается из свежего `initData`, поэтому повторного входа пользователь не видит.
+После успешной валидации создаётся/обновляется `User` (зеркало Telegram: id, username, имя — обновляется при каждом входе; контактные имя/телефон неприкосновенны) и выдаётся **JWT на 14 дней** (`Authorization: Bearer`). В Telegram токен молча перевыпускается из свежего `initData`, поэтому повторного входа пользователь не видит.
 
 **Админы** определяются по `ADMIN_ALLOWLIST` (числовые Telegram id, через запятую). Проверка живая на каждом запросе (`requireAdmin`), статус в токен не зашит — выдача/снятие прав мгновенны.
+
+## JWT-сессии и отзыв
+
+JWT выпускается на 14 дней с claims `sub`, `tgId`, `ver`, `iat` и `exp`. `requireAuth` проверяет подпись и форму claims, затем одним запросом к `users` сверяет существование пользователя, его `telegram_id` и `token_version`. Удалённый пользователь или несовпадение версии получают `401`; сбой БД остаётся серверной ошибкой.
+
+Миграция `0006_user_token_version.sql` добавляет `users.token_version`. Администратор отзывает все ранее выданные JWT пользователя запросом `POST /admin/users/:id/revoke-sessions`; маршрут возвращает `204`, либо `404` для отсутствующего UUID-пользователя. Новый вход выдаёт JWT с новой версией. Legacy JWT без `ver` и `iat` временно считается версией `0` до собственного `exp`.
 
 ## API
 
@@ -58,6 +64,7 @@ tests/              # юнит-тесты (telegram, jwt, admin)
 | `GET` | `/profile` | Bearer | — | `Profile` |
 | `POST` | `/profile/register` | Bearer | `{ contactName, contactPhone }` | `Profile` |
 | `PUT` | `/profile` | Bearer | `{ contactName, contactPhone }` | `Profile` |
+| `POST` | `/admin/users/:id/revoke-sessions` | Admin Bearer | — | `204` |
 
 `contactPhone` принимается только как казахстанский мобильный (`+7 7xx`), нормализуется к `+77XXXXXXXXX`; иначе `400`. Ошибки — единый JSON `{ error, issues? }` со статусами `400/401/403/404/500`.
 

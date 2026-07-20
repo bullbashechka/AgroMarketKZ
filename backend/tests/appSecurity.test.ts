@@ -3,6 +3,15 @@ import { createApp } from "../src/app";
 import type { AppEnv } from "../src/env";
 import { HttpError } from "../src/lib/errors";
 
+describe("security headers JSON API", () => {
+  test("returns nosniff and does not forward Referer", async () => {
+    const response = await createApp({ env: WEBHOOK_ENV }).request("/health");
+
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
+});
+
 const JSON_BODY_LIMIT_BYTES = 256 * 1024;
 const BODY_LIMIT_ERROR = { error: "Размер запроса превышает 256 KiB" };
 const WEBHOOK_ENV: Partial<AppEnv> = {

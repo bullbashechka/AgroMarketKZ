@@ -1,28 +1,56 @@
 import { sign, verify } from "hono/jwt";
+import { z } from "zod";
 import type { AppEnv } from "../env";
 
-/** Срок жизни JWT — 30 дней (сессия «как будто вечная», см. решения Этапа 3). */
-const TOKEN_TTL_SEC = 30 * 24 * 60 * 60;
+/** Срок жизни JWT — 14 дней; Telegram Mini App тихо перевыпускает его из свежего initData. */
+export const TOKEN_TTL_SEC = 14 * 24 * 60 * 60;
 
 export interface TokenClaims {
   /** id пользователя в нашей БД. */
   sub: string;
   /** Telegram id (для живой проверки прав админа). */
   tgId: number;
+  /** Версия сессии: increment в БД отзывает все ранее выданные токены пользователя. */
+  ver: number;
+  /** Время выпуска токена в Unix-секундах. */
+  iat: number;
   exp: number;
 }
 
+const tokenClaimsSchema = z
+  .object({
+    sub: z.string().uuid(),
+    tgId: z.number().int().safe().positive(),
+    exp: z.number().int().positive(),
+    ver: z.number().int().nonnegative().optional(),
+    iat: z.number().int().nonnegative().optional(),
+  })
+  .superRefine((claims, ctx) => {
+    if ((claims.ver === undefined) !== (claims.iat === undefined)) {
+      ctx.addIssue({ code: "custom", message: "Legacy JWT must omit both ver and iat" });
+    }
+    if (claims.iat !== undefined && claims.exp <= claims.iat) {
+      ctx.addIssue({ code: "custom", message: "JWT exp must be after iat" });
+    }
+  });
+
 /** Выпускает подписанный JWT для пользователя. */
-export function issueToken(env: AppEnv, userId: string, telegramId: number): Promise<string> {
-  const exp = Math.floor(Date.now() / 1000) + TOKEN_TTL_SEC;
-  return sign({ sub: userId, tgId: telegramId, exp } satisfies TokenClaims, env.JWT_SECRET, "HS256");
+export function issueToken(env: AppEnv, userId: string, telegramId: number, tokenVersion: number): Promise<string> {
+  const iat = Math.floor(Date.now() / 1000);
+  const exp = iat + TOKEN_TTL_SEC;
+  return sign({ sub: userId, tgId: telegramId, ver: tokenVersion, iat, exp } satisfies TokenClaims, env.JWT_SECRET, "HS256");
 }
 
 /** Проверяет JWT; бросает, если подпись неверна или срок истёк. */
 export async function verifyToken(
   env: AppEnv,
   token: string
-): Promise<{ userId: string; telegramId: number }> {
-  const payload = (await verify(token, env.JWT_SECRET, "HS256")) as unknown as TokenClaims;
-  return { userId: String(payload.sub), telegramId: Number(payload.tgId) };
+): Promise<{ userId: string; telegramId: number; tokenVersion: number; issuedAt: number | undefined }> {
+  const payload = tokenClaimsSchema.parse(await verify(token, env.JWT_SECRET, "HS256"));
+  return {
+    userId: payload.sub,
+    telegramId: payload.tgId,
+    tokenVersion: payload.ver ?? 0,
+    issuedAt: payload.iat,
+  };
 }

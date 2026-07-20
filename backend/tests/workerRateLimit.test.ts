@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { createApp } from "../src/app";
 import type { AppEnv } from "../src/env";
 import { issueToken } from "../src/lib/jwt";
-import { requireAuth } from "../src/middleware/auth";
+import { createRequireAuth } from "../src/middleware/auth";
+import { authenticatedRouteGroup } from "../src/middleware/rateLimit";
 
-const USER_ID = "user-uuid-1";
+const USER_ID = "45d5fe54-f20b-4fe4-9e22-cad4f7751a47";
 const TELEGRAM_ID = 777;
 const JWT_SECRET = "rate-limit-test-secret";
 
@@ -27,7 +28,7 @@ type RateLimitTestEnv = Partial<AppEnv> & {
 };
 
 async function authorizationHeader(): Promise<Record<string, string>> {
-  const token = await issueToken({ JWT_SECRET } as AppEnv, USER_ID, TELEGRAM_ID);
+  const token = await issueToken({ JWT_SECRET } as AppEnv, USER_ID, TELEGRAM_ID, 0);
   return { Authorization: `Bearer ${token}` };
 }
 
@@ -40,6 +41,8 @@ function createRateLimitApp(env: RateLimitTestEnv) {
     } as Partial<AppEnv>,
   });
 }
+
+const requireAuth = createRequireAuth(async () => ({ tokenVersion: 0, isRegistered: true }));
 
 describe("Cloudflare authenticated rate limiting", () => {
   test("GET передаёт read binding только userId и rejection останавливает handler", async () => {
@@ -113,15 +116,15 @@ describe("Cloudflare authenticated rate limiting", () => {
   test("admin mutation использует admin:<second-segment> без ID и query string", async () => {
     const mutationLimiter = new RateLimitMock({ success: false });
     const app = createRateLimitApp({ API_MUTATION_RATE_LIMITER: mutationLimiter });
-    app.post("/admin/__security/:id", (c) => c.json({ ok: true }));
+    app.post("/__security/admin/:id", requireAuth, (c) => c.json({ ok: true }));
 
-    const response = await app.request("/admin/__security/card-dynamic-id?draft=true", {
+    const response = await app.request("/__security/admin/card-dynamic-id?draft=true", {
       method: "POST",
       headers: await authorizationHeader(),
     });
 
     expect(response.status).toBe(429);
-    expect(mutationLimiter.calls).toEqual([{ key: `${USER_ID}:admin:__security` }]);
+    expect(mutationLimiter.calls).toEqual([{ key: `${USER_ID}:__security` }]);
   });
 
   test("отсутствующий binding является no-op", async () => {
@@ -169,4 +172,8 @@ describe("Cloudflare authenticated rate limiting", () => {
     expect(readLimiter.calls).toEqual([]);
     expect(mutationLimiter.calls).toEqual([]);
   });
+});
+
+test("authenticatedRouteGroup strips dynamic admin IDs and query strings", () => {
+  expect(authenticatedRouteGroup("/admin/users/45d5fe54-f20b-4fe4-9e22-cad4f7751a47/revoke-sessions?force=true")).toBe("admin:users");
 });

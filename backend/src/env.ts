@@ -34,6 +34,7 @@ export interface AppEnv {
 export interface AuthUser {
   userId: string;
   telegramId: number;
+  isRegistered: boolean;
 }
 
 /** Контекстные переменные Hono. */

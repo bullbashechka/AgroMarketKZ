@@ -1,6 +1,21 @@
 import { clearToken, getToken } from "./token";
 
 const apiUrl = (import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/$/, "");
+let unauthorizedHandler: (() => Promise<void> | void) | undefined;
+let unauthorizedRecovery: Promise<void> | undefined;
+
+/** Регистрирует единый recovery сессии, чтобы параллельные 401 не запускали несколько повторных входов. */
+export function setUnauthorizedHandler(handler: (() => Promise<void> | void) | undefined): void {
+  unauthorizedHandler = handler;
+}
+
+function handleUnauthorized(): void {
+  clearToken();
+  if (!unauthorizedHandler || unauthorizedRecovery) return;
+  unauthorizedRecovery = Promise.resolve(unauthorizedHandler()).finally(() => {
+    unauthorizedRecovery = undefined;
+  });
+}
 
 /** Ошибка ответа backend с HTTP-статусом и сообщением. */
 export class ApiError extends Error {
@@ -28,7 +43,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (response.status === 401) {
     // Токен недействителен/истёк — сбрасываем сессию (в браузере → к Login Widget).
-    clearToken();
+    handleUnauthorized();
     throw new ApiError(401, "Сессия истекла");
   }
 

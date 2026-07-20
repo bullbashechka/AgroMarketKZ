@@ -14,6 +14,7 @@ export interface UserRow {
   contact_name: string | null;
   contact_phone: string | null;
   verified_phone: string | null;
+  token_version: number;
   registered_at: Date | null;
   created_at: Date;
 }
@@ -33,6 +34,35 @@ export async function findByTelegramId(env: AppEnv, telegramId: number): Promise
     select * from users where telegram_id = ${telegramId} limit 1
   `;
   return row;
+}
+
+/** Минимальная живая запись для проверки JWT без повторного SELECT в requireRegistered. */
+export async function findAuthUser(
+  env: AppEnv,
+  userId: string,
+  telegramId: number,
+): Promise<{ tokenVersion: number; isRegistered: boolean } | undefined> {
+  const sql = getDb(env);
+  const [row] = await sql<{ token_version: number; registered_at: Date | null }[]>`
+    select token_version, registered_at
+    from users
+    where id = ${userId} and telegram_id = ${telegramId}
+    limit 1
+  `;
+  if (!row) return undefined;
+  return { tokenVersion: row.token_version, isRegistered: row.registered_at !== null };
+}
+
+/** Атомарно отзывает все JWT пользователя, выпущенные до текущей версии сессии. */
+export async function revokeUserSessions(env: AppEnv, userId: string): Promise<boolean> {
+  const sql = getDb(env);
+  const rows = await sql<{ id: string }[]>`
+    update users
+    set token_version = token_version + 1
+    where id = ${userId}
+    returning id
+  `;
+  return rows.length === 1;
 }
 
 /**

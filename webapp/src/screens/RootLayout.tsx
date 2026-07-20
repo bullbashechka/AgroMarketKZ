@@ -16,10 +16,10 @@ const RouterDevtools = import.meta.env.DEV
 function FullScreenLoading() {
   return (
     <main className="shell">
-      <section className="card" style={{ display: "grid", gap: 12 }}>
-        <Skeleton height={28} width="60%" />
-        <Skeleton height={16} width="90%" />
-        <Skeleton height={16} width="80%" />
+      <section className="card loading-skeleton-card">
+        <Skeleton size="title" width="sixty" />
+        <Skeleton width="ninety" />
+        <Skeleton width="eighty" />
       </section>
     </main>
   );

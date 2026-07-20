@@ -6,8 +6,8 @@ import type {
   WidgetLoginInput
 } from "@agromarket/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, type ReactNode } from "react";
-import { ApiError, apiGet, apiPost, apiPut } from "./api";
+import { createContext, useContext, useEffect, type ReactNode } from "react";
+import { ApiError, apiGet, apiPost, apiPut, setUnauthorizedHandler } from "./api";
 import { getInitData, isTelegramContext } from "./telegram";
 import { getToken, setToken } from "./token";
 
@@ -73,6 +73,13 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
+
+  useEffect(() => {
+    setUnauthorizedHandler(async () => {
+      await qc.invalidateQueries({ queryKey: PROFILE_KEY });
+    });
+    return () => setUnauthorizedHandler(undefined);
+  }, [qc]);
 
   const profileQuery = useQuery({
     queryKey: PROFILE_KEY,

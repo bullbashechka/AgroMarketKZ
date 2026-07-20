@@ -34,6 +34,12 @@ export function createApp(options: AppOptions = {}) {
     await next();
   });
 
+  app.use("*", async (c, next) => {
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("Referrer-Policy", "no-referrer");
+    await next();
+  });
+
   app.use(
     "*",
     cors({

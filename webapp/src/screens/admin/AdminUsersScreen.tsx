@@ -1,8 +1,9 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { ErrorState } from "../../components/ErrorState";
 import { Screen } from "../../components/Screen";
 import { SkeletonList } from "../../components/Skeleton";
+import { apiPost } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { adminUsersInfiniteQueryOptions } from "../../lib/queries";
 
@@ -13,6 +14,10 @@ export function AdminUsersScreen() {
   );
 
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const revokeMutation = useMutation({
+    mutationFn: (userId: string) => apiPost<null>(`/admin/users/${userId}/revoke-sessions`),
+  });
+  const revokeTarget = revokeMutation.variables;
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -48,6 +53,17 @@ export function AdminUsersScreen() {
                     <div className="user-row-meta">
                       {user.contactPhone && <span>{user.contactPhone}</span>}
                       {user.registeredAt && <span>Регистрация: {formatDateTime(user.registeredAt)}</span>}
+                    </div>
+                    <div className="user-row-actions">
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        data-testid="admin-user-revoke-sessions"
+                        onClick={() => revokeMutation.mutate(user.id)}
+                        disabled={revokeMutation.isPending}
+                      >
+                        {revokeMutation.isPending && revokeTarget === user.id ? "Завершаем…" : "Завершить сессии"}
+                      </button>
                     </div>
                   </div>
                 );
