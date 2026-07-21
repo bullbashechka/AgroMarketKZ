@@ -39,5 +39,5 @@ export const phoneSchema = z
   .trim()
   .transform((value) => normalizePhone(value))
   .refine((value): value is string => value !== null, {
-    error: "Введите номер в международном формате, например +7 701 234 56 78"
+    error: "Введите номер в международном формате, например +998 90 123 45 67 или +7 701 234 56 78"
   });

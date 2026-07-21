@@ -1,12 +1,17 @@
 import type { Context } from "hono";
 
+/** Минимальный structural-контракт нативного Cloudflare Rate Limiting binding. */
+export interface RateLimitBinding {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 /**
  * Полный набор переменных окружения backend.
  * На Cloudflare Workers приходят как `c.env` (bindings/secrets),
  * локально на Bun — пробрасываются в `createApp({ env })` из `Bun.env`.
  */
 export interface AppEnv {
-  WEBAPP_ORIGIN?: string;
+  WEBAPP_ORIGIN: string;
   JWT_SECRET: string;
   TELEGRAM_BOT_TOKEN: string;
   /** Секрет вебхука (secret_token из setWebhook); без него вебхук отвечает 401. */
@@ -20,12 +25,18 @@ export interface AppEnv {
   SUPABASE_URL: string;
   SUPABASE_STORAGE_BUCKET: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  /** "false" включает реальное удаление в storageCleanup; любое другое значение (в т.ч. отсутствие) — dry-run. */
+  STORAGE_CLEANUP_DRY_RUN?: string;
+  /** Отсутствуют при локальном запуске без Wrangler и тогда являются no-op. */
+  API_READ_RATE_LIMITER?: RateLimitBinding;
+  API_MUTATION_RATE_LIMITER?: RateLimitBinding;
 }
 
 /** Аутентифицированный пользователь, кладётся `requireAuth` в контекст. */
 export interface AuthUser {
   userId: string;
   telegramId: number;
+  isRegistered: boolean;
 }
 
 /** Контекстные переменные Hono. */

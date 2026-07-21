@@ -1,4 +1,4 @@
-import type { CatalogType, PriceType } from "@agromarket/contracts";
+import { telegramContactSchema, type CatalogType, type PriceType } from "@agromarket/contracts";
 
 const priceFormatter = new Intl.NumberFormat("ru-RU");
 const dateTimeFormatter = new Intl.DateTimeFormat("ru-RU", {
@@ -40,10 +40,10 @@ export function whatsappLink(phone: string): string {
 /**
  * t.me-ссылка из контакта площадки, который админ мог ввести как `@username`,
  * `username` или уже готовую ссылку `https://t.me/username` / `t.me/username`.
+ * `null`, если значение не проходит валидацию (например, устаревшее/повреждённое
+ * значение из БД) — вызывающий код должен скрыть канал, а не открывать произвольный URL.
  */
-export function telegramLink(contact: string): string {
-  const trimmed = contact.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  const handle = trimmed.replace(/^@/, "").replace(/^t\.me\//i, "");
-  return `https://t.me/${handle}`;
+export function telegramLink(contact: string): string | null {
+  const parsed = telegramContactSchema.safeParse(contact);
+  return parsed.success ? parsed.data : null;
 }

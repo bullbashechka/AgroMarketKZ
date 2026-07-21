@@ -15,3 +15,9 @@ export function assertUnderLimit(count: number, retryAfterSeconds = 0): void {
     );
   }
 }
+
+/** Секунд до истечения окна лимита, если известно время самого старого обращения в нём. */
+export function retryAfterSeconds(oldest: Date | null): number {
+  if (!oldest) return 0;
+  return Math.max(1, Math.ceil((oldest.getTime() + RATE_LIMIT_WINDOW_MINUTES * 60_000 - Date.now()) / 1000));
+}

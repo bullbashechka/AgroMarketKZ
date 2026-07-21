@@ -1,0 +1,179 @@
+import { describe, expect, test } from "bun:test";
+import { createApp } from "../src/app";
+import type { AppEnv } from "../src/env";
+import { issueToken } from "../src/lib/jwt";
+import { createRequireAuth } from "../src/middleware/auth";
+import { authenticatedRouteGroup } from "../src/middleware/rateLimit";
+
+const USER_ID = "45d5fe54-f20b-4fe4-9e22-cad4f7751a47";
+const TELEGRAM_ID = 777;
+const JWT_SECRET = "rate-limit-test-secret";
+
+type LimitResult = { success: boolean };
+
+class RateLimitMock {
+  readonly calls: Array<{ key: string }> = [];
+
+  constructor(private readonly result: LimitResult) {}
+
+  async limit(options: { key: string }): Promise<LimitResult> {
+    this.calls.push(options);
+    return this.result;
+  }
+}
+
+type RateLimitTestEnv = Partial<AppEnv> & {
+  API_READ_RATE_LIMITER?: RateLimitMock;
+  API_MUTATION_RATE_LIMITER?: RateLimitMock;
+};
+
+async function authorizationHeader(): Promise<Record<string, string>> {
+  const token = await issueToken({ JWT_SECRET } as AppEnv, USER_ID, TELEGRAM_ID, 0);
+  return { Authorization: `Bearer ${token}` };
+}
+
+function createRateLimitApp(env: RateLimitTestEnv) {
+  return createApp({
+    env: {
+      JWT_SECRET,
+      ADMIN_ALLOWLIST: String(TELEGRAM_ID),
+      ...env,
+    } as Partial<AppEnv>,
+  });
+}
+
+const requireAuth = createRequireAuth(async () => ({ tokenVersion: 0, isRegistered: true }));
+
+describe("Cloudflare authenticated rate limiting", () => {
+  test("GET передаёт read binding только userId и rejection останавливает handler", async () => {
+    const readLimiter = new RateLimitMock({ success: false });
+    const mutationLimiter = new RateLimitMock({ success: true });
+    const app = createRateLimitApp({
+      API_READ_RATE_LIMITER: readLimiter,
+      API_MUTATION_RATE_LIMITER: mutationLimiter,
+    });
+    let handlerCalls = 0;
+    app.get("/__security/read/:id", requireAuth, (c) => {
+      handlerCalls += 1;
+      return c.json({ ok: true });
+    });
+
+    const response = await app.request("/__security/read/dynamic-1?sort=desc", {
+      headers: await authorizationHeader(),
+    });
+
+    expect(readLimiter.calls).toEqual([{ key: USER_ID }]);
+    expect(mutationLimiter.calls).toEqual([]);
+    expect(handlerCalls).toBe(0);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(await response.json()).toEqual({
+      error: "Слишком много запросов",
+      retryAfterSeconds: 60,
+    });
+  });
+
+  test("HEAD считается безопасным чтением", async () => {
+    const readLimiter = new RateLimitMock({ success: false });
+    const mutationLimiter = new RateLimitMock({ success: true });
+    const app = createRateLimitApp({
+      API_READ_RATE_LIMITER: readLimiter,
+      API_MUTATION_RATE_LIMITER: mutationLimiter,
+    });
+    app.use("/__security/head", requireAuth);
+    app.all("/__security/head", (c) => c.body(null, 204));
+
+    const response = await app.request("/__security/head", {
+      method: "HEAD",
+      headers: await authorizationHeader(),
+    });
+
+    expect(response.status).toBe(429);
+    expect(readLimiter.calls).toEqual([{ key: USER_ID }]);
+    expect(mutationLimiter.calls).toEqual([]);
+  });
+
+  test("mutation binding получает userId и первую группу маршрута", async () => {
+    const mutationLimiter = new RateLimitMock({ success: false });
+    const app = createRateLimitApp({ API_MUTATION_RATE_LIMITER: mutationLimiter });
+    app.post("/__security/items/:id", requireAuth, (c) => c.json({ ok: true }));
+
+    await app.request("/__security/items/dynamic-1?source=one", {
+      method: "POST",
+      headers: await authorizationHeader(),
+    });
+    await app.request("/__security/items/dynamic-2?source=two", {
+      method: "POST",
+      headers: await authorizationHeader(),
+    });
+
+    expect(mutationLimiter.calls).toEqual([
+      { key: `${USER_ID}:__security` },
+      { key: `${USER_ID}:__security` },
+    ]);
+  });
+
+  test("admin mutation использует admin:<second-segment> без ID и query string", async () => {
+    const mutationLimiter = new RateLimitMock({ success: false });
+    const app = createRateLimitApp({ API_MUTATION_RATE_LIMITER: mutationLimiter });
+    app.post("/__security/admin/:id", requireAuth, (c) => c.json({ ok: true }));
+
+    const response = await app.request("/__security/admin/card-dynamic-id?draft=true", {
+      method: "POST",
+      headers: await authorizationHeader(),
+    });
+
+    expect(response.status).toBe(429);
+    expect(mutationLimiter.calls).toEqual([{ key: `${USER_ID}:__security` }]);
+  });
+
+  test("отсутствующий binding является no-op", async () => {
+    const app = createRateLimitApp({});
+    let handlerCalls = 0;
+    app.get("/__security/no-binding", requireAuth, (c) => {
+      handlerCalls += 1;
+      return c.json({ ok: true });
+    });
+
+    const response = await app.request("/__security/no-binding", {
+      headers: await authorizationHeader(),
+    });
+
+    expect(response.status).toBe(200);
+    expect(handlerCalls).toBe(1);
+    expect(await response.json()).toEqual({ ok: true });
+  });
+
+  test("auth и Telegram webhook остаются вне user-keyed limiter", async () => {
+    const readLimiter = new RateLimitMock({ success: false });
+    const mutationLimiter = new RateLimitMock({ success: false });
+    const app = createRateLimitApp({
+      API_READ_RATE_LIMITER: readLimiter,
+      API_MUTATION_RATE_LIMITER: mutationLimiter,
+      TELEGRAM_WEBHOOK_SECRET: "test-secret",
+    });
+
+    const authResponse = await app.request("/auth/widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const webhookResponse = await app.request("/telegram/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": "test-secret",
+      },
+      body: "{}",
+    });
+
+    expect(authResponse.status).toBe(400);
+    expect(webhookResponse.status).toBe(200);
+    expect(readLimiter.calls).toEqual([]);
+    expect(mutationLimiter.calls).toEqual([]);
+  });
+});
+
+test("authenticatedRouteGroup strips dynamic admin IDs and query strings", () => {
+  expect(authenticatedRouteGroup("/admin/users/45d5fe54-f20b-4fe4-9e22-cad4f7751a47/revoke-sessions?force=true")).toBe("admin:users");
+});

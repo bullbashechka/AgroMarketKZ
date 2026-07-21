@@ -186,11 +186,19 @@ export function hapticImpactLight(): void {
   getWebApp()?.HapticFeedback?.impactOccurred("light");
 }
 
+const ALLOWED_EXTERNAL_SCHEMES = ["tel:", "mailto:", "https:"];
+
 /**
  * Открывает внешнюю ссылку (звонок/WhatsApp и т.п.). В Telegram — через SDK (не покидая клиент
  * там, где это возможно), вне Telegram — обычным способом браузера.
+ * Отклоняет схемы вне allowlist (`javascript:`, `data:`, `http:` и т.п.) — защита от произвольного
+ * URL, даже если он случайно дойдёт сюда из недостаточно провалидированных данных.
  */
 export function openExternalLink(url: string): void {
+  if (!ALLOWED_EXTERNAL_SCHEMES.some((scheme) => url.startsWith(scheme))) {
+    console.warn(`openExternalLink: запрещённая схема — ${url}`);
+    return;
+  }
   const wa = getWebApp();
   if (wa?.openLink) {
     wa.openLink(url);
@@ -201,6 +209,10 @@ export function openExternalLink(url: string): void {
 
 /** Открывает t.me-ссылку на Telegram-аккаунт/канал. No-op-фолбэк вне Telegram — обычная ссылка. */
 export function openTelegramDeepLink(url: string): void {
+  if (!/^https:\/\/t\.me\//i.test(url)) {
+    console.warn(`openTelegramDeepLink: не t.me-ссылка — ${url}`);
+    return;
+  }
   const wa = getWebApp();
   if (wa?.openTelegramLink) {
     wa.openTelegramLink(url);

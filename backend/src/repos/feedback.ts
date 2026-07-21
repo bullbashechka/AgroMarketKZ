@@ -1,6 +1,8 @@
 import type { CreateFeedbackInput, FeedbackMessage } from "@agromarket/contracts";
 import { getDb } from "../db";
 import type { AppEnv } from "../env";
+import { HttpError } from "../lib/errors";
+import { assertUnderLimit, retryAfterSeconds } from "../lib/rateLimit";
 
 export interface FeedbackRow {
   id: string;
@@ -24,31 +26,37 @@ export function toFeedbackMessage(row: FeedbackRow): FeedbackMessage {
   };
 }
 
-/** Число сообщений обратной связи пользователя за последние 10 минут — антиспам-лимит. */
-export async function countRecentFeedback(env: AppEnv, userId: string): Promise<number> {
-  const sql = getDb(env);
-  const [row] = await sql<{ count: string }[]>`
-    select count(*) from feedback_messages
-    where user_id = ${userId} and created_at > now() - interval '10 minutes'
-  `;
-  return Number(row?.count ?? 0);
-}
-
+/**
+ * Создаёт обращение обратной связи. Лимит 5/10 мин проверяется внутри транзакции
+ * после блокировки строки пользователя — так же, как в заявках (см. repos/requests.ts).
+ */
 export async function createFeedback(
   env: AppEnv,
   userId: string,
   input: CreateFeedbackInput
 ): Promise<FeedbackRow> {
   const sql = getDb(env);
-  // Флаг подтверждённости телефона снапшотится так же, как в заявках.
-  const [row] = await sql<FeedbackRow[]>`
-    insert into feedback_messages (user_id, contact_name, contact_phone, contact_phone_verified, message)
-    values (
-      ${userId}, ${input.contactName}, ${input.contactPhone},
-      coalesce((select verified_phone = ${input.contactPhone} from users where id = ${userId}), false),
-      ${input.message}
-    )
-    returning *
-  `;
-  return row!;
+  return sql.begin(async (tx) => {
+    const [user] = await tx<{ verified_phone: string | null }[]>`
+      select verified_phone from users where id = ${userId} for update
+    `;
+    if (!user) throw new HttpError(404, "Пользователь не найден");
+
+    const [rate] = await tx<{ count: string; oldest: Date | null }[]>`
+      select count(*), min(created_at) as oldest from feedback_messages
+      where user_id = ${userId} and created_at > now() - interval '10 minutes'
+    `;
+    assertUnderLimit(Number(rate?.count ?? 0), retryAfterSeconds(rate?.oldest ?? null));
+
+    const [row] = await tx<FeedbackRow[]>`
+      insert into feedback_messages (user_id, contact_name, contact_phone, contact_phone_verified, message)
+      values (
+        ${userId}, ${input.contactName}, ${input.contactPhone},
+        ${user.verified_phone === input.contactPhone},
+        ${input.message}
+      )
+      returning *
+    `;
+    return row!;
+  });
 }

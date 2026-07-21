@@ -154,7 +154,10 @@ export function CardScreen({ section }: { section: TabSection }) {
 function openDirect(channel: DirectChannel, settings: PlatformSettings | undefined) {
   if (channel === "phone" && settings?.contactPhone) openExternalLink(`tel:${settings.contactPhone}`);
   if (channel === "whatsapp" && settings?.whatsappPhone) openExternalLink(whatsappLink(settings.whatsappPhone));
-  if (channel === "telegram" && settings?.telegramContact) openTelegramDeepLink(telegramLink(settings.telegramContact));
+  if (channel === "telegram" && settings?.telegramContact) {
+    const link = telegramLink(settings.telegramContact);
+    if (link) openTelegramDeepLink(link);
+  }
 }
 
 function ResponseOptions({
@@ -173,7 +176,7 @@ function ResponseOptions({
     ? {
         phone: Boolean(settingsQuery.data?.contactPhone),
         whatsapp: Boolean(settingsQuery.data?.whatsappPhone),
-        telegram: Boolean(settingsQuery.data?.telegramContact),
+        telegram: Boolean(settingsQuery.data?.telegramContact && telegramLink(settingsQuery.data.telegramContact)),
       }
     : capabilities.data;
   const pending = profile?.isRegistered ? settingsQuery.isPending : capabilities.isPending;

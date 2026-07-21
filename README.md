@@ -92,7 +92,7 @@ cloudflared tunnel --url http://localhost:5173
 1. `/newbot` — создать тестового бота, токен → `TELEGRAM_BOT_TOKEN`, username (без @) → `TELEGRAM_BOT_USERNAME` и `VITE_TELEGRAM_BOT_USERNAME`.
 2. `/newapp` — создать Mini App у бота: URL — адрес туннеля, short name → `TELEGRAM_MINIAPP_SHORTNAME` (нужен для deep-link-кнопок «Открыть заявку» в уведомлениях).
 3. Bot Settings → Menu Button — URL туннеля (кнопка меню в личке).
-4. `/setdomain` — домен туннеля (для Login Widget в браузере).
+4. `/setdomain` — домен туннеля (для Login Widget в браузере). Виджет реально перенаправляет браузер на этот домен после входа (`data-auth-url`), поэтому при смене адреса туннеля `/setdomain` нужно обновлять так же, как Menu Button выше.
 5. Bot Settings → Allow Groups? — **включить** (иначе бота нельзя добавить в группу уведомлений).
 6. Придумать случайную строку → `TELEGRAM_WEBHOOK_SECRET`.
 

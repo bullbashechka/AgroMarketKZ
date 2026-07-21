@@ -4,14 +4,41 @@ compatibility_date = "2026-06-28"
 # postgres.js использует TCP-сокеты через Node-совместимость на Workers.
 compatibility_flags = ["nodejs_compat"]
 
+# Ежедневная уборка orphaned-файлов card-images/cards/* (см. backend/src/lib/storageCleanup.ts).
+[triggers]
+crons = ["0 3 * * *"]
+
 [vars]
-WEBAPP_ORIGIN = "http://localhost:5173"
-SUPABASE_URL = "https://replace-with-project-ref.supabase.co"
+# Production Pages origin (домен детерминирован CLOUDFLARE_PROJECT_NAME=agromarketkz-webapp).
+# Локально переопределяется через backend/.dev.vars (не в git).
+WEBAPP_ORIGIN = "https://agromarketkz-webapp.pages.dev"
+SUPABASE_URL = "https://qxyieyzfdcosmmckyocm.supabase.co"
 SUPABASE_STORAGE_BUCKET = "card-images"
 # Прод-бот (Этап 10): username без @ и shortname Mini App из /newapp — для deep-link-кнопок.
 TELEGRAM_BOT_USERNAME = "replace_with_bot_username"
 TELEGRAM_MINIAPP_SHORTNAME = "replace_with_miniapp_shortname"
+# Первый прод-запуск — только dry-run (см. backend/README.md). Переключить на "false" только
+# после ручной проверки кандидатов по логам (`wrangler tail`) и отдельного deploy.
+STORAGE_CLEANUP_DRY_RUN = "true"
 
 # Секреты на проде задаются через `wrangler secret put` (Этап 10), НЕ в [vars]:
 #   JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, ADMIN_ALLOWLIST,
 #   DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+
+# Начальные пороги требуют наблюдения и настройки по production-трафику.
+# Перед deployment проверить namespace_id на уникальность в пределах Cloudflare account.
+[[ratelimits]]
+name = "API_READ_RATE_LIMITER"
+namespace_id = "2026072001"
+
+  [ratelimits.simple]
+  limit = 120
+  period = 60
+
+[[ratelimits]]
+name = "API_MUTATION_RATE_LIMITER"
+namespace_id = "2026072002"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60

@@ -4,19 +4,54 @@ import { useAuth } from "../lib/auth";
 
 const BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined;
 
-/** Вход в обычном браузере через Telegram Login Widget. */
+/** Поля, которые Telegram Login Widget добавляет в query string при `data-auth-url` redirect. */
+function parseWidgetRedirect(search: string): WidgetLoginInput | null {
+  const params = new URLSearchParams(search);
+  const hash = params.get("hash");
+  const id = params.get("id");
+  const authDate = params.get("auth_date");
+  const firstName = params.get("first_name");
+  if (!hash || !id || !authDate || !firstName) return null;
+  return {
+    id: Number(id),
+    first_name: firstName,
+    last_name: params.get("last_name") ?? undefined,
+    username: params.get("username") ?? undefined,
+    photo_url: params.get("photo_url") ?? undefined,
+    auth_date: Number(authDate),
+    hash
+  };
+}
+
+/**
+ * Вход в обычном браузере через Telegram Login Widget. Использует `data-auth-url` (браузер
+ * получает redirect с данными в query string), а не `data-onauth`: JS-колбэк `data-onauth`
+ * вызывается виджетом через `eval()`, что потребовало бы `unsafe-eval` в CSP `script-src`.
+ * Redirect-вариант этого не требует.
+ */
 export function LoginScreen() {
   const { loginWidget, loginPending } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
+  const handledRedirect = useRef(false);
+
+  // Однократно разбираем query string на случай, если это и есть redirect от Telegram.
+  useEffect(() => {
+    if (handledRedirect.current) return;
+    handledRedirect.current = true;
+    const parsed = parseWidgetRedirect(window.location.search);
+    if (parsed) {
+      loginWidget(parsed);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, [loginWidget]);
 
   useEffect(() => {
-    // Колбэк, который дёргает виджет после успешного входа.
-    (window as unknown as { onTelegramAuth?: (u: WidgetLoginInput) => void }).onTelegramAuth = (
-      user
-    ) => loginWidget(user);
-
     const container = containerRef.current;
     if (!BOT_USERNAME || !container) return;
+
+    // Возвращаем на тот же путь; кроме "/" — там beforeLoad-редирект на /services сотрёт
+    // query string раньше, чем страница успеет её прочитать.
+    const returnPath = window.location.pathname === "/" ? "/services" : window.location.pathname;
 
     const script = document.createElement("script");
     script.src = "https://telegram.org/js/telegram-widget.js?22";
@@ -25,13 +60,9 @@ export function LoginScreen() {
     script.setAttribute("data-size", "large");
     script.setAttribute("data-userpic", "false");
     script.setAttribute("data-request-access", "write");
-    script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-auth-url", `${window.location.origin}${returnPath}`);
     container.appendChild(script);
-
-    return () => {
-      delete (window as unknown as { onTelegramAuth?: unknown }).onTelegramAuth;
-    };
-  }, [loginWidget]);
+  }, []);
 
   return (
     <main className="shell">

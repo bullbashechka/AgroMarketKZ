@@ -3,6 +3,7 @@ import { getDb } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { paginateRows, type PaginatedResult } from "../lib/pagination";
+import { assertUnderLimit, retryAfterSeconds } from "../lib/rateLimit";
 
 export interface RequestRow {
   id: string;
@@ -55,22 +56,6 @@ export function toRequest(row: RequestRow): RequestDto {
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString()
   };
-}
-
-/** Число заявок пользователя за последние 10 минут — для мягкого антиспам-лимита. */
-export async function requestRateLimitState(
-  env: AppEnv,
-  userId: string,
-): Promise<{ count: number; retryAfterSeconds: number }> {
-  const sql = getDb(env);
-  const [row] = await sql<{ count: string; oldest: Date | null }[]>`
-    select count(*), min(created_at) as oldest from requests
-    where user_id = ${userId} and created_at > now() - interval '10 minutes'
-  `;
-  const retryAfterSeconds = row?.oldest
-    ? Math.max(1, Math.ceil((row.oldest.getTime() + 10 * 60_000 - Date.now()) / 1000))
-    : 0;
-  return { count: Number(row?.count ?? 0), retryAfterSeconds };
 }
 
 export async function findRequestByClientId(
@@ -132,6 +117,12 @@ export async function createRequest(
       }
       return { row: committedReplay, created: false };
     }
+
+    const [rate] = await tx<{ count: string; oldest: Date | null }[]>`
+      select count(*), min(created_at) as oldest from requests
+      where user_id = ${userId} and created_at > now() - interval '10 minutes'
+    `;
+    assertUnderLimit(Number(rate?.count ?? 0), retryAfterSeconds(rate?.oldest ?? null));
 
     const contactPhoneVerified =
       user.verified_phone === input.contactPhone || verifiedContactPhone === input.contactPhone;

@@ -13,7 +13,7 @@ authRoutes.post("/telegram", async (c) => {
   const { initData } = telegramLoginInput.parse(await c.req.json());
   const tg = await validateInitData(initData, env.TELEGRAM_BOT_TOKEN);
   const row = await upsertFromTelegram(env, tg);
-  const token = await issueToken(env, row.id, Number(row.telegram_id));
+  const token = await issueToken(env, row.id, Number(row.telegram_id), row.token_version);
   return c.json(authResponse.parse({ token, profile: toProfile(row, env) }));
 });
 
@@ -23,6 +23,6 @@ authRoutes.post("/widget", async (c) => {
   const data = widgetLoginInput.parse(await c.req.json());
   const tg = await validateWidgetLogin(data, env.TELEGRAM_BOT_TOKEN);
   const row = await upsertFromTelegram(env, tg);
-  const token = await issueToken(env, row.id, Number(row.telegram_id));
+  const token = await issueToken(env, row.id, Number(row.telegram_id), row.token_version);
   return c.json(authResponse.parse({ token, profile: toProfile(row, env) }));
 });

@@ -4,16 +4,10 @@ import { getEnv, type HonoEnv } from "../env";
 import { runInBackground } from "../lib/background";
 import { tryValidateContactPhoneForUser } from "../lib/contact";
 import { HttpError } from "../lib/errors";
-import { assertUnderLimit } from "../lib/rateLimit";
 import { requestPayloadHash } from "../lib/requestIdempotency";
 import { buildRequestDeepLink, formatRequestNotification, sendAdminNotification } from "../lib/telegramBot";
 import { requireAuth } from "../middleware/auth";
-import {
-  createRequest,
-  findRequestByClientId,
-  requestRateLimitState,
-  toRequest,
-} from "../repos/requests";
+import { createRequest, findRequestByClientId, toRequest } from "../repos/requests";
 import { getAdminChatId } from "../repos/settings";
 import { findByTelegramId } from "../repos/users";
 
@@ -35,9 +29,6 @@ requestsRoutes.post("/", async (c) => {
     }
     return c.json(requestSchema.parse(toRequest(replay)), 200);
   }
-
-  const rate = await requestRateLimitState(env, userId);
-  assertUnderLimit(rate.count, rate.retryAfterSeconds);
 
   const verifiedPhone = await tryValidateContactPhoneForUser(input.contactResponse, telegramId, env);
   const { row, created } = await createRequest(env, userId, input, payloadHash, verifiedPhone);

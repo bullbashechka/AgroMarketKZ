@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { TELEGRAM_CONTACT_MAX, ADMIN_CHAT_ID_MAX } from "./constants";
+import { ADMIN_CHAT_ID_MAX } from "./constants";
 import { phoneSchema } from "./phone";
+import { telegramContactSchema } from "./telegramContact";
 
 /** Публичные контакты площадки (ответ API для отклика и обратной связи). */
 export const platformSettingsSchema = z.object({
@@ -36,7 +37,7 @@ export type AdminPlatformSettings = z.infer<typeof adminPlatformSettingsSchema>;
 export const updateSettingsInput = z.object({
   contactPhone: phoneSchema.nullable().optional(),
   whatsappPhone: phoneSchema.nullable().optional(),
-  telegramContact: z.string().trim().max(TELEGRAM_CONTACT_MAX).nullable().optional(),
+  telegramContact: telegramContactSchema.nullable().optional(),
   email: z.email({ error: "Введите корректный email" }).nullable().optional(),
   adminChatId: z.string().trim().max(ADMIN_CHAT_ID_MAX).nullable().optional()
 });
