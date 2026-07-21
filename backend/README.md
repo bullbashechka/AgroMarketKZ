@@ -24,19 +24,23 @@ src/
   worker.ts         # точка входа Cloudflare Workers
   env.ts            # тип AppEnv, слияние Bun.env + c.env, getEnv(c)
   db.ts             # ленивый синглтон postgres.js
-  repos/users.ts    # доступ к таблице users + маппинг в Profile
+  repos/            # SQL-доступ к пользователям, каталогу, заявкам, настройкам и Storage
   lib/
     telegram.ts     # валидация initData и Login Widget (Web Crypto, HMAC-SHA256)
     jwt.ts          # выпуск/проверка JWT (hono/jwt, HS256, 14 дней, версия сессии)
     admin.ts        # парсинг ADMIN_ALLOWLIST, проверка прав по числовому id
     errors.ts       # HttpError (статус + сообщение)
+    storage*.ts     # signed URL, удаление файлов и ежедневная уборка orphaned-объектов
+    telegram*.ts    # webhook, requestContact и уведомления в Telegram
   middleware/
     auth.ts         # requireAuth — проверка Bearer JWT
     admin.ts        # requireAdmin — живая проверка прав
   routes/
     auth.ts         # /auth/telegram, /auth/widget
-    profile.ts      # /profile (GET / register / PUT)
-tests/              # юнит-тесты (telegram, jwt, admin)
+    catalog.ts      # /catalog/categories и /catalog/cards
+    profile.ts      # профиль, регистрация и проверка Telegram-контакта
+    admin/          # управление каталогом, заявками, пользователями, настройками и загрузками
+tests/              # unit- и контрактные тесты
 ```
 
 ## Модель авторизации (Этап 3)
@@ -58,17 +62,21 @@ JWT выпускается на 14 дней с claims `sub`, `tgId`, `ver`, `iat
 
 ## API
 
-| Метод | Путь | Авторизация | Тело | Ответ |
-|-------|------|-------------|------|-------|
-| `GET` | `/health` | — | — | `{ status, app }` |
-| `POST` | `/auth/telegram` | — | `{ initData }` | `{ token, profile }` |
-| `POST` | `/auth/widget` | — | поля Login Widget (`id, first_name, …, hash`) | `{ token, profile }` |
-| `GET` | `/profile` | Bearer | — | `Profile` |
-| `POST` | `/profile/register` | Bearer | `{ contactName, contactPhone }` | `Profile` |
-| `PUT` | `/profile` | Bearer | `{ contactName, contactPhone }` | `Profile` |
-| `POST` | `/admin/users/:id/revoke-sessions` | Admin Bearer | — | `204` |
+Все маршруты, кроме health, входа и Telegram-вебхука, требуют `Authorization: Bearer <JWT>`. Контракты запросов и ответов находятся в `packages/contracts`.
 
-`contactPhone` принимается только как казахстанский мобильный (`+7 7xx`), нормализуется к `+77XXXXXXXXX`; иначе `400`. Ошибки — единый JSON `{ error, issues? }` со статусами `400/401/403/404/500`.
+| Группа | Маршруты |
+|-------|----------|
+| Сервис и вход | `GET /health`, `POST /auth/telegram`, `POST /auth/widget` |
+| Профиль | `GET /profile`, `POST /profile/register`, `PUT /profile`, `POST /profile/contact` |
+| Каталог | `GET /catalog/categories`, `GET /catalog/cards`, `GET /catalog/cards/:id` |
+| Контакты площадки | `GET /settings/capabilities`, `GET /settings` |
+| Пользовательские действия | `GET/POST /favorites`, `DELETE /favorites/:cardId`, `POST /requests`, `POST /feedback` |
+| Telegram | `POST /telegram/webhook` с заголовком `X-Telegram-Bot-Api-Secret-Token` |
+| Администрирование | категории, карточки, загрузки, заявки, пользователи и настройки под `/admin/*` |
+
+`/catalog/*` доступен сразу после подтверждения Telegram-личности. Реальные контакты из `GET /settings`, избранное, обратная связь и личные разделы требуют заполненного профиля. `POST /requests` принимает первую заявку вместе с контактами и атомарно завершает регистрацию. Повтор с тем же `clientRequestId` возвращает уже созданную заявку и не отправляет повторное уведомление.
+
+`contactPhone` принимается только как казахстанский мобильный (`+7 7xx`), нормализуется к `+77XXXXXXXXX`; иначе `400`. Ошибки используют единый JSON `{ error, issues? }` со статусами `400/401/403/404/409/413/429/500`.
 
 ## Ограничение запросов и rate limiting
 
