@@ -740,17 +740,34 @@ async function executeMutationFlow(
     ),
     samples,
   );
-  await executeHttp(
-    config.apiOrigin,
-    jsonRequest(
-      "/feedback",
-      "/feedback",
-      buildFeedbackPayload(config.runId, user.index),
-      "normal",
-      user.token,
+
+  // Одновременный /requests + /feedback от одного зарегистрированного пользователя: оба
+  // берут FOR UPDATE на строку users (repos/requests.ts, repos/feedback.ts) при общем
+  // пуле max:3 (db.ts) — этот intra-user сценарий не покрывался, пока запросы шли строго
+  // последовательно (SECURITY_IMPLEMENTATION_PLAN.md, M5 — acceptance load test для
+  // "одновременных requests/feedback").
+  const concurrentRequestPayload: RequestPayload = {
+    ...requestPayload,
+    clientRequestId: deterministicUuid(`${config.runId}:request:${user.index}:concurrent`),
+  };
+  await Promise.all([
+    executeHttp(
+      config.apiOrigin,
+      jsonRequest("/requests", "/requests", concurrentRequestPayload, "normal", user.token),
+      samples,
     ),
-    samples,
-  );
+    executeHttp(
+      config.apiOrigin,
+      jsonRequest(
+        "/feedback",
+        "/feedback",
+        buildFeedbackPayload(config.runId, user.index),
+        "normal",
+        user.token,
+      ),
+      samples,
+    ),
+  ]);
 }
 
 async function executeReadJourney(

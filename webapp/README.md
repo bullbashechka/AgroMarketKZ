@@ -46,7 +46,7 @@ src/
 ## Поток авторизации (Этап 3)
 
 1. **Telegram** — `App` молча логинится по `initData` (`POST /auth/telegram`), JWT сохраняется в `localStorage`. Повторного входа пользователь не видит.
-2. **Браузер** — без сессии показывается `LoginScreen` с Telegram Login Widget (`POST /auth/widget`).
+2. **Браузер** — без сессии показывается `LoginScreen` с Telegram Login Widget (`POST /auth/widget`). Виджет использует `data-auth-url` (redirect с данными в query string), а не `data-onauth` (JS-колбэк через `eval()`, несовместимый с CSP `script-src` без `unsafe-eval`) — см. `LoginScreen.tsx`.
 3. **Жёсткая стена регистрации** — пока `profile.isRegistered === false`, виден только `RegisterScreen` (имя предзаполнено из Telegram; телефон — нативный «Поделиться контактом» в Telegram или ручной ввод, строго казахстанский мобильный).
 4. После регистрации — главное меню (`HomePlaceholder`).
 

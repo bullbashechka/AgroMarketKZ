@@ -88,6 +88,7 @@ function AdminSettingsForm({ initial }: { initial: AdminPlatformSettings }) {
           inputMode="tel"
           placeholder="+7 701 234 56 78"
         />
+        <span className="muted">Любой номер в международном формате, например +998 90 123 45 67</span>
         {errors.contactPhone && <span className="field-error">{errors.contactPhone}</span>}
       </label>
 
@@ -100,6 +101,7 @@ function AdminSettingsForm({ initial }: { initial: AdminPlatformSettings }) {
           inputMode="tel"
           placeholder="+7 701 234 56 78"
         />
+        <span className="muted">Любой номер в международном формате, например +998 90 123 45 67</span>
         {errors.whatsappPhone && <span className="field-error">{errors.whatsappPhone}</span>}
       </label>
 

@@ -12,9 +12,12 @@ export function setUnauthorizedHandler(handler: (() => Promise<void> | void) | u
 function handleUnauthorized(): void {
   clearToken();
   if (!unauthorizedHandler || unauthorizedRecovery) return;
-  unauthorizedRecovery = Promise.resolve(unauthorizedHandler()).finally(() => {
-    unauthorizedRecovery = undefined;
-  });
+  const handler = unauthorizedHandler;
+  unauthorizedRecovery = Promise.resolve()
+    .then(() => handler())
+    .finally(() => {
+      unauthorizedRecovery = undefined;
+    });
 }
 
 /** Ошибка ответа backend с HTTP-статусом и сообщением. */
