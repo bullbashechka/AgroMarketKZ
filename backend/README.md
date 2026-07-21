@@ -13,6 +13,8 @@ bun test
 
 Переменные окружения локально читаются из корневого `.env` (`Bun.env`), на Workers — из `c.env` (см. `wrangler.toml` и `wrangler secret put`). Требуются: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_ALLOWLIST`, `WEBAPP_ORIGIN`.
 
+CORS разрешает только точный `WEBAPP_ORIGIN` (сравнение origin запроса, без wildcard и без localhost-fallback в коде): production-значение в `wrangler.toml` — `https://agromarketkz-webapp.pages.dev` (домен детерминирован именем Cloudflare Pages проекта). Локально `wrangler dev` переопределяет его через `backend/.dev.vars` (не в git), обычный `bun run dev` — через корневой `.env`.
+
 ## Структура
 
 ```
@@ -92,3 +94,9 @@ Runner запускается только вручную командой `bun 
 Default mode не вызывает `/profile/register`, `/requests` и `/feedback`. `LOAD_TEST_ENABLE_MUTATIONS=1` дополнительно требует `LOAD_TEST_ALLOW_WRITE_TARGET`, точно равный origin, и `LOAD_TEST_NOTIFICATIONS_DISABLED_CONFIRMED=1`. Mutation mode создаёт durable test users, requests и feedback; он разрешён только на dedicated staging/dev с отключёнными notifications и внешним reset/cleanup после запуска.
 
 Acceptance load выполняется только после M1 и должен быть не ниже `2×` ожидаемого launch peak. Во время запуска одновременно наблюдаются Supabase client/backend connections, ошибки `53300` и pool exhaustion, Worker `5xx`, p95/p99 и тарифные connection limits. Сам runner без Supabase/Cloudflare Observability не доказывает production capacity.
+
+## Уборка orphaned Storage-объектов (Этап 8, L9)
+
+Daily Cron Trigger (`wrangler.toml`, `crons = ["0 3 * * *"]`) вызывает `scheduled` в `worker.ts`, который запускает `runStorageCleanup` (`src/lib/storageCleanup.ts`). Джоба постранично перечисляет объекты бакета `card-images` строго под префиксом `cards/`, принимает только пути вида `cards/<uuid>.(jpg|png|webp)`, рассматривает объекты старше 7 суток (`CLEANUP_GRACE_PERIOD_DAYS`) и сверяет их с `card_images.storage_path` (batch-запросом, затем повторно — непосредственно перед удалением, чтобы закрыть race window). Удаление — через отдельный строгий helper (`deleteStorageObjectsStrict` в `src/lib/storage.ts`), который возвращает точный список удалённых/неудалённых путей и не скрывает частичный сбой (в отличие от best-effort `deleteStorageObjects`, используемого при редактировании/удалении карточек). Один запуск ограничен `CLEANUP_MAX_SCANNED_OBJECTS` (2000) просмотренных и `CLEANUP_MAX_DELETE_PER_RUN` (500) удалённых объектов; состояние между запусками не хранится, поэтому джоба идемпотентна.
+
+`STORAGE_CLEANUP_DRY_RUN` (`wrangler.toml [vars]`, по умолчанию `"true"`) — при dry-run джоба только логирует scanned/candidates/deleted/failed и список путей-кандидатов (без токенов, URL и PII — только `storage_path`), реального удаления не происходит. Первый production-запуск обязателен в dry-run; переключение на `"false"` (реальное удаление) — только после ручной проверки кандидатов по логам (`wrangler tail`) и отдельного deploy. Удаление необратимо: откат Cron Trigger не восстанавливает уже удалённые объекты.

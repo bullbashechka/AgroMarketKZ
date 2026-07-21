@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { createApp } from "../src/app";
 import type { AppEnv } from "../src/env";
 import { HttpError } from "../src/lib/errors";
@@ -125,4 +126,22 @@ describe("Retry-After для HttpError 429", () => {
       expect(response.headers.has("Retry-After")).toBe(false);
     },
   );
+});
+
+describe("безопасный ответ на ZodError", () => {
+  test("не содержит issues, деталей схемы или stack trace", async () => {
+    const app = createApp();
+    app.get("/__test/zod-error", () => {
+      z.object({ field: z.string() }).parse({ field: 123 });
+    });
+
+    const response = await app.request("/__test/zod-error");
+    const body = (await response.json()) as Record<string, unknown>;
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({ error: "Проверьте корректность данных", code: "VALIDATION_ERROR" });
+    expect(body).not.toHaveProperty("issues");
+    expect(body).not.toHaveProperty("stack");
+    expect(JSON.stringify(body)).not.toContain("field");
+  });
 });

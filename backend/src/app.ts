@@ -43,7 +43,10 @@ export function createApp(options: AppOptions = {}) {
   app.use(
     "*",
     cors({
-      origin: (_origin, c) => c.get("env").WEBAPP_ORIGIN ?? "http://localhost:5173",
+      origin: (origin, c) => {
+        const allowed = c.get("env").WEBAPP_ORIGIN;
+        return origin === allowed ? origin : undefined;
+      },
       allowHeaders: ["Content-Type", "Authorization"],
       allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     })
@@ -72,7 +75,7 @@ export function createApp(options: AppOptions = {}) {
       return c.json({ error: err.message, ...err.details }, err.status as ContentfulStatusCode);
     }
     if (err instanceof ZodError) {
-      return c.json({ error: "Проверьте корректность данных", issues: err.issues }, 400);
+      return c.json({ error: "Проверьте корректность данных", code: "VALIDATION_ERROR" }, 400);
     }
     console.error(err);
     return c.json({ error: "Внутренняя ошибка сервера" }, 500);

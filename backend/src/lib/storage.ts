@@ -97,3 +97,97 @@ export async function deleteStorageObjects(env: AppEnv, storagePaths: string[]):
     console.error("deleteStorageObjects: не удалось удалить объекты", err);
   }
 }
+
+/** Путь к фото карточки: `cards/<uuid>.(jpg|png|webp)`, без вложенных папок. */
+export const CARD_IMAGE_PATH_PATTERN =
+  /^cards\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$/;
+
+const CARD_IMAGES_PREFIX = "cards/";
+
+interface SupabaseStorageListItem {
+  name: string;
+  created_at: string | null;
+}
+
+export interface StorageObjectSummary {
+  storagePath: string;
+  createdAt: Date;
+}
+
+/**
+ * Постранично перечисляет объекты бакета под префиксом `cards/` (для storageCleanup).
+ * Supabase возвращает `name` относительно `prefix` — здесь он приводится к полному storage_path.
+ * Записи без валидного `created_at` (папки-плейсхолдеры) отбрасываются.
+ */
+export async function listCardImageObjects(
+  env: AppEnv,
+  options: { limit: number; offset: number }
+): Promise<StorageObjectSummary[]> {
+  const base = env.SUPABASE_URL.replace(/\/+$/, "");
+  const res = await fetch(`${base}/storage/v1/object/list/${env.SUPABASE_STORAGE_BUCKET}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      prefix: CARD_IMAGES_PREFIX,
+      limit: options.limit,
+      offset: options.offset,
+      sortBy: { column: "created_at", order: "asc" }
+    })
+  });
+  if (!res.ok) {
+    throw new HttpError(502, "Не удалось получить список объектов Storage");
+  }
+  const items = (await res.json()) as SupabaseStorageListItem[];
+  return items
+    .filter((item) => item.created_at !== null)
+    .map((item) => ({
+      storagePath: `${CARD_IMAGES_PREFIX}${item.name}`,
+      createdAt: new Date(item.created_at as string)
+    }));
+}
+
+export interface StrictDeleteResult {
+  deleted: string[];
+  failed: string[];
+}
+
+/**
+ * Строгое удаление объектов Storage для storageCleanup: в отличие от `deleteStorageObjects`
+ * никогда не скрывает частичный сбой — возвращает точный список удалённых/неудалённых путей,
+ * чтобы вызывающий код мог корректно логировать и не считал неудачное удаление успешным.
+ */
+export async function deleteStorageObjectsStrict(
+  env: AppEnv,
+  storagePaths: string[]
+): Promise<StrictDeleteResult> {
+  if (storagePaths.length === 0) return { deleted: [], failed: [] };
+  const base = env.SUPABASE_URL.replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${base}/storage/v1/object/${env.SUPABASE_STORAGE_BUCKET}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ prefixes: storagePaths })
+    });
+    if (!res.ok) {
+      console.error("deleteStorageObjectsStrict: Supabase Storage вернул ошибку", res.status);
+      return { deleted: [], failed: storagePaths };
+    }
+    const removed = (await res.json()) as { name: string }[];
+    const removedPaths = new Set(removed.map((item) => item.name));
+    return {
+      deleted: storagePaths.filter((path) => removedPaths.has(path)),
+      failed: storagePaths.filter((path) => !removedPaths.has(path))
+    };
+  } catch (err) {
+    console.error("deleteStorageObjectsStrict: не удалось удалить объекты", err);
+    return { deleted: [], failed: storagePaths };
+  }
+}

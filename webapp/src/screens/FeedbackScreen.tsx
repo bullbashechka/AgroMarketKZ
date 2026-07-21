@@ -72,7 +72,8 @@ export function FeedbackScreen() {
     }
   }
 
-  const hasContacts = settings && (settings.contactPhone || settings.whatsappPhone || settings.telegramContact || settings.email);
+  const tgLink = settings?.telegramContact ? telegramLink(settings.telegramContact) : null;
+  const hasContacts = settings && (settings.contactPhone || settings.whatsappPhone || tgLink || settings.email);
 
   return (
     <Screen back title="Обратная связь" fallbackTo="/general">
@@ -94,11 +95,11 @@ export function FeedbackScreen() {
               <span className="list-row-value">{settings.whatsappPhone}</span>
             </button>
           )}
-          {settings.telegramContact && (
+          {tgLink && (
             <button
               type="button"
               className="list-row"
-              onClick={() => openTelegramDeepLink(telegramLink(settings.telegramContact!))}
+              onClick={() => openTelegramDeepLink(tgLink)}
             >
               <span className="list-row-title">Telegram</span>
               <span className="list-row-value">{settings.telegramContact}</span>
