@@ -42,3 +42,14 @@ namespace_id = "2026072002"
   [ratelimits.simple]
   limit = 30
   period = 60
+
+# По IP, применяется на /auth/* до установления пользователя (login ещё не аутентифицирован).
+# Базовая защита от брутфорса/спама DB upsert; тонкая настройка порогов по трафику и WAF —
+# отдельная production-задача (см. backend/README.md).
+[[ratelimits]]
+name = "AUTH_RATE_LIMITER"
+namespace_id = "2026072003"
+
+  [ratelimits.simple]
+  limit = 10
+  period = 60

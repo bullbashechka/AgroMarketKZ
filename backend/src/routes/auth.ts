@@ -3,9 +3,12 @@ import { Hono } from "hono";
 import { getEnv, type HonoEnv } from "../env";
 import { issueToken } from "../lib/jwt";
 import { validateInitData, validateWidgetLogin } from "../lib/telegram";
+import { enforceAuthRateLimit } from "../middleware/rateLimit";
 import { toProfile, upsertFromTelegram } from "../repos/users";
 
 export const authRoutes = new Hono<HonoEnv>();
+
+authRoutes.use("*", enforceAuthRateLimit);
 
 /** Вход из Telegram Mini App: валидация `initData` → upsert пользователя → JWT. */
 authRoutes.post("/telegram", async (c) => {

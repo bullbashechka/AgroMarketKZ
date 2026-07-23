@@ -25,5 +25,11 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Backend tests
+        run: cd backend && bun test
+
       - name: Build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
         run: bun run build

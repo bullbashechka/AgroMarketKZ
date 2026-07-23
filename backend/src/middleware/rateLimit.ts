@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { createMiddleware } from "hono/factory";
 import { getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
 
@@ -33,3 +34,24 @@ export async function enforceAuthenticatedRateLimit(c: Context<HonoEnv>): Promis
     });
   }
 }
+
+/**
+ * Pre-auth IP-лимитер для `/auth/*` — пользователь ещё не установлен, ключуется по
+ * `CF-Connecting-IP`. No-op локально на Bun (без Cloudflare-биндинга), как и остальные лимитеры.
+ */
+export const enforceAuthRateLimit = createMiddleware<HonoEnv>(async (c, next) => {
+  const limiter = getEnv(c).AUTH_RATE_LIMITER;
+
+  if (limiter) {
+    const key = c.req.header("CF-Connecting-IP") ?? "unknown";
+    const { success } = await limiter.limit({ key });
+
+    if (!success) {
+      throw new HttpError(429, "Слишком много запросов", {
+        retryAfterSeconds: RETRY_AFTER_SECONDS,
+      });
+    }
+  }
+
+  await next();
+});

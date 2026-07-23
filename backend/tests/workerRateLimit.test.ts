@@ -25,6 +25,7 @@ class RateLimitMock {
 type RateLimitTestEnv = Partial<AppEnv> & {
   API_READ_RATE_LIMITER?: RateLimitMock;
   API_MUTATION_RATE_LIMITER?: RateLimitMock;
+  AUTH_RATE_LIMITER?: RateLimitMock;
 };
 
 async function authorizationHeader(): Promise<Record<string, string>> {
@@ -171,6 +172,69 @@ describe("Cloudflare authenticated rate limiting", () => {
     expect(webhookResponse.status).toBe(200);
     expect(readLimiter.calls).toEqual([]);
     expect(mutationLimiter.calls).toEqual([]);
+  });
+});
+
+describe("AUTH_RATE_LIMITER (pre-auth, по IP)", () => {
+  test("превышение лимита возвращает 429 и ключуется по CF-Connecting-IP для /auth/telegram и /auth/widget", async () => {
+    const authLimiter = new RateLimitMock({ success: false });
+    const app = createRateLimitApp({ AUTH_RATE_LIMITER: authLimiter });
+
+    const telegramResponse = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7" },
+      body: "{}",
+    });
+    const widgetResponse = await app.request("/auth/widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7" },
+      body: "{}",
+    });
+
+    expect(telegramResponse.status).toBe(429);
+    expect(widgetResponse.status).toBe(429);
+    expect(authLimiter.calls).toEqual([{ key: "203.0.113.7" }, { key: "203.0.113.7" }]);
+  });
+
+  test("без CF-Connecting-IP использует запасной ключ, а не падает", async () => {
+    const authLimiter = new RateLimitMock({ success: false });
+    const app = createRateLimitApp({ AUTH_RATE_LIMITER: authLimiter });
+
+    const response = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(429);
+    expect(authLimiter.calls).toEqual([{ key: "unknown" }]);
+  });
+
+  test("отсутствующий binding является no-op — запрос доходит до валидации тела", async () => {
+    const app = createRateLimitApp({});
+
+    const response = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+
+    // Лимитер не блокирует — 400 приходит от Zod-валидации пустого тела, а не от rate limit.
+    expect(response.status).toBe(400);
+  });
+
+  test("успешный limit() пропускает запрос дальше по цепочке", async () => {
+    const authLimiter = new RateLimitMock({ success: true });
+    const app = createRateLimitApp({ AUTH_RATE_LIMITER: authLimiter });
+
+    const response = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+
+    expect(authLimiter.calls).toEqual([{ key: "unknown" }]);
+    expect(response.status).toBe(400);
   });
 });
 

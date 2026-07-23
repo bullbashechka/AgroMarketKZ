@@ -30,6 +30,8 @@ export interface AppEnv {
   /** Отсутствуют при локальном запуске без Wrangler и тогда являются no-op. */
   API_READ_RATE_LIMITER?: RateLimitBinding;
   API_MUTATION_RATE_LIMITER?: RateLimitBinding;
+  /** По IP, для pre-auth `/auth/*` — до установления пользователя. */
+  AUTH_RATE_LIMITER?: RateLimitBinding;
 }
 
 /** Аутентифицированный пользователь, кладётся `requireAuth` в контекст. */

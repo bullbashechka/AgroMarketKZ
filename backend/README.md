@@ -85,11 +85,12 @@ JWT выпускается на 14 дней с claims `sub`, `tgId`, `ver`, `iat
 В production Worker использует нативные Cloudflare Rate Limiting bindings:
 
 - `API_READ_RATE_LIMITER`: 120 запросов за 60 секунд, ключ — `userId`;
-- `API_MUTATION_RATE_LIMITER`: 30 запросов за 60 секунд, ключ — `userId:routeGroup`.
+- `API_MUTATION_RATE_LIMITER`: 30 запросов за 60 секунд, ключ — `userId:routeGroup`;
+- `AUTH_RATE_LIMITER`: 10 запросов за 60 секунд, ключ — `CF-Connecting-IP`. Применяется на `/auth/telegram` и `/auth/widget` до валидации `initData`/подписи виджета — эти эндпоинты не аутентифицированы, поэтому user-keyed лимитеры выше им недоступны.
 
 Локальный запуск без bindings работает в режиме no-op. Отказ limiter возвращает `429`, заголовок `Retry-After: 60` и JSON-поле `retryAfterSeconds: 60`. Счётчики Cloudflare являются location-local и eventually consistent, поэтому не используются как точный бизнес-счётчик; существующие бизнес-лимиты хранятся отдельно.
 
-Перед deployment проверить namespace `2026072001` и `2026072002` на уникальность в пределах Cloudflare account. WAF для `/auth/*` и общего API остаётся production rollout: observe/log → настройка порогов по трафику → blocking. `OPTIONS` и `/telegram/webhook` исключаются из строгого общего IP-правила.
+Перед deployment проверить namespace `2026072001`, `2026072002` и `2026072003` на уникальность в пределах Cloudflare account. `AUTH_RATE_LIMITER` — базовая защита от брутфорса/спама на `/auth/*`, но не замена полноценному WAF: тонкая настройка порогов по реальному трафику и общее IP-правило для остального API остаются production rollout: observe/log → настройка порогов → blocking. `OPTIONS` и `/telegram/webhook` исключаются из строгого общего IP-правила.
 
 ## Пул БД и нагрузочный runner
 
