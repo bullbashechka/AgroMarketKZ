@@ -138,7 +138,7 @@ Menu Button + `/newapp` URL в BotFather). В выводе скрипта `getWe
 
 ## Деплой
 
-Backend и webapp развёрнуты на Cloudflare (Workers + Pages), Telegram-вебхук переключён на прод. Актуальные URL, статус автодеплоя (GitHub Actions временно отключён — не прошёл платёж на аккаунте) и шаги ручного деплоя — в [DEPLOYMENT.md](./DEPLOYMENT.md).
+Backend и webapp развёрнуты на Cloudflare (Workers + Pages), Telegram-вебхук переключён на прод. Webapp автодеплоится на пуш через Git-интеграцию Cloudflare Pages (GitHub Actions не используется); backend деплоится вручную. Актуальные URL и шаги — в [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ## Проверка качества
 

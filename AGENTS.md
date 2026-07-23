@@ -145,7 +145,7 @@ For non-trivial work, define a short acceptance contract when it clarifies compl
 - Never use destructive cleanup commands to make validation or deployment easier.
 - Never stop or kill unrelated processes merely to free ports; use isolated ports or configuration overrides.
 - Do not propose or implement deployment, CI/CD, hosted automation, or cloud-resource changes unless explicitly requested.
-- `.github/workflows/ci.yml` defines a working `verify` + `deploy` pipeline, but GitHub Actions is currently disabled at the account level (billing) — see `DEPLOYMENT.md`. Treat the workflow file as inert until that is confirmed fixed; do not assume pushes to `main` trigger a live deploy.
+- No GitHub Actions CI/CD — deploy is Cloudflare-native: the webapp auto-builds/deploys on every push via Cloudflare Pages' Git integration (see `DEPLOYMENT.md`); the backend (Workers) has no git integration and is deployed manually via `wrangler deploy`. There is no automated typecheck/test gate on pushes or PRs — run `bun run typecheck` and `backend/bun test` manually before merging.
 - Never print or commit secrets, tokens, private keys, credentials, cookies, customer data, or raw `.env` values.
 - Keep temporary investigation artifacts out of the repository root and out of version control.
 - Do not weaken auth, permissions, validation, encryption, rate limits, or auditability to make a task easier.
