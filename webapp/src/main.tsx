@@ -12,8 +12,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/components.css";
 
-// SDK-скрипт Telegram подключён синхронно в index.html — можно вызывать сразу, до рендера
-// (тема применяется без флэша светлой/тёмной версии).
+// SDK-скрипт Telegram подключён синхронно в index.html — можно вызывать сразу, до рендера.
 initTelegram();
 initThemeSync();
 // Deep-link из Telegram-уведомления (startapp) — до первого рендера, чтобы

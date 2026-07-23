@@ -5,9 +5,6 @@ interface TelegramUser {
   username?: string;
 }
 
-type TelegramColorScheme = "light" | "dark";
-type TelegramEventName = "themeChanged" | "viewportChanged" | "backButtonClicked";
-
 interface TelegramBackButton {
   isVisible: boolean;
   show: () => void;
@@ -36,15 +33,11 @@ interface TelegramWebApp {
   initData: string;
   initDataUnsafe?: { user?: TelegramUser; start_param?: string };
   version?: string;
-  colorScheme?: TelegramColorScheme;
-  themeParams?: Record<string, string>;
   BackButton?: TelegramBackButton;
   HapticFeedback?: TelegramHapticFeedback;
   ready: () => void;
   expand?: () => void;
   isVersionAtLeast?: (version: string) => boolean;
-  onEvent?: (event: TelegramEventName, cb: () => void) => void;
-  offEvent?: (event: TelegramEventName, cb: () => void) => void;
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
   setBottomBarColor?: (color: string) => void;
@@ -125,16 +118,6 @@ export function requestTelegramContact(): Promise<SharedContact | null> {
 /** Параметр `startapp` из deep-link (t.me/<бот>/<приложение>?startapp=…), либо null. */
 export function getStartParam(): string | null {
   return getWebApp()?.initDataUnsafe?.start_param ?? null;
-}
-
-/** Цветовая схема Telegram-клиента ("light"/"dark"), либо null вне Telegram. */
-export function getColorScheme(): TelegramColorScheme | null {
-  return getWebApp()?.colorScheme ?? null;
-}
-
-/** Подписка на событие Telegram SDK (например, смену темы). No-op вне Telegram. */
-export function onTelegramEvent(event: TelegramEventName, cb: () => void): void {
-  getWebApp()?.onEvent?.(event, cb);
 }
 
 /**
