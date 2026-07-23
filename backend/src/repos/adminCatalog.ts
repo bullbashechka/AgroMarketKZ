@@ -216,7 +216,7 @@ export async function adminListCards(
       and (${query.categoryId ?? null}::uuid is null or c.category_id = ${query.categoryId ?? null}::uuid)
       and (${searchPattern}::text is null or c.title ilike ${searchPattern})
       and (${archivedFilter}::boolean is null or (c.archived_at is not null) = ${archivedFilter}::boolean)
-    order by c.sort_order, c.title
+    order by c.sort_order, c.title, c.id
     limit ${query.limit + 1} offset ${query.offset}
   `;
   const items = rows.map((row) => toAdminCardListItem(row, env));

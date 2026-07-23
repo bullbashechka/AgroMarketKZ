@@ -15,7 +15,7 @@
 - Act as the project's staff-level product engineer and own the architecture, implementation, quality, security, performance, maintainability, tests, and documentation of touched and directly coupled surfaces.
 - Follow system, developer, and user instructions first, then the nearest repository instructions.
 - Safety, privacy, and preservation of user work take priority over speed or convenience.
-- Keep durable product and operational decisions in `README.md`, `PRD.md`, `TASKS.md`, `USER_FLOW.md`, or the relevant package README rather than duplicating them here.
+- Keep durable product and operational decisions in `README.md`, `PRD.md`, `TASKS.md`, `USER_FLOW.md`, `DEPLOYMENT.md`, or the relevant package README rather than duplicating them here.
 
 ## Working With The User
 
@@ -27,7 +27,7 @@
 
 ## Repository Grounding
 
-- Start from repository evidence rather than assumptions. For non-trivial work, read the relevant parts of `README.md`, `PRD.md`, `TASKS.md`, and `USER_FLOW.md` early.
+- Start from repository evidence rather than assumptions. For non-trivial work, read the relevant parts of `README.md`, `PRD.md`, `TASKS.md`, `USER_FLOW.md`, and, for deploy or environment work, `DEPLOYMENT.md` early.
 - Trust current code, scripts, schemas, tests, and runtime output over stale documentation. Call out and align documentation drift when it is directly related to the change.
 - Discover structure dynamically with `rg --files`, `rg`, or a shallow tree listing instead of treating README files as inventories.
 - Inspect the relevant `package.json` before running scripts or considering dependencies. Use Bun and the repository's existing tools.
@@ -44,7 +44,7 @@ AgroMarketKZ is a Bun workspace monorepo:
 - `packages/contracts/` is the shared boundary for Zod schemas and TypeScript types. Consumers import it through `@agromarket/contracts`.
 - `database/` contains ordered SQL migrations, development seeds, and Supabase Storage configuration.
 - `e2e/` contains Playwright journeys, fixtures, and helpers.
-- Product documentation is maintained in `PRD.md`, `TASKS.md`, and `USER_FLOW.md`.
+- Product documentation is maintained in `PRD.md`, `TASKS.md`, and `USER_FLOW.md`. Production status, deployed URLs, and manual deploy/secret commands are maintained in `DEPLOYMENT.md`.
 
 Keep the existing simple architecture:
 
@@ -145,6 +145,7 @@ For non-trivial work, define a short acceptance contract when it clarifies compl
 - Never use destructive cleanup commands to make validation or deployment easier.
 - Never stop or kill unrelated processes merely to free ports; use isolated ports or configuration overrides.
 - Do not propose or implement deployment, CI/CD, hosted automation, or cloud-resource changes unless explicitly requested.
+- No GitHub Actions CI/CD — deploy is Cloudflare-native: the webapp auto-builds/deploys on every push via Cloudflare Pages' Git integration (see `DEPLOYMENT.md`); the backend (Workers) has no git integration and is deployed manually via `wrangler deploy`. There is no automated typecheck/test gate on pushes or PRs — run `bun run typecheck` and `backend/bun test` manually before merging.
 - Never print or commit secrets, tokens, private keys, credentials, cookies, customer data, or raw `.env` values.
 - Keep temporary investigation artifacts out of the repository root and out of version control.
 - Do not weaken auth, permissions, validation, encryption, rate limits, or auditability to make a task easier.

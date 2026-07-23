@@ -17,14 +17,17 @@ export function normalizePhone(input: string): string | null {
 
   let digits = trimmed.replace(/\D/g, "");
 
-  // 8XXXXXXXXXX → 7XXXXXXXXXX (привычный для KZ/РФ ввод через 8)
   if (digits.length === 11 && digits.startsWith("8")) {
+    // 8XXXXXXXXXX → 7XXXXXXXXXX (привычный для KZ/РФ ввод через 8)
     digits = "7" + digits.slice(1);
-  }
-
-  // 10 цифр без кода страны (например, 701 234 56 78) → добавляем код 7
-  if (digits.length === 10) {
+  } else if (digits.length === 10) {
+    // 10 цифр без кода страны (например, 701 234 56 78) → добавляем код 7
     digits = "7" + digits;
+  } else {
+    // Любая другая длина «голого» ввода не сводится к KZ/РФ-конвенции однозначно — трактовать
+    // её первые цифры как произвольный код страны означало бы угадывать (например 9-значный
+    // локальный номер молча стал бы «валидным» номером с кодом страны 90). Требуем явный `+`.
+    return null;
   }
 
   return /^[1-9]\d{7,14}$/.test(digits) ? "+" + digits : null;

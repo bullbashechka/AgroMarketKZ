@@ -78,27 +78,27 @@
 
 /* Тёмная тема — фирменный вариант палитры, не нейтральный серый. */
 :root[data-theme="dark"] {
-  --color-bg: #141a0f;
-  --color-surface: #1f2817;
-  --color-surface-alt: #283220;
-  --color-text: #eef3e4;
-  --color-text-muted: #a3ad95;
-  --color-primary: #63b93a;
-  --color-primary-hover: #74ca4a;
-  --color-on-primary: #0d1a06;
-  --color-accent: #f0b429;
-  --color-on-accent: #241a00;
-  --color-info: #62b1dd;
-  --color-info-fill: #2f6f95;
-  --color-border: #37422c;
-  --color-focus: rgb(99 185 58 / 30%);
-  --color-danger: #f2857c;
-  --color-danger-fill: #c1443a;
-  --color-skeleton: #283220;
-  --color-skeleton-shine: #313d27;
-  --color-nav-bg: #1a2212;
-  --color-nav-active: #74ca4a;
-  --color-nav-inactive: #8b957e;
+  --color-bg: #171310;
+  --color-surface: #221b14;
+  --color-surface-alt: #2b2318;
+  --color-text: #f2ede0;
+  --color-text-muted: #aa9f8b;
+  --color-primary: #c99a3c;
+  --color-primary-hover: #dcae4d;
+  --color-on-primary: #221600;
+  --color-accent: #6fae52;
+  --color-on-accent: #0e1a08;
+  --color-info: #6ea3c6;
+  --color-info-fill: #386f8f;
+  --color-border: #3c3121;
+  --color-focus: rgb(201 154 60 / 30%);
+  --color-danger: #ef8478;
+  --color-danger-fill: #b8483c;
+  --color-skeleton: #2b2318;
+  --color-skeleton-shine: #342a1e;
+  --color-nav-bg: #1a1510;
+  --color-nav-active: #dcae4d;
+  --color-nav-inactive: #93897a;
 
   color-scheme: dark;
 }

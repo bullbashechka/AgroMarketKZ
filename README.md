@@ -94,7 +94,7 @@ cloudflared tunnel --url http://localhost:5173
 3. Bot Settings → Menu Button — URL туннеля (кнопка меню в личке).
 4. `/setdomain` — домен туннеля (для Login Widget в браузере). Виджет реально перенаправляет браузер на этот домен после входа (`data-auth-url`), поэтому при смене адреса туннеля `/setdomain` нужно обновлять так же, как Menu Button выше.
 5. Bot Settings → Allow Groups? — **включить** (иначе бота нельзя добавить в группу уведомлений).
-6. Придумать случайную строку → `TELEGRAM_WEBHOOK_SECRET`.
+6. Сгенерировать случайную строку через CSPRNG (например `openssl rand -hex 32`), НЕ придумывать вручную — эндпоинт `/telegram/webhook` не ограничен по частоте запросов, и стойкость к перебору держится только на энтропии этого секрета → `TELEGRAM_WEBHOOK_SECRET`.
 
 Прод-бот настраивается так же на Этапе 10, на прод-домен.
 
@@ -136,6 +136,10 @@ Menu Button + `/newapp` URL в BotFather). В выводе скрипта `getWe
 
 Локально (Bun) переменные читаются из `.env`; на Cloudflare Workers — из `wrangler.toml [vars]` и секретов (`wrangler secret put`).
 
+## Деплой
+
+Backend и webapp развёрнуты на Cloudflare (Workers + Pages), Telegram-вебхук переключён на прод. Webapp автодеплоится на пуш через Git-интеграцию Cloudflare Pages (GitHub Actions не используется); backend деплоится вручную. Актуальные URL и шаги — в [DEPLOYMENT.md](./DEPLOYMENT.md).
+
 ## Проверка качества
 
 ```sh
@@ -150,6 +154,7 @@ bun run build       # production-сборка всех пакетов
 - [backend/README.md](./backend/README.md) — API, модель авторизации, структура.
 - [webapp/README.md](./webapp/README.md) — Mini App, поток авторизации.
 - [database/README.md](./database/README.md) — БД, миграции, Storage.
+- [DEPLOYMENT.md](./DEPLOYMENT.md) — статус продакшна, токены, команды ручного деплоя.
 
 ## Статус
 
@@ -162,6 +167,7 @@ bun run build       # production-сборка всех пакетов
 - [x] Этап 7 — админ-панель
 - [x] Этап 8 — Telegram-бот, верификация контакта и уведомления
 - [x] Этап 9 и 9.1 — E2E-покрытие и UX-аудит
-- [ ] Этапы 10–11 — production-деплой, реальные контакты и наполнение каталога
+- [x] Этап 10 — production-деплой (Cloudflare Workers/Pages, прод-бот, секреты) — см. [DEPLOYMENT.md](./DEPLOYMENT.md); осталась ручная настройка Menu Button/`/setdomain` на прод-домен в BotFather
+- [ ] Этап 11 — реальные контакты вместо плейсхолдеров и наполнение каталога
 
 Текущий план запуска и оставшиеся задачи описаны в [TASKS.md](./TASKS.md).

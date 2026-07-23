@@ -92,13 +92,6 @@ export function getInitData(): string | null {
   return getWebApp()?.initData || null;
 }
 
-/** Имя пользователя из Telegram для предзаполнения формы регистрации. */
-export function getTelegramDisplayName(): string {
-  const user = getWebApp()?.initDataUnsafe?.user;
-  if (!user) return "";
-  return [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
-}
-
 /** Результат «Поделиться контактом»: подписанная строка + номер без проверки. */
 export interface SharedContact {
   /** Подписанный ответ Telegram для серверной верификации (может отсутствовать на старых клиентах). */
@@ -142,10 +135,6 @@ export function getColorScheme(): TelegramColorScheme | null {
 /** Подписка на событие Telegram SDK (например, смену темы). No-op вне Telegram. */
 export function onTelegramEvent(event: TelegramEventName, cb: () => void): void {
   getWebApp()?.onEvent?.(event, cb);
-}
-
-export function offTelegramEvent(event: TelegramEventName, cb: () => void): void {
-  getWebApp()?.offEvent?.(event, cb);
 }
 
 /**

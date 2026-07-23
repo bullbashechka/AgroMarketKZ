@@ -2,9 +2,14 @@ WEBAPP_ORIGIN=http://localhost:5173
 DATABASE_URL=postgresql://postgres.your-project-ref:[YOUR-PASSWORD]@aws-0-your-region.pooler.supabase.com:6543/postgres
 JWT_SECRET=replace-with-local-secret
 TELEGRAM_BOT_TOKEN=replace-with-telegram-bot-token
-ADMIN_CHAT_ID=replace-with-admin-chat-id
+TELEGRAM_WEBHOOK_SECRET=replace-with-random-webhook-secret
+TELEGRAM_BOT_USERNAME=replace_with_bot_username
+TELEGRAM_MINIAPP_SHORTNAME=replace_with_miniapp_shortname
 ADMIN_ALLOWLIST=telegram_username_or_user_id
 SUPABASE_URL=https://replace-with-project-ref.supabase.co
-SUPABASE_ANON_KEY=replace-with-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=replace-with-supabase-service-role-key
 SUPABASE_STORAGE_BUCKET=card-images
+
+# Только для ручного деплоя (см. DEPLOYMENT.md), не читается приложением:
+# токен Cloudflare с правами Workers Scripts: Edit + Cloudflare Pages: Edit.
+CLOUDFLARE_API_TOKEN=replace-with-cloudflare-api-token

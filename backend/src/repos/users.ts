@@ -137,7 +137,7 @@ export async function listRegisteredUsers(
   const rows = await sql<UserRow[]>`
     select * from users
     where registered_at is not null
-    order by created_at desc
+    order by created_at desc, id
     limit ${query.limit + 1} offset ${query.offset}
   `;
   const items = rows.map((row) => toProfile(row, env));
