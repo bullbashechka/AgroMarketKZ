@@ -38,6 +38,7 @@ export CLOUDFLARE_API_TOKEN=$(grep '^CLOUDFLARE_API_TOKEN=' .dev.vars | cut -d= 
 ```bash
 VITE_API_URL="https://agromarketkz-backend.bullbashechka.workers.dev" \
 SUPABASE_URL="https://qxyieyzfdcosmmckyocm.supabase.co" \
+CSP_ENFORCE=1 \
 bun run --cwd webapp build
 
 cd backend

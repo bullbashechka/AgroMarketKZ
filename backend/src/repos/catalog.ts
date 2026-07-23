@@ -210,7 +210,7 @@ export async function listCards(env: AppEnv, query: CardListQuery): Promise<Pagi
         or (${query.price ?? null}::text = 'with_price' and c.price_type in ('fixed', 'from'))
         or (${query.price ?? null}::text = 'on_request' and c.price_type = 'on_request')
       )
-    order by c.sort_order, c.title
+    order by c.sort_order, c.title, c.id
     limit ${query.limit + 1} offset ${query.offset}
   `;
   const items = rows.map((row) => toCardListItem(row, env));

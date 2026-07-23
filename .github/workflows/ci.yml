@@ -64,6 +64,7 @@ jobs:
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          CSP_ENFORCE: "1"
         run: bun run build
 
       - name: Deploy webapp (Cloudflare Pages)

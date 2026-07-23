@@ -5,17 +5,9 @@ const TELEGRAM_HANDLE_PATTERN = /^[A-Za-z][A-Za-z0-9_]{4,31}$/;
 
 function extractTelegramHandle(raw: string): string | null {
   const trimmed = raw.trim();
-  const httpsMatch = /^https:\/\/t\.me\/(.+)$/i.exec(trimmed);
-  let candidate: string;
-  if (httpsMatch?.[1]) {
-    candidate = httpsMatch[1];
-  } else if (/^https?:\/\//i.test(trimmed)) {
-    return null;
-  } else if (/^t\.me\//i.test(trimmed)) {
-    candidate = trimmed.replace(/^t\.me\//i, "");
-  } else {
-    candidate = trimmed.replace(/^@/, "");
-  }
+  const isOtherHttpUrl = /^https?:\/\//i.test(trimmed) && !/^https:\/\/t\.me\//i.test(trimmed);
+  if (isOtherHttpUrl) return null;
+  const candidate = trimmed.replace(/^(https:\/\/)?t\.me\//i, "").replace(/^@/, "");
   return TELEGRAM_HANDLE_PATTERN.test(candidate) ? candidate : null;
 }
 

@@ -193,7 +193,7 @@ export async function listRequests(
   const rows = await sql<RequestRow[]>`
     select * from requests
     where (${query.status ?? null}::request_status is null or status = ${query.status ?? null}::request_status)
-    order by created_at desc
+    order by created_at desc, id
     limit ${query.limit + 1} offset ${query.offset}
   `;
   const items = rows.map(toRequest);

@@ -25,14 +25,11 @@ const tokenClaimsSchema = z
     ver: z.number().int().nonnegative().optional(),
     iat: z.number().int().nonnegative().optional(),
   })
-  .superRefine((claims, ctx) => {
-    if ((claims.ver === undefined) !== (claims.iat === undefined)) {
-      ctx.addIssue({ code: "custom", message: "Legacy JWT must omit both ver and iat" });
-    }
-    if (claims.iat !== undefined && claims.exp <= claims.iat) {
-      ctx.addIssue({ code: "custom", message: "JWT exp must be after iat" });
-    }
-  });
+  .refine(
+    (claims) =>
+      (claims.ver === undefined) === (claims.iat === undefined) &&
+      (claims.iat === undefined || claims.exp > claims.iat),
+  );
 
 /** Выпускает подписанный JWT для пользователя. */
 export function issueToken(env: AppEnv, userId: string, telegramId: number, tokenVersion: number): Promise<string> {
