@@ -141,7 +141,7 @@ Menu Button + `/newapp` URL в BotFather). В выводе скрипта `getWe
 ```sh
 bun run typecheck   # типы во всех воркспейсах (contracts собирается первым)
 bun test            # юнит-тесты (contracts + backend)
-bun run test:e2e    # Playwright-сценарии; нужны настроенные .env и dev Supabase
+bun run test:e2e    # Playwright-сценарии; нужны настроенные .env, .env.e2e (cp .env.e2e.example .env.e2e) и dev Supabase
 bun run build       # production-сборка всех пакетов
 ```
 

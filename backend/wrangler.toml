@@ -14,9 +14,10 @@ crons = ["0 3 * * *"]
 WEBAPP_ORIGIN = "https://agromarketkz-webapp.pages.dev"
 SUPABASE_URL = "https://qxyieyzfdcosmmckyocm.supabase.co"
 SUPABASE_STORAGE_BUCKET = "card-images"
-# Прод-бот (Этап 10): username без @ и shortname Mini App из /newapp — для deep-link-кнопок.
-TELEGRAM_BOT_USERNAME = "replace_with_bot_username"
-TELEGRAM_MINIAPP_SHORTNAME = "replace_with_miniapp_shortname"
+# Прод-бот (Этап 10): username без @. TELEGRAM_MINIAPP_SHORTNAME (shortname Mini App из
+# /newapp BotFather, для deep-link-кнопок) пока не задан — не создан отдельный /newapp shortname;
+# код гейтит кнопку по отсутствию переменной (см. routes/telegram.ts), деплою не мешает.
+TELEGRAM_BOT_USERNAME = "agromarketkzbot"
 # Первый прод-запуск — только dry-run (см. backend/README.md). Переключить на "false" только
 # после ручной проверки кандидатов по логам (`wrangler tail`) и отдельного deploy.
 STORAGE_CLEANUP_DRY_RUN = "true"

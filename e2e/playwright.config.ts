@@ -5,8 +5,10 @@ import { config as loadEnv } from "dotenv";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// корневой .env (совпадает с тем, что использует `bun run dev`)
+// корневой .env (совпадает с тем, что использует `bun run dev`) + отдельный .env.e2e
+// с тестовыми Telegram id, чтобы не мешать их с боевыми значениями в одном файле.
 loadEnv({ path: path.resolve(__dirname, "../.env") });
+loadEnv({ path: path.resolve(__dirname, "../.env.e2e") });
 
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 

@@ -20,6 +20,7 @@ backend/.wrangler/
 .dev.vars
 backend/.dev.vars
 !.env.example
+!.env.e2e.example
 !backend/.env.example
 !webapp/.env.example
 !backend/.dev.vars.example
