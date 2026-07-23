@@ -88,23 +88,28 @@ export function CardScreen({ section }: { section: TabSection }) {
   const card = cardQuery.data;
   return (
     <Screen back fallbackTo={tabRootPath(section)}>
-      <CardDetailsView card={card} />
+      <div className="card-detail-scroll">
+        <CardDetailsView card={card} />
+      </div>
 
       <div className="card-actions">
-        <button type="button" className="button button-primary" data-testid="card-respond-button" onClick={() => setResponseOpen(true)}>
-          {cardCta[card.priceType]}
-        </button>
-        <FavoriteButton item={{
-          id: card.id,
-          type: card.type,
-          categoryId: card.categoryId,
-          title: card.title,
-          priceType: card.priceType,
-          priceAmount: card.priceAmount,
-          priceUnit: card.priceUnit,
-          imageUrl: card.images[0]?.url ?? null,
-          shortSpec: card.location && card.availability ? `${card.location} · ${card.availability}` : null,
-        }} />
+        <div className="card-actions-inner">
+          <p className="card-actions-price">{formatPrice(card.priceType, card.priceAmount, card.priceUnit)}</p>
+          <button type="button" className="button button-primary" data-testid="card-respond-button" onClick={() => setResponseOpen(true)}>
+            {cardCta[card.priceType]}
+          </button>
+          <FavoriteButton item={{
+            id: card.id,
+            type: card.type,
+            categoryId: card.categoryId,
+            title: card.title,
+            priceType: card.priceType,
+            priceAmount: card.priceAmount,
+            priceUnit: card.priceUnit,
+            imageUrl: card.images[0]?.url ?? null,
+            shortSpec: card.location && card.availability ? `${card.location} · ${card.availability}` : null,
+          }} />
+        </div>
       </div>
 
       <BottomSheet open={responseOpen} onClose={() => setResponseOpen(false)}>
