@@ -302,3 +302,138 @@ JWT и предзарегистрированным профилем, `freshUser
 - [ ] Задать список разрешённых числовых Telegram id админов (раздел 9, 16).
 - [ ] Базовое наполнение каталога категориями и карточками.
 - [ ] Финальная проверка адаптивности и палитры (раздел 10).
+
+---
+
+# Предрелизная безопасность (Этапы 12–18)
+
+Источник: [SECURITY_AUDIT_PRERELEASE.md](./SECURITY_AUDIT_PRERELEASE.md), аудит от 2026-07-26.
+Контекст: релиз через 4 дня, целевая аудитория 24 000 пользователей.
+
+`(№N — X/10)` — номер проблемы в отчёте аудита и её оценка серьёзности.
+Этапы 12–17 блокируют релиз, этап 18 — нет.
+
+---
+
+## Этап 12. Блокеры релиза — доступ и данные (день 1)
+
+Без этих четырёх пунктов релиз выпускать нельзя.
+
+- [ ] **(№1 — 9/10) Убрать тестовый admin id из прод-allowlist.**
+  - [ ] Проверить содержимое прод-секрета `ADMIN_ALLOWLIST` (значение `wrangler secret` не отдаёт — сверить с тем, что заводили при деплое).
+  - [ ] Подтвердить, принадлежит ли `900000002` нам: id лежит в реально выданном диапазоне Telegram и может быть чужим живым аккаунтом.
+  - [ ] Переустановить секрет только реальными id: `echo -n "1295392762" | wrangler secret put ADMIN_ALLOWLIST`.
+  - [ ] Разнести E2E и прод: тестовый id держать только в `.env.e2e` / отдельном dev-Worker, не в прод-секрете.
+  - [ ] `backend/src/lib/admin.ts`: отбраковывать id вне разумного диапазона, `console.warn` при пустом списке.
+  - [ ] Проверить логи Cloudflare на обращения к `GET /admin/users` и `GET /admin/requests` с посторонних id за весь период с деплоя.
+
+- [ ] **(№2 — 9/10) Перенастроить `AUTH_RATE_LIMITER` под CGNAT.**
+  - [ ] `backend/wrangler.toml`: поднять `AUTH_RATE_LIMITER` до `limit = 600, period = 60`.
+  - [ ] `backend/src/middleware/rateLimit.ts`: составной ключ `IP + telegram_id из initData` вместо голого `CF-Connecting-IP` (id берётся до валидации подписи — он используется только как ключ).
+  - [ ] `webapp/src/lib/auth.tsx`: на `429` показывать экран «Попробуйте через минуту» с `Retry-After`, а не повторять вход.
+  - [ ] Настроить Cloudflare WAF Rate Limiting как основную защиту от брутфорса (ASN, managed challenge).
+  - [ ] Проверить после деплоя: серия из 20 запросов к `/auth/telegram` с одного IP проходит.
+
+- [ ] **(№3 — 8/10) Зафиксировать RLS в миграциях.**
+  - [ ] `database/migrations/0009_enable_rls.sql`: `enable row level security` для всех девяти таблиц (идемпотентно, на текущем проде no-op).
+  - [ ] В той же миграции — защита в глубину: `revoke all on all tables in schema public from anon, authenticated` + `alter default privileges … revoke all on tables from anon, authenticated`.
+  - [ ] Прогнать миграцию на проде, убедиться что backend (`service_role`) продолжает работать.
+  - [ ] Добавить в `DEPLOYMENT.md` в «Проверки перед деплоем» прогон security advisors с требованием нулевых ERROR/WARN.
+
+- [ ] **(№4a — 8/10) Запустить апгрейд инстанса Supabase** (сейчас Micro: `shared_buffers` ≈ 224 МБ, `max_connections = 60`). Делать первым пунктом дня — применяется не мгновенно.
+
+---
+
+## Этап 13. Ёмкость и производительность под 24k (день 2)
+
+- [ ] **(№4 — 8/10) Снять нагрузку с БД в горячем пути.**
+  - [ ] Подключить Cloudflare Hyperdrive поверх Supavisor, перевести `DATABASE_URL` на биндинг.
+  - [ ] `backend/src/middleware/auth.ts`: кешировать `{tokenVersion, isRegistered}` по `userId` в Workers KV с TTL 60 с — сейчас `findAuthUser` делает SELECT на каждый аутентифицированный запрос.
+  - [ ] Инвалидировать ключ KV в `revokeUserSessions`, чтобы отзыв сессии не ждал TTL.
+  - [ ] Прогнать `bun run load:test` на максимуме (2000 пользователей, concurrency 200) против прод-конфигурации, зафиксировать p50/p95/p99 и `poolSignals`.
+  - [ ] Настроить алерты: ошибки подключения к БД, доля 5xx, Logpush с `wrangler tail`.
+
+- [ ] **(№20 — 3/10) Индекс для поиска.** `create extension pg_trgm` + GIN-индекс по `cards(title gin_trgm_ops)` с условием `published_at is not null and archived_at is null`. Код менять не нужно — планировщик подхватит сам.
+
+---
+
+## Этап 14. Аутентификация, бот и наблюдаемость (день 2–3)
+
+- [ ] **(№6 — 6/10) Ограничить приветствия бота.**
+  - [ ] `backend/src/lib/telegramWebhook.ts`: отвечать только на `/start` (и опционально `/help`), а не на любое приватное сообщение — иначе 24k пользователей выжигают глобальный лимит Bot API ~30 msg/s и уведомления о заявках перестают доходить.
+  - [ ] Дедупликация: не приветствовать один `chat_id` чаще раза в час (Workers KV с TTL).
+  - [ ] Развести приоритеты: уведомления о заявках — с ретраем, приветствия — без.
+  - [ ] Обновить комментарии в `routes/telegram.ts` и `README.md` (см. №23).
+
+- [ ] **(№7 — 6/10) Сузить окно валидности Login Widget.**
+  - [ ] `backend/src/lib/telegram.ts`: ввести `WIDGET_MAX_AUTH_AGE_SEC = 300` для `validateWidgetLogin`, оставив 24 ч только для `validateInitData`.
+  - [ ] Сделать widget-логин одноразовым: `hash` в Workers KV с TTL 300 с, повтор отклонять.
+  - [ ] Проверить, что редиректная страница Pages не утекает query string в `Referer`.
+
+- [ ] **(№8 — 6/10) Аудит-лог админских действий.**
+  - [ ] Миграция: `admin_audit_log (id, actor_telegram_id, action, target_type, target_id, meta jsonb, created_at)`, индекс `(actor_telegram_id, created_at desc)`.
+  - [ ] Middleware после `requireAdmin`: запись для всех не-GET запросов + отдельно для `GET /admin/users` (доступ к PII).
+  - [ ] Ретеншен 180 дней.
+  - [ ] Экран просмотра в админке либо готовый SQL-запрос в `DEPLOYMENT.md`.
+
+---
+
+## Этап 15. Корректность данных и валидация (день 3)
+
+- [ ] **(№5 — 6/10) Починить верификацию телефона после регистрации.**
+  - [ ] `webapp/src/components/ContactFields.tsx`: проп `onContactResponseChange`, пробрасывать `shared.contactResponse` наверх (сейчас он выбрасывается), сбрасывать при ручной правке поля — как в `RequestSheet:153`.
+  - [ ] `backend/src/routes/profile.ts` (`PUT /`): вызвать `tryValidateContactPhoneForUser` и передать результат в `updateContacts`, повторив логику `case when … else verified_phone end` из `register()`.
+  - [ ] `ProfileEditScreen` и `FeedbackScreen`: хранить и отправлять `contactResponse`.
+  - [ ] Тест: смена номера с proof → `phoneVerified: true`; без proof → `false`.
+
+- [ ] **(№9 — 5/10) Валидировать `storagePath`.**
+  - [ ] Вынести `CARD_IMAGE_PATH_PATTERN` в `packages/contracts/src/constants.ts` (единый источник для обоих пакетов).
+  - [ ] `cardImageInput.storagePath`: `z.string().regex(...)` вместо `requiredText(500)`.
+  - [ ] `backend/src/lib/storage.ts:publicImageUrl`: кодировать сегменты через `encodeURIComponent`.
+  - [ ] Тест: путь вне `cards/` и путь с `../` отклоняются с 400.
+
+- [ ] **(№10 — 5/10) Подпись Login Widget по сырым полям.** `validateWidgetLogin` строит data-check-string из zod-очищенного объекта — любое новое поле от Telegram молча сломает вход в браузере. Принимать сырой объект, считать подпись по всем полям кроме `hash`, валидировать структуру только после проверки. Тест: лишнее неизвестное поле не ломает верификацию.
+
+- [ ] **(№11 — 4/10) Не удалять фото, на которое ссылается другая карточка.** Перед `deleteStorageObjects` в `routes/admin/cards.ts:64,76` фильтровать пути через существующий `findReferencedStoragePaths`. Опционально — глобальный `unique (storage_path)` на `card_images`.
+
+- [ ] **(№12 — 4/10) `save_chat` не должен молча перехватывать уведомления.** `backend/src/routes/telegram.ts:30-38`: если `adminChatId` уже задан и отличается — не перезаписывать, а ответить в новый чат подсказкой. Смену чата сделать явным действием в `AdminSettingsScreen`.
+
+- [ ] **(№21 — 3/10) `JSON.parse(userRaw)` без try/catch.** `backend/src/lib/telegram.ts:86` даёт 500 вместо 401 — обернуть и бросать `HttpError(401, …)`, распарсенный объект валидировать zod вместо `as`.
+
+- [ ] **(№23 — 1/10) Устаревшие комментарии.** `routes/settings.ts:41` («доступны без авторизации» при `requireAuth`), `repos/users.ts:126-130` (докблок от удалённой функции), `lib/telegramWebhook.ts:46` + `README` (расхождение про `/start`).
+
+---
+
+## Этап 16. Процесс деплоя и заголовки (день 3)
+
+- [ ] **(№13 — 4/10) CSP enforcing по умолчанию.** `webapp/scripts/generate-headers.ts:34-35`: инвертировать — enforcing по умолчанию, `CSP_REPORT_ONLY=1` как явный opt-in. Сейчас любой ручной `bun run build` без `CSP_ENFORCE=1` незаметно снимет CSP с прода. Добавить в чек-лист деплоя проверку живого заголовка через `curl -sI`.
+
+- [ ] **(№14 — 4/10) `Cache-Control: no-store`** в глобальном middleware `backend/src/app.ts:37-41` — `GET /profile`, `/admin/users`, `/admin/requests` отдают имена и телефоны без директив кеширования.
+
+- [ ] **(№18 — 3/10) Достроить Telegram-интеграцию.** `/newapp` у @BotFather → `TELEGRAM_MINIAPP_SHORTNAME` в `[vars]` (без неё нет кнопок «Открыть заявку» и «Открыть AgroMarket»). Заодно закрыть висящие пункты `DEPLOYMENT.md`: Menu Button и `/setdomain` — без последнего Login Widget в браузере не работает вообще.
+
+---
+
+## Этап 17. Предрелизная приёмка и деплой (день 4)
+
+- [ ] `bun run typecheck` — зелёный.
+- [ ] `cd backend && bun test` — зелёный.
+- [ ] `bun run test:e2e` — зелёный.
+- [ ] Security и performance advisors Supabase — ноль ERROR/WARN.
+- [ ] Живая проверка заголовков: CSP enforcing, HSTS, `nosniff`, `Cache-Control: no-store` на API.
+- [ ] Живая проверка CORS: preflight с посторонним Origin не получает `Access-Control-Allow-Origin`.
+- [ ] Повторный `bun run load:test` после всех правок, сравнение p95/p99 с замером из этапа 13.
+- [ ] Ручной прогон первого входа с чистого устройства: в Telegram Mini App и в браузере через Login Widget.
+- [ ] Ручной прогон нативного `requestContact` и верификации телефона (в т.ч. смена номера в профиле — см. №5).
+- [ ] Проверка доставки уведомлений в админ-чат: заявка и обратная связь.
+- [ ] Деплой backend + webapp, `wrangler tail` под наблюдением первый час.
+
+---
+
+## Этап 18. Пострелизный бэклог (не блокирует релиз)
+
+- [ ] **(№15 — 4/10)** Явный бейдж неподтверждённого номера в `RequestItem` — заявку можно отправить с чужим телефоном. Отдельно обсудить продуктовое решение: требовать ли подтверждённый номер для заявок из карточки.
+- [ ] **(№16 — 3/10)** IP-лимитер на `/telegram/webhook` либо ограничение источника диапазонами Telegram через WAF.
+- [ ] **(№17 — 3/10)** Разобрать «dry-run candidates» в `wrangler tail` за неделю, убедиться что в списке нет живых файлов, отдельным деплоем переключить `STORAGE_CLEANUP_DRY_RUN` в `"false"`. До релиза не трогать.
+- [ ] **(№19 — 3/10)** Self-service logout: кнопка «Выйти на всех устройствах» в «Мои контакты» → `POST /profile/revoke-sessions` поверх существующего `revokeUserSessions`.
+- [ ] **(№22 — 2/10)** Ограничить `offset` сверху (например 10 000) либо перейти на keyset-пагинацию по `(sort_order, title, id)` — сортировка уже детерминированная.
