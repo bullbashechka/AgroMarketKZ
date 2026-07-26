@@ -36,7 +36,7 @@ export const test = base.extend<AuthFixtures>({
   },
   unregisteredUserPage: async ({ browser }, use) => {
     const freshUser = {
-      id: Math.floor(900_300_000 + Math.random() * 100_000),
+      id: Math.floor(999_100_000_000 + Math.random() * 100_000_000),
       first_name: "E2E",
       last_name: "Guest",
     };
@@ -72,7 +72,7 @@ export const test = base.extend<AuthFixtures>({
   },
   freshUserPage: async ({ browser }, use) => {
     const freshUser = {
-      id: Math.floor(900_200_000 + Math.random() * 100_000),
+      id: Math.floor(999_200_000_000 + Math.random() * 100_000_000),
       first_name: "E2E",
       last_name: "Fresh"
     };

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../.env --watch src/index.ts",
+    "dev:e2e": "bun --env-file=../.env --env-file=../.env.e2e --watch src/index.ts",
     "dev:worker": "wrangler dev",
     "build": "bun build ./src/index.ts --target bun --outdir ./dist && wrangler deploy --dry-run --outdir ./dist-worker",
     "deploy": "wrangler deploy",

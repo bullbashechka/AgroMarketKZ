@@ -320,27 +320,48 @@ JWT и предзарегистрированным профилем, `freshUser
 Без этих четырёх пунктов релиз выпускать нельзя.
 
 - [ ] **(№1 — 9/10) Убрать тестовый admin id из прод-allowlist.**
-  - [ ] Проверить содержимое прод-секрета `ADMIN_ALLOWLIST` (значение `wrangler secret` не отдаёт — сверить с тем, что заводили при деплое).
-  - [ ] Подтвердить, принадлежит ли `900000002` нам: id лежит в реально выданном диапазоне Telegram и может быть чужим живым аккаунтом.
-  - [ ] Переустановить секрет только реальными id: `echo -n "1295392762" | wrangler secret put ADMIN_ALLOWLIST`.
-  - [ ] Разнести E2E и прод: тестовый id держать только в `.env.e2e` / отдельном dev-Worker, не в прод-секрете.
-  - [ ] `backend/src/lib/admin.ts`: отбраковывать id вне разумного диапазона, `console.warn` при пустом списке.
-  - [ ] Проверить логи Cloudflare на обращения к `GET /admin/users` и `GET /admin/requests` с посторонних id за весь период с деплоя.
+  - [x] Подтвердить отсутствие компрометации: JWT требует строку `users`, а
+    `telegram_id = 900000002` в production отсутствует.
+  - [x] Production secret развернут secret-only версией со значением владельца `1295392762`.
+  - [ ] Владелец живьём проверяет раздел «Управление» после смены секрета.
+  - [ ] После получения id оператора повторить секрет со строкой `1295392762,<id оператора>`.
+  - [x] Разнести E2E и production allowlist: синтетические id `999000000001/2`,
+    `.env.e2e`, явный `webServer.env` и global admin guard.
+  - [x] Валидировать Telegram id, кешировать allowlist по исходной строке и предупреждать
+    об отбракованных, пустых и синтетических значениях.
+  - [x] Расследование исторических Workers logs закрыто: observability не была включена,
+    поэтому логов за прошлый период не существует.
 
 - [ ] **(№2 — 9/10) Перенастроить `AUTH_RATE_LIMITER` под CGNAT.**
-  - [ ] `backend/wrangler.toml`: поднять `AUTH_RATE_LIMITER` до `limit = 600, period = 60`.
-  - [ ] `backend/src/middleware/rateLimit.ts`: составной ключ `IP + telegram_id из initData` вместо голого `CF-Connecting-IP` (id берётся до валидации подписи — он используется только как ключ).
-  - [ ] `webapp/src/lib/auth.tsx`: на `429` показывать экран «Попробуйте через минуту» с `Retry-After`, а не повторять вход.
-  - [ ] Настроить Cloudflare WAF Rate Limiting как основную защиту от брутфорса (ASN, managed challenge).
-  - [ ] Проверить после деплоя: серия из 20 запросов к `/auth/telegram` с одного IP проходит.
+  - [x] `AUTH_RATE_LIMITER`: широкий IP-потолок 300/мин, новый namespace `2026072601`.
+  - [x] В дополнение добавить `AUTH_IDENTITY_RATE_LIMITER` 10/мин с namespace
+    `2026072602` и ключом `IP:telegramId` из неподписанного тела.
+  - [x] Битый JSON на `/auth/*` возвращает `400`, отсутствие/невалидность id безопасно
+    пропускает identity-limiter.
+  - [x] Webapp: отдельный экран `429`, дедлайн, jitter 0–30 с и максимум 3 автоповтора.
+  - [x] После деплоя серия из 20 запросов с одного IP дошла до валидации без `429`.
+  - [x] Identity binding в production возвращает `429` и `Retry-After: 60`.
+  - [ ] Принять точность native binding: из-за permissive/eventually-consistent counters
+    первый `429` в двух live probes пришёл на 34-м, а не на 11-м запросе.
 
 - [ ] **(№3 — 8/10) Зафиксировать RLS в миграциях.**
-  - [ ] `database/migrations/0009_enable_rls.sql`: `enable row level security` для всех девяти таблиц (идемпотентно, на текущем проде no-op).
-  - [ ] В той же миграции — защита в глубину: `revoke all on all tables in schema public from anon, authenticated` + `alter default privileges … revoke all on tables from anon, authenticated`.
-  - [ ] Прогнать миграцию на проде, убедиться что backend (`service_role`) продолжает работать.
-  - [ ] Добавить в `DEPLOYMENT.md` в «Проверки перед деплоем» прогон security advisors с требованием нулевых ERROR/WARN.
+  - [x] `0009_enable_rls.sql`: явный список девяти таблиц, транзакция, защита
+    чистого Postgres без ролей Supabase; схему `storage` не менять.
+  - [x] Отозвать текущие и default grants на tables/sequences/functions у `anon` /
+    `authenticated`.
+  - [x] Полный прогон `0001`→`0009` на временной PostgreSQL без Supabase-ролей и с ними.
+  - [x] Точечно применить `0009` в production: RLS 9/9, текущих grants — 0.
+  - [ ] В Supabase Data API settings отключить автоматическую публикацию будущих таблиц:
+    `postgres` не может изменить default ACL владельца `supabase_admin`.
+  - [ ] Проверить advisors и smoke test приложения после Dashboard-настройки.
+  - [x] Зафиксировать в `DEPLOYMENT.md` introspection, advisors и предупреждение про `0008`.
 
-- [ ] **(№4a — 8/10) Запустить апгрейд инстанса Supabase** (сейчас Micro: `shared_buffers` ≈ 224 МБ, `max_connections = 60`). Делать первым пунктом дня — применяется не мгновенно.
+- [ ] **(№4a — 8/10) Регламент апгрейда Supabase, без покупки на этапе 12.**
+  - [ ] Проверить и при необходимости снять spend cap в Billing.
+  - [x] Зафиксировать триггер на нагрузочном тесте: p95 профиля > 1 с или любые ошибки
+    подключения к БД.
+  - [x] Зафиксировать post-release триггер: доля `5xx > 1%` или ошибки пула.
+  - [x] Выполнять upgrade только между волнами рассылки; ожидаемая недоступность ≈ 2 минуты.
 
 ---
 
@@ -418,7 +439,7 @@ JWT и предзарегистрированным профилем, `freshUser
 
 - [ ] `bun run typecheck` — зелёный.
 - [ ] `cd backend && bun test` — зелёный.
-- [ ] `bun run test:e2e` — зелёный.
+- [ ] `bun run test:e2e` — отложен до отдельной test-БД; текущий прогон пишет в production.
 - [ ] Security и performance advisors Supabase — ноль ERROR/WARN.
 - [ ] Живая проверка заголовков: CSP enforcing, HSTS, `nosniff`, `Cache-Control: no-store` на API.
 - [ ] Живая проверка CORS: preflight с посторонним Origin не получает `Access-Control-Allow-Origin`.

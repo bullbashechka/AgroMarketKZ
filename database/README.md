@@ -9,7 +9,13 @@ bun run db:migrate     # применить SQL-миграции из database/m
 bun run db:seed:dev     # демо-категории и карточки (опционально)
 ```
 
-Также миграции можно применять через Supabase MCP (`apply_migration`) или SQL Editor в Dashboard — эквивалентно `db:migrate`.
+Скрипт не ведёт журнал применённых файлов и всегда выполняет каталог с начала. Поэтому он
+подходит только для пустой безопасной БД. На production новую миграцию применять точечно через
+Supabase MCP (`apply_migration`) или SQL Editor: повторный запуск `0008` меняет данные в
+`platform_settings`.
+
+Пока корневой `.env` указывает на production, `bun run test:e2e` и `bun run load:test`
+запрещены: оба выполняют auth upsert, а E2E дополнительно создаёт каталог и заявки.
 
 ## Supabase Storage
 

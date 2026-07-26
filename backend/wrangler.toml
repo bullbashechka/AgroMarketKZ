@@ -44,12 +44,19 @@ namespace_id = "2026072002"
   limit = 30
   period = 60
 
-# По IP, применяется на /auth/* до установления пользователя (login ещё не аутентифицирован).
-# Базовая защита от брутфорса/спама DB upsert; тонкая настройка порогов по трафику и WAF —
-# отдельная production-задача (см. backend/README.md).
+# Широкий потолок по IP под CGNAT, применяется на /auth/* до чтения тела.
 [[ratelimits]]
 name = "AUTH_RATE_LIMITER"
-namespace_id = "2026072003"
+namespace_id = "2026072601"
+
+  [ratelimits.simple]
+  limit = 300
+  period = 60
+
+# Основная pre-auth защита: строгий лимит по составному ключу IP + Telegram id.
+[[ratelimits]]
+name = "AUTH_IDENTITY_RATE_LIMITER"
+namespace_id = "2026072602"
 
   [ratelimits.simple]
   limit = 10

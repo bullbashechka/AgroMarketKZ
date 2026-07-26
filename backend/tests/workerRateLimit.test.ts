@@ -26,6 +26,7 @@ type RateLimitTestEnv = Partial<AppEnv> & {
   API_READ_RATE_LIMITER?: RateLimitMock;
   API_MUTATION_RATE_LIMITER?: RateLimitMock;
   AUTH_RATE_LIMITER?: RateLimitMock;
+  AUTH_IDENTITY_RATE_LIMITER?: RateLimitMock;
 };
 
 async function authorizationHeader(): Promise<Record<string, string>> {
@@ -235,6 +236,145 @@ describe("AUTH_RATE_LIMITER (pre-auth, по IP)", () => {
 
     expect(authLimiter.calls).toEqual([{ key: "unknown" }]);
     expect(response.status).toBe(400);
+  });
+});
+
+function initDataWithUser(id: number): string {
+  const params = new URLSearchParams();
+  params.set("user", JSON.stringify({ id }));
+  return params.toString();
+}
+
+describe("AUTH_IDENTITY_RATE_LIMITER (pre-auth, по IP + Telegram id)", () => {
+  test("initData-логин ключуется по IP и Telegram id", async () => {
+    const identityLimiter = new RateLimitMock({ success: true });
+    const app = createRateLimitApp({ AUTH_IDENTITY_RATE_LIMITER: identityLimiter });
+
+    const response = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7" },
+      body: JSON.stringify({ initData: initDataWithUser(555) }),
+    });
+
+    expect(identityLimiter.calls).toEqual([{ key: "203.0.113.7:555" }]);
+    expect(response.status).toBe(401);
+  });
+
+  test("widget-логин без IP-заголовка использует unknown + Telegram id", async () => {
+    const identityLimiter = new RateLimitMock({ success: true });
+    const app = createRateLimitApp({ AUTH_IDENTITY_RATE_LIMITER: identityLimiter });
+
+    const response = await app.request("/auth/widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: 555 }),
+    });
+
+    expect(identityLimiter.calls).toEqual([{ key: "unknown:555" }]);
+    expect(response.status).toBe(400);
+  });
+
+  test("битое JSON-тело даёт 400 и не вызывает identity limiter", async () => {
+    const identityLimiter = new RateLimitMock({ success: true });
+    const app = createRateLimitApp({ AUTH_IDENTITY_RATE_LIMITER: identityLimiter });
+
+    const response = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{not json",
+    });
+
+    expect(response.status).toBe(400);
+    expect(identityLimiter.calls).toEqual([]);
+  });
+
+  test("отказ IP-потолка не доходит до identity limiter", async () => {
+    const ipLimiter = new RateLimitMock({ success: false });
+    const identityLimiter = new RateLimitMock({ success: true });
+    const app = createRateLimitApp({
+      AUTH_RATE_LIMITER: ipLimiter,
+      AUTH_IDENTITY_RATE_LIMITER: identityLimiter,
+    });
+
+    const response = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7" },
+      body: JSON.stringify({ initData: initDataWithUser(555) }),
+    });
+
+    expect(response.status).toBe(429);
+    expect(ipLimiter.calls).toEqual([{ key: "203.0.113.7" }]);
+    expect(identityLimiter.calls).toEqual([]);
+  });
+
+  test("identity limiter сам возвращает 429 и Retry-After", async () => {
+    const identityLimiter = new RateLimitMock({ success: false });
+    const app = createRateLimitApp({ AUTH_IDENTITY_RATE_LIMITER: identityLimiter });
+
+    const response = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7" },
+      body: JSON.stringify({ initData: initDataWithUser(555) }),
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(identityLimiter.calls).toEqual([{ key: "203.0.113.7:555" }]);
+  });
+
+  test("identity limiter работает без IP binding", async () => {
+    const identityLimiter = new RateLimitMock({ success: true });
+    const app = createRateLimitApp({ AUTH_IDENTITY_RATE_LIMITER: identityLimiter });
+
+    const response = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData: initDataWithUser(555) }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(identityLimiter.calls).toEqual([{ key: "unknown:555" }]);
+  });
+
+  test("без обоих auth bindings запрос доходит до Zod", async () => {
+    const app = createRateLimitApp({});
+
+    const response = await app.request("/auth/widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  test("Telegram id вне диапазона игнорируется", async () => {
+    const identityLimiter = new RateLimitMock({ success: false });
+    const app = createRateLimitApp({ AUTH_IDENTITY_RATE_LIMITER: identityLimiter });
+
+    const response = await app.request("/auth/widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: 2 ** 52 + 1 }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(identityLimiter.calls).toEqual([]);
+  });
+
+  test("тело остаётся доступно обработчику после чтения в middleware", async () => {
+    const identityLimiter = new RateLimitMock({ success: true });
+    const app = createRateLimitApp({ AUTH_IDENTITY_RATE_LIMITER: identityLimiter });
+
+    const response = await app.request("/auth/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData: initDataWithUser(555) }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Отсутствует подпись Telegram" });
+    expect(identityLimiter.calls).toEqual([{ key: "unknown:555" }]);
   });
 });
 
