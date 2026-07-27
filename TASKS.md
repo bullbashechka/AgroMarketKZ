@@ -367,14 +367,27 @@ JWT и предзарегистрированным профилем, `freshUser
 
 ## Этап 13. Ёмкость и производительность под 24k (день 2)
 
-- [ ] **(№4 — 8/10) Снять нагрузку с БД в горячем пути.**
-  - [ ] Подключить Cloudflare Hyperdrive поверх Supavisor, перевести `DATABASE_URL` на биндинг.
-  - [ ] `backend/src/middleware/auth.ts`: кешировать `{tokenVersion, isRegistered}` по `userId` в Workers KV с TTL 60 с — сейчас `findAuthUser` делает SELECT на каждый аутентифицированный запрос.
-  - [ ] Инвалидировать ключ KV в `revokeUserSessions`, чтобы отзыв сессии не ждал TTL.
-  - [ ] Прогнать `bun run load:test` на максимуме (2000 пользователей, concurrency 200) против прод-конфигурации, зафиксировать p50/p95/p99 и `poolSignals`.
-  - [ ] Настроить алерты: ошибки подключения к БД, доля 5xx, Logpush с `wrangler tail`.
+- [ ] **(№4 — 8/10) Снять нагрузку с БД в горячем пути.** Код закоммичен (`801d5cc`), инфраструктура (Hyperdrive/KV-ресурсы, staging-деплой, нагрузочный тест) ждёт доступа к Cloudflare-токену с правами KV/Hyperdrive.
+  - [ ] Подключить Cloudflare Hyperdrive поверх Supavisor, перевести `DATABASE_URL` на биндинг. Код готов (`db.ts` падает на `DATABASE_URL`, если биндинга нет) — не создан сам Hyperdrive-конфиг, нужен токен с правом Hyperdrive Configs:Edit.
+  - [ ] `backend/src/middleware/auth.ts`: кешировать `{tokenVersion, isRegistered}` по `userId` в Workers KV с TTL 60 с. Код готов (`findAuthUserCached` в `repos/users.ts`) — не создан KV-неймспейс, нужен токен с правом Workers KV Storage:Edit.
+  - [ ] Инвалидировать ключ KV в `revokeUserSessions`, чтобы отзыв сессии не ждал TTL. Код готов (инвалидация добавлена и в `revokeUserSessions`, и в `register()` — иначе свежезарегистрированный до минуты видел бы себя незарегистрированным), эффекта не будет до создания KV-неймспейса выше.
+  - [ ] Прогнать `bun run load:test` на максимуме (2000 пользователей, concurrency 200) против прод-конфигурации, зафиксировать p50/p95/p99 и `poolSignals`. Staging Supabase-проект создан и засеян (`AgroMarketKZ-staging`), сам прогон не запущен — ждёт staging Worker-деплоя (тот же токен) и пароля от staging-БД.
+  - [ ] Настроить алерты: ошибки подключения к БД, доля 5xx, Logpush с `wrangler tail`. Реализовано иначе, чем в формулировке: `wrangler tail`/Logpush не годятся для Worker без своего домена (не видят HTTP-статусы) — вместо этого свой счётчик через Workers Analytics Engine + cron раз в 5 мин → тот же Telegram admin-чат. Код готов, сейчас no-op — нужен отдельный Cloudflare-токен (Account Analytics: Read) в секрет `CF_ANALYTICS_API_TOKEN`.
 
-- [ ] **(№20 — 3/10) Индекс для поиска.** `create extension pg_trgm` + GIN-индекс по `cards(title gin_trgm_ops)` с условием `published_at is not null and archived_at is null`. Код менять не нужно — планировщик подхватит сам.
+- [x] **(№20 — 3/10) Индекс для поиска.** `create extension pg_trgm` + GIN-индекс по `cards(title gin_trgm_ops)`. Применено без частичного условия (в отличие от исходной формулировки) — админский поиск (`adminCatalog.ts`) ищет и по архивным/неопубликованным карточкам, частичный индекс их бы не ускорил. Собран и провалидирован в production напрямую (миграция `database/migrations/0010_cards_title_trgm_search.sql` — код менять не нужно, планировщик подхватил сам).
+
+### Осталось по №4 (упирается в доступ к Cloudflare/Supabase, не в код)
+
+- [ ] Расширить `CLOUDFLARE_API_TOKEN` (или выпустить новый) правами `Workers KV Storage:Edit` + `Hyperdrive Configs:Edit` — dash.cloudflare.com/profile/api-tokens. Текущий токен в `backend/.dev.vars` видит только `Workers Scripts:Edit` + `Pages:Edit`.
+- [ ] Создать прод-Hyperdrive: `wrangler hyperdrive create agromarketkz-backend-prod --connection-string="postgresql://postgres.qxyieyzfdcosmmckyocm:<PASSWORD>@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres" --caching-disabled` → вписать `id` в `[[hyperdrive]]` в `backend/wrangler.toml`.
+- [ ] Создать прод-KV: `wrangler kv namespace create AUTH_CACHE_KV` → вписать `id` в `[[kv_namespaces]]` в `backend/wrangler.toml`.
+- [ ] Задеплоить прод с новыми биндингами, ручной smoke-test (логин, профиль, каталог) + `wrangler tail` на предмет новых ошибок.
+- [ ] Выпустить отдельный токен с правом только `Account Analytics:Read` → `wrangler secret put CF_ANALYTICS_API_TOKEN` — без него алерты остаются no-op.
+- [ ] Достать пароль БД нового staging-проекта (`AgroMarketKZ-staging`, ref `iialwefekmefiwamgebu`) — Supabase Dashboard → Project Settings → Database.
+- [ ] Подтвердить, какой из токенов в `.env`/`backend/.dev.vars` — dev-бот (они разные), для секрета `TELEGRAM_BOT_TOKEN` на staging.
+- [ ] Добавить `[env.staging]` в `backend/wrangler.toml` (свои Hyperdrive/KV/rate-limiters на staging-проект), выставить секреты, `wrangler deploy --env staging`.
+- [ ] Прогнать `bun run load:test` на staging (2000 пользователей, concurrency 200, `LOAD_TEST_ENABLE_MUTATIONS=1`), зафиксировать p50/p95/p99 и `poolSignals` из JSON-отчёта.
+- [ ] Снести staging-ресурсы после теста (`wrangler delete --env staging`, KV/Hyperdrive, при желании — сам Supabase-проект).
 
 ---
 
