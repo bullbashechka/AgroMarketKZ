@@ -22,11 +22,15 @@ export interface AppEnv {
   TELEGRAM_MINIAPP_SHORTNAME?: string;
   ADMIN_ALLOWLIST: string;
   DATABASE_URL: string;
+  /** Hyperdrive поверх Supavisor session-mode (порт 5432), caching отключён. Локально на Bun отсутствует — createClient падает обратно на DATABASE_URL. */
+  HYPERDRIVE?: Hyperdrive;
   SUPABASE_URL: string;
   SUPABASE_STORAGE_BUCKET: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   /** "false" включает реальное удаление в storageCleanup; любое другое значение (в т.ч. отсутствие) — dry-run. */
   STORAGE_CLEANUP_DRY_RUN?: string;
+  /** Кеш {tokenVersion, isRegistered} по userId, TTL 60с. Отсутствует локально на Bun — тогда findAuthUserCached деградирует к прямому SELECT. */
+  AUTH_CACHE_KV?: KVNamespace;
   /** Отсутствуют при локальном запуске без Wrangler и тогда являются no-op. */
   API_READ_RATE_LIMITER?: RateLimitBinding;
   API_MUTATION_RATE_LIMITER?: RateLimitBinding;
@@ -34,6 +38,12 @@ export interface AppEnv {
   AUTH_RATE_LIMITER?: RateLimitBinding;
   /** Строгий лимит по составному ключу IP + неподписанный Telegram id для `/auth/*`. */
   AUTH_IDENTITY_RATE_LIMITER?: RateLimitBinding;
+  /** Счётчик исходов запросов (5xx/4xx/ok, ошибки подключения к БД) для алертинга. См. lib/alerts.ts. */
+  REQUEST_METRICS?: AnalyticsEngineDataset;
+  /** Account id для чтения REQUEST_METRICS через Analytics Engine SQL API (не секрет). */
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  /** Токен с правами только Account Analytics: Read — отдельный от деплойного CLOUDFLARE_API_TOKEN. */
+  CF_ANALYTICS_API_TOKEN?: string;
 }
 
 /** Аутентифицированный пользователь, кладётся `requireAuth` в контекст. */

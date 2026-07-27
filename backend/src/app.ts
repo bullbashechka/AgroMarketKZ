@@ -4,6 +4,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ZodError } from "zod";
+import { isConnectionError } from "./db";
 import { type AppEnv, type HonoEnv, resolveEnv } from "./env";
 import { HttpError } from "./lib/errors";
 import { adminRoutes } from "./routes/admin";
@@ -38,6 +39,17 @@ export function createApp(options: AppOptions = {}) {
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Referrer-Policy", "no-referrer");
     await next();
+  });
+
+  // Счётчик исходов для алертинга (см. lib/alerts.ts) — без REQUEST_METRICS (локально/пока не
+  // настроен биндинг) молча no-op.
+  app.use("*", async (c, next) => {
+    await next();
+    const status = c.res.status;
+    c.get("env").REQUEST_METRICS?.writeDataPoint({
+      indexes: [status >= 500 ? "server_error" : status >= 400 ? "client_error" : "ok"],
+      blobs: [c.req.method, new URL(c.req.url).pathname]
+    });
   });
 
   app.use(
@@ -78,6 +90,12 @@ export function createApp(options: AppOptions = {}) {
       return c.json({ error: "Проверьте корректность данных", code: "VALIDATION_ERROR" }, 400);
     }
     console.error(err);
+    if (isConnectionError(err)) {
+      c.get("env").REQUEST_METRICS?.writeDataPoint({
+        indexes: ["db_conn_error"],
+        blobs: [c.req.method, new URL(c.req.url).pathname]
+      });
+    }
     return c.json({ error: "Внутренняя ошибка сервера" }, 500);
   });
 
