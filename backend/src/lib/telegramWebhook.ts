@@ -46,7 +46,7 @@ const OUT_OF_CHAT_STATUSES = new Set(["left", "kicked"]);
  * - Любое личное сообщение — `greet`.
  * - Всё остальное (групповые сообщения, каналы, мусор) — `ignore`.
  */
-export function classifyUpdate(update: unknown, adminIds: Set<number>): WebhookAction {
+export function classifyUpdate(update: unknown, adminIds: ReadonlySet<number>): WebhookAction {
   if (typeof update !== "object" || update === null) return { type: "ignore" };
   const u = update as TelegramUpdate;
 

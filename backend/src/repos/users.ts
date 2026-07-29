@@ -53,6 +53,46 @@ export async function findAuthUser(
   return { tokenVersion: row.token_version, isRegistered: row.registered_at !== null };
 }
 
+const AUTH_CACHE_TTL_SECONDS = 60; // KV-минимум expirationTtl.
+const authCacheKey = (userId: string) => `authuser:v1:${userId}`;
+
+interface AuthCacheEntry {
+  tokenVersion: number;
+  isRegistered: boolean;
+}
+
+/**
+ * Обёртка над findAuthUser с кешем в Workers KV (см. TASKS.md, Этап 13 №4). Ключ — только
+ * userId, без telegramId: пара (id, telegram_id) в users неизменна после создания строки, а
+ * запись в кеш происходит только после того, как findAuthUser уже подтвердил эту пару в WHERE.
+ * Без AUTH_CACHE_KV (локальный Bun) деградирует к прямому SELECT.
+ */
+export async function findAuthUserCached(
+  env: AppEnv,
+  userId: string,
+  telegramId: number,
+): Promise<{ tokenVersion: number; isRegistered: boolean } | undefined> {
+  const kv = env.AUTH_CACHE_KV;
+  if (!kv) return findAuthUser(env, userId, telegramId);
+
+  const key = authCacheKey(userId);
+  const cached = await kv.get<AuthCacheEntry>(key, "json").catch(() => null);
+  if (cached && typeof cached.tokenVersion === "number" && typeof cached.isRegistered === "boolean") {
+    return cached;
+  }
+
+  const fresh = await findAuthUser(env, userId, telegramId);
+  if (fresh) {
+    kv.put(key, JSON.stringify(fresh), { expirationTtl: AUTH_CACHE_TTL_SECONDS }).catch(() => {});
+  }
+  return fresh;
+}
+
+async function invalidateAuthCache(env: AppEnv, userId: string): Promise<void> {
+  if (!env.AUTH_CACHE_KV) return;
+  await env.AUTH_CACHE_KV.delete(authCacheKey(userId)).catch(() => {});
+}
+
 /** Атомарно отзывает все JWT пользователя, выпущенные до текущей версии сессии. */
 export async function revokeUserSessions(env: AppEnv, userId: string): Promise<boolean> {
   const sql = getDb(env);
@@ -62,7 +102,9 @@ export async function revokeUserSessions(env: AppEnv, userId: string): Promise<b
     where id = ${userId}
     returning id
   `;
-  return rows.length === 1;
+  const revoked = rows.length === 1;
+  if (revoked) await invalidateAuthCache(env, userId);
+  return revoked;
 }
 
 /**
@@ -103,6 +145,7 @@ export async function register(
     where id = ${userId}
     returning *
   `;
+  await invalidateAuthCache(env, userId);
   return row!;
 }
 

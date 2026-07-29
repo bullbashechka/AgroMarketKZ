@@ -2,6 +2,7 @@ import { Outlet } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { AppShell } from "../components/AppShell";
 import { ErrorState } from "../components/ErrorState";
+import { RateLimitedState } from "../components/RateLimitedState";
 import { Skeleton } from "../components/Skeleton";
 import { useAuth } from "../lib/auth";
 import { RegistrationIntentProvider } from "../lib/registrationIntent";
@@ -27,13 +28,19 @@ function FullScreenLoading() {
 
 /** Гейт авторизации + общий каркас с нижней навигацией. Login/Register рендерятся вне AppShell. */
 export function RootLayout() {
-  const { status, error, retry } = useAuth();
+  const { status, error, retryAfterSeconds, retry } = useAuth();
 
   let content: React.ReactNode;
   if (status === "loading") {
     content = <FullScreenLoading />;
   } else if (status === "needsLogin") {
     content = <LoginScreen />;
+  } else if (status === "rateLimited") {
+    content = (
+      <main className="shell">
+        <RateLimitedState retryAfterSeconds={retryAfterSeconds} onRetry={retry} />
+      </main>
+    );
   } else if (status === "error") {
     content = (
       <main className="shell">

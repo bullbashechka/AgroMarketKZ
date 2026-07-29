@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "bun run --cwd packages/contracts build && concurrently -n contracts,backend,webapp -c yellow,cyan,green \"bun run --cwd packages/contracts dev\" \"bun run --cwd backend dev\" \"bun run --cwd webapp dev\"",
     "dev:backend": "bun run --cwd backend dev",
+    "dev:backend:e2e": "bun run --cwd backend dev:e2e",
     "dev:webapp": "bun run --cwd webapp dev",
     "db:migrate": "for file in database/migrations/*.sql; do echo \"Applying $file\"; psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$file\"; done",
     "db:seed:dev": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f database/seeds/dev.sql",

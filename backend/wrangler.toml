@@ -4,9 +4,11 @@ compatibility_date = "2026-06-28"
 # postgres.js использует TCP-сокеты через Node-совместимость на Workers.
 compatibility_flags = ["nodejs_compat"]
 
-# Ежедневная уборка orphaned-файлов card-images/cards/* (см. backend/src/lib/storageCleanup.ts).
+# "0 3 * * *" — ежедневная уборка orphaned-файлов card-images/cards/* (storageCleanup.ts).
+# "*/5 * * * *" — проверка здоровья БД/5xx через Analytics Engine (lib/alerts.ts); scheduled()
+# в worker.ts ветвится по event.cron.
 [triggers]
-crons = ["0 3 * * *"]
+crons = ["0 3 * * *", "*/5 * * * *"]
 
 [vars]
 # Production Pages origin (домен детерминирован CLOUDFLARE_PROJECT_NAME=agromarketkz-webapp).
@@ -21,10 +23,19 @@ TELEGRAM_BOT_USERNAME = "agromarketkzbot"
 # Первый прод-запуск — только dry-run (см. backend/README.md). Переключить на "false" только
 # после ручной проверки кандидатов по логам (`wrangler tail`) и отдельного deploy.
 STORAGE_CLEANUP_DRY_RUN = "true"
+# Для алертов (lib/alerts.ts) — id аккаунта, не секрет. CF_ANALYTICS_API_TOKEN отдельным
+# секретом (права только Account Analytics: Read).
+CLOUDFLARE_ACCOUNT_ID = "0b481a63e36d7f8a4b5058544213d90e"
 
 # Секреты на проде задаются через `wrangler secret put` (Этап 10), НЕ в [vars]:
 #   JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, ADMIN_ALLOWLIST,
-#   DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+#   DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CF_ANALYTICS_API_TOKEN
+
+# Счётчик исходов запросов для алертинга (см. lib/alerts.ts, app.ts). Датасет создаётся
+# автоматически при первой записи — отдельного `wrangler` резервирования не требует.
+[[analytics_engine_datasets]]
+binding = "REQUEST_METRICS"
+dataset = "agromarketkz_requests"
 
 # Начальные пороги требуют наблюдения и настройки по production-трафику.
 # Перед deployment проверить namespace_id на уникальность в пределах Cloudflare account.
@@ -44,13 +55,31 @@ namespace_id = "2026072002"
   limit = 30
   period = 60
 
-# По IP, применяется на /auth/* до установления пользователя (login ещё не аутентифицирован).
-# Базовая защита от брутфорса/спама DB upsert; тонкая настройка порогов по трафику и WAF —
-# отдельная production-задача (см. backend/README.md).
+# Широкий потолок по IP под CGNAT, применяется на /auth/* до чтения тела.
 [[ratelimits]]
 name = "AUTH_RATE_LIMITER"
-namespace_id = "2026072003"
+namespace_id = "2026072601"
+
+  [ratelimits.simple]
+  limit = 300
+  period = 60
+
+# Основная pre-auth защита: строгий лимит по составному ключу IP + Telegram id.
+[[ratelimits]]
+name = "AUTH_IDENTITY_RATE_LIMITER"
+namespace_id = "2026072602"
 
   [ratelimits.simple]
   limit = 10
   period = 60
+
+# TODO(Этап 13 №4): [[hyperdrive]] (binding = "HYPERDRIVE") и [[kv_namespaces]]
+# (binding = "AUTH_CACHE_KV") — код в src/db.ts и src/repos/users.ts уже умеет их
+# использовать и штатно деградирует в их отсутствие, но сами ресурсы ещё не созданы:
+# текущий CLOUDFLARE_API_TOKEN не имеет прав Workers KV Storage:Edit / Hyperdrive Configs:Edit.
+# После расширения токена:
+#   wrangler hyperdrive create agromarketkz-backend-prod \
+#     --connection-string="postgresql://postgres.qxyieyzfdcosmmckyocm:<PASSWORD>@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres" \
+#     --caching-disabled
+#   wrangler kv namespace create AUTH_CACHE_KV
+# и вписать возвращённые id сюда.

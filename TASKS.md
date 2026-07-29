@@ -320,40 +320,74 @@ JWT и предзарегистрированным профилем, `freshUser
 Без этих четырёх пунктов релиз выпускать нельзя.
 
 - [ ] **(№1 — 9/10) Убрать тестовый admin id из прод-allowlist.**
-  - [ ] Проверить содержимое прод-секрета `ADMIN_ALLOWLIST` (значение `wrangler secret` не отдаёт — сверить с тем, что заводили при деплое).
-  - [ ] Подтвердить, принадлежит ли `900000002` нам: id лежит в реально выданном диапазоне Telegram и может быть чужим живым аккаунтом.
-  - [ ] Переустановить секрет только реальными id: `echo -n "1295392762" | wrangler secret put ADMIN_ALLOWLIST`.
-  - [ ] Разнести E2E и прод: тестовый id держать только в `.env.e2e` / отдельном dev-Worker, не в прод-секрете.
-  - [ ] `backend/src/lib/admin.ts`: отбраковывать id вне разумного диапазона, `console.warn` при пустом списке.
-  - [ ] Проверить логи Cloudflare на обращения к `GET /admin/users` и `GET /admin/requests` с посторонних id за весь период с деплоя.
+  - [x] Подтвердить отсутствие компрометации: JWT требует строку `users`, а
+    `telegram_id = 900000002` в production отсутствует.
+  - [x] Production secret развернут secret-only версией со значением владельца `1295392762`.
+  - [ ] Владелец живьём проверяет раздел «Управление» после смены секрета.
+  - [ ] После получения id оператора повторить секрет со строкой `1295392762,<id оператора>`.
+  - [x] Разнести E2E и production allowlist: синтетические id `999000000001/2`,
+    `.env.e2e`, явный `webServer.env` и global admin guard.
+  - [x] Валидировать Telegram id, кешировать allowlist по исходной строке и предупреждать
+    об отбракованных, пустых и синтетических значениях.
+  - [x] Расследование исторических Workers logs закрыто: observability не была включена,
+    поэтому логов за прошлый период не существует.
 
 - [ ] **(№2 — 9/10) Перенастроить `AUTH_RATE_LIMITER` под CGNAT.**
-  - [ ] `backend/wrangler.toml`: поднять `AUTH_RATE_LIMITER` до `limit = 600, period = 60`.
-  - [ ] `backend/src/middleware/rateLimit.ts`: составной ключ `IP + telegram_id из initData` вместо голого `CF-Connecting-IP` (id берётся до валидации подписи — он используется только как ключ).
-  - [ ] `webapp/src/lib/auth.tsx`: на `429` показывать экран «Попробуйте через минуту» с `Retry-After`, а не повторять вход.
-  - [ ] Настроить Cloudflare WAF Rate Limiting как основную защиту от брутфорса (ASN, managed challenge).
-  - [ ] Проверить после деплоя: серия из 20 запросов к `/auth/telegram` с одного IP проходит.
+  - [x] `AUTH_RATE_LIMITER`: широкий IP-потолок 300/мин, новый namespace `2026072601`.
+  - [x] В дополнение добавить `AUTH_IDENTITY_RATE_LIMITER` 10/мин с namespace
+    `2026072602` и ключом `IP:telegramId` из неподписанного тела.
+  - [x] Битый JSON на `/auth/*` возвращает `400`, отсутствие/невалидность id безопасно
+    пропускает identity-limiter.
+  - [x] Webapp: отдельный экран `429`, дедлайн, jitter 0–30 с и максимум 3 автоповтора.
+  - [x] После деплоя серия из 20 запросов с одного IP дошла до валидации без `429`.
+  - [x] Identity binding в production возвращает `429` и `Retry-After: 60`.
+  - [ ] Принять точность native binding: из-за permissive/eventually-consistent counters
+    первый `429` в двух live probes пришёл на 34-м, а не на 11-м запросе.
 
 - [ ] **(№3 — 8/10) Зафиксировать RLS в миграциях.**
-  - [ ] `database/migrations/0009_enable_rls.sql`: `enable row level security` для всех девяти таблиц (идемпотентно, на текущем проде no-op).
-  - [ ] В той же миграции — защита в глубину: `revoke all on all tables in schema public from anon, authenticated` + `alter default privileges … revoke all on tables from anon, authenticated`.
-  - [ ] Прогнать миграцию на проде, убедиться что backend (`service_role`) продолжает работать.
-  - [ ] Добавить в `DEPLOYMENT.md` в «Проверки перед деплоем» прогон security advisors с требованием нулевых ERROR/WARN.
+  - [x] `0009_enable_rls.sql`: явный список девяти таблиц, транзакция, защита
+    чистого Postgres без ролей Supabase; схему `storage` не менять.
+  - [x] Отозвать текущие и default grants на tables/sequences/functions у `anon` /
+    `authenticated`.
+  - [x] Полный прогон `0001`→`0009` на временной PostgreSQL без Supabase-ролей и с ними.
+  - [x] Точечно применить `0009` в production: RLS 9/9, текущих grants — 0.
+  - [ ] В Supabase Data API settings отключить автоматическую публикацию будущих таблиц:
+    `postgres` не может изменить default ACL владельца `supabase_admin`.
+  - [ ] Проверить advisors и smoke test приложения после Dashboard-настройки.
+  - [x] Зафиксировать в `DEPLOYMENT.md` introspection, advisors и предупреждение про `0008`.
 
-- [ ] **(№4a — 8/10) Запустить апгрейд инстанса Supabase** (сейчас Micro: `shared_buffers` ≈ 224 МБ, `max_connections = 60`). Делать первым пунктом дня — применяется не мгновенно.
+- [ ] **(№4a — 8/10) Регламент апгрейда Supabase, без покупки на этапе 12.**
+  - [ ] Проверить и при необходимости снять spend cap в Billing.
+  - [x] Зафиксировать триггер на нагрузочном тесте: p95 профиля > 1 с или любые ошибки
+    подключения к БД.
+  - [x] Зафиксировать post-release триггер: доля `5xx > 1%` или ошибки пула.
+  - [x] Выполнять upgrade только между волнами рассылки; ожидаемая недоступность ≈ 2 минуты.
 
 ---
 
 ## Этап 13. Ёмкость и производительность под 24k (день 2)
 
-- [ ] **(№4 — 8/10) Снять нагрузку с БД в горячем пути.**
-  - [ ] Подключить Cloudflare Hyperdrive поверх Supavisor, перевести `DATABASE_URL` на биндинг.
-  - [ ] `backend/src/middleware/auth.ts`: кешировать `{tokenVersion, isRegistered}` по `userId` в Workers KV с TTL 60 с — сейчас `findAuthUser` делает SELECT на каждый аутентифицированный запрос.
-  - [ ] Инвалидировать ключ KV в `revokeUserSessions`, чтобы отзыв сессии не ждал TTL.
-  - [ ] Прогнать `bun run load:test` на максимуме (2000 пользователей, concurrency 200) против прод-конфигурации, зафиксировать p50/p95/p99 и `poolSignals`.
-  - [ ] Настроить алерты: ошибки подключения к БД, доля 5xx, Logpush с `wrangler tail`.
+- [ ] **(№4 — 8/10) Снять нагрузку с БД в горячем пути.** Код закоммичен (`801d5cc`), инфраструктура (Hyperdrive/KV-ресурсы, staging-деплой, нагрузочный тест) ждёт доступа к Cloudflare-токену с правами KV/Hyperdrive.
+  - [ ] Подключить Cloudflare Hyperdrive поверх Supavisor, перевести `DATABASE_URL` на биндинг. Код готов (`db.ts` падает на `DATABASE_URL`, если биндинга нет) — не создан сам Hyperdrive-конфиг, нужен токен с правом Hyperdrive Configs:Edit.
+  - [ ] `backend/src/middleware/auth.ts`: кешировать `{tokenVersion, isRegistered}` по `userId` в Workers KV с TTL 60 с. Код готов (`findAuthUserCached` в `repos/users.ts`) — не создан KV-неймспейс, нужен токен с правом Workers KV Storage:Edit.
+  - [ ] Инвалидировать ключ KV в `revokeUserSessions`, чтобы отзыв сессии не ждал TTL. Код готов (инвалидация добавлена и в `revokeUserSessions`, и в `register()` — иначе свежезарегистрированный до минуты видел бы себя незарегистрированным), эффекта не будет до создания KV-неймспейса выше.
+  - [ ] Прогнать `bun run load:test` на максимуме (2000 пользователей, concurrency 200) против прод-конфигурации, зафиксировать p50/p95/p99 и `poolSignals`. Staging Supabase-проект создан и засеян (`AgroMarketKZ-staging`), сам прогон не запущен — ждёт staging Worker-деплоя (тот же токен) и пароля от staging-БД.
+  - [ ] Настроить алерты: ошибки подключения к БД, доля 5xx, Logpush с `wrangler tail`. Реализовано иначе, чем в формулировке: `wrangler tail`/Logpush не годятся для Worker без своего домена (не видят HTTP-статусы) — вместо этого свой счётчик через Workers Analytics Engine + cron раз в 5 мин → тот же Telegram admin-чат. Код готов, сейчас no-op — нужен отдельный Cloudflare-токен (Account Analytics: Read) в секрет `CF_ANALYTICS_API_TOKEN`.
 
-- [ ] **(№20 — 3/10) Индекс для поиска.** `create extension pg_trgm` + GIN-индекс по `cards(title gin_trgm_ops)` с условием `published_at is not null and archived_at is null`. Код менять не нужно — планировщик подхватит сам.
+- [x] **(№20 — 3/10) Индекс для поиска.** `create extension pg_trgm` + GIN-индекс по `cards(title gin_trgm_ops)`. Применено без частичного условия (в отличие от исходной формулировки) — админский поиск (`adminCatalog.ts`) ищет и по архивным/неопубликованным карточкам, частичный индекс их бы не ускорил. Собран и провалидирован в production напрямую (миграция `database/migrations/0010_cards_title_trgm_search.sql` — код менять не нужно, планировщик подхватил сам).
+
+### Осталось по №4 (упирается в доступ к Cloudflare/Supabase, не в код)
+
+- [ ] Расширить `CLOUDFLARE_API_TOKEN` (или выпустить новый) правами `Workers KV Storage:Edit` + `Hyperdrive Configs:Edit` — dash.cloudflare.com/profile/api-tokens. Текущий токен в `backend/.dev.vars` видит только `Workers Scripts:Edit` + `Pages:Edit`.
+- [ ] Создать прод-Hyperdrive: `wrangler hyperdrive create agromarketkz-backend-prod --connection-string="postgresql://postgres.qxyieyzfdcosmmckyocm:<PASSWORD>@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres" --caching-disabled` → вписать `id` в `[[hyperdrive]]` в `backend/wrangler.toml`.
+- [ ] Создать прод-KV: `wrangler kv namespace create AUTH_CACHE_KV` → вписать `id` в `[[kv_namespaces]]` в `backend/wrangler.toml`.
+- [ ] Задеплоить прод с новыми биндингами, ручной smoke-test (логин, профиль, каталог) + `wrangler tail` на предмет новых ошибок.
+- [ ] Выпустить отдельный токен с правом только `Account Analytics:Read` → `wrangler secret put CF_ANALYTICS_API_TOKEN` — без него алерты остаются no-op.
+- [ ] Достать пароль БД нового staging-проекта (`AgroMarketKZ-staging`, ref `iialwefekmefiwamgebu`) — Supabase Dashboard → Project Settings → Database.
+- [ ] Подтвердить, какой из токенов в `.env`/`backend/.dev.vars` — dev-бот (они разные), для секрета `TELEGRAM_BOT_TOKEN` на staging.
+- [ ] Добавить `[env.staging]` в `backend/wrangler.toml` (свои Hyperdrive/KV/rate-limiters на staging-проект), выставить секреты, `wrangler deploy --env staging`.
+- [ ] Прогнать `bun run load:test` на staging (2000 пользователей, concurrency 200, `LOAD_TEST_ENABLE_MUTATIONS=1`), зафиксировать p50/p95/p99 и `poolSignals` из JSON-отчёта.
+- [ ] Снести staging-ресурсы после теста (`wrangler delete --env staging`, KV/Hyperdrive, при желании — сам Supabase-проект).
 
 ---
 
@@ -418,7 +452,7 @@ JWT и предзарегистрированным профилем, `freshUser
 
 - [ ] `bun run typecheck` — зелёный.
 - [ ] `cd backend && bun test` — зелёный.
-- [ ] `bun run test:e2e` — зелёный.
+- [ ] `bun run test:e2e` — отложен до отдельной test-БД; текущий прогон пишет в production.
 - [ ] Security и performance advisors Supabase — ноль ERROR/WARN.
 - [ ] Живая проверка заголовков: CSP enforcing, HSTS, `nosniff`, `Cache-Control: no-store` на API.
 - [ ] Живая проверка CORS: preflight с посторонним Origin не получает `Access-Control-Allow-Origin`.

@@ -8,6 +8,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { ApiError, apiGet, apiPost, apiPut, setUnauthorizedHandler } from "./api";
+import { resetAutoRetries } from "./rateLimitRetry";
 import { getInitData, isTelegramContext } from "./telegram";
 import { getToken, setToken } from "./token";
 
@@ -50,12 +51,13 @@ async function bootstrapProfile(): Promise<Profile> {
   }
 }
 
-export type AuthStatus = "loading" | "needsLogin" | "ready" | "error";
+export type AuthStatus = "loading" | "needsLogin" | "rateLimited" | "ready" | "error";
 
 interface AuthContextValue {
   profile: Profile | undefined;
   status: AuthStatus;
   error: string | null;
+  retryAfterSeconds: number | null;
   loginWidget: (data: WidgetLoginInput) => void;
   loginPending: boolean;
   register: (data: RegisterInput) => Promise<Profile>;
@@ -89,6 +91,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refetchOnWindowFocus: false
   });
 
+  useEffect(() => {
+    if (profileQuery.data) resetAutoRetries();
+  }, [profileQuery.data]);
+
   const loginMutation = useMutation({
     mutationFn: (data: WidgetLoginInput) => apiPost<AuthResponse>("/auth/widget", data),
     onSuccess: ({ token, profile }) => {
@@ -114,6 +120,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     status = "loading";
   } else if (profileQuery.error instanceof NeedsLoginError) {
     status = "needsLogin";
+  } else if (profileQuery.error instanceof ApiError && profileQuery.error.status === 429) {
+    status = "rateLimited";
   } else if (profileQuery.isError) {
     status = "error";
   } else {
@@ -123,8 +131,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthContextValue = {
     profile: profileQuery.data,
     status,
+    retryAfterSeconds:
+      status === "rateLimited" && profileQuery.error instanceof ApiError
+        ? (profileQuery.error.retryAfterSeconds ?? null)
+        : null,
     error:
-      profileQuery.isError && !(profileQuery.error instanceof NeedsLoginError)
+      profileQuery.isError &&
+      !(profileQuery.error instanceof NeedsLoginError) &&
+      status !== "rateLimited"
         ? (profileQuery.error as Error).message
         : null,
     loginWidget: loginMutation.mutate,

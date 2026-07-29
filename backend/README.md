@@ -28,7 +28,8 @@ src/
   lib/
     telegram.ts     # валидация initData и Login Widget (Web Crypto, HMAC-SHA256)
     jwt.ts          # выпуск/проверка JWT (hono/jwt, HS256, 14 дней, версия сессии)
-    admin.ts        # парсинг ADMIN_ALLOWLIST, проверка прав по числовому id
+    admin.ts        # валидация и кеш ADMIN_ALLOWLIST, проверка прав по числовому id
+    telegramId.ts   # общий допустимый диапазон реальных и синтетических Telegram id
     errors.ts       # HttpError (статус + сообщение)
     storage*.ts     # signed URL, удаление файлов и ежедневная уборка orphaned-объектов
     telegram*.ts    # webhook, requestContact и уведомления в Telegram
@@ -52,7 +53,11 @@ tests/              # unit- и контрактные тесты
 
 После успешной валидации создаётся/обновляется `User` (зеркало Telegram: id, username, имя — обновляется при каждом входе; контактные имя/телефон неприкосновенны) и выдаётся **JWT на 14 дней** (`Authorization: Bearer`). В Telegram токен молча перевыпускается из свежего `initData`, поэтому повторного входа пользователь не видит.
 
-**Админы** определяются по `ADMIN_ALLOWLIST` (числовые Telegram id, через запятую). Проверка живая на каждом запросе (`requireAdmin`), статус в токен не зашит — выдача/снятие прав мгновенны.
+**Админы** определяются по `ADMIN_ALLOWLIST` (числовые Telegram id, через запятую). Принимаются
+только канонические положительные целые без ведущих нулей, не выше `2^52`; битые токены
+отбраковываются с предупреждением. Список мемоизируется по исходной строке секрета, поэтому
+повторные проверки не парсят и не логируют его заново, а смена значения применяется на первом
+следующем запросе. Проверка остаётся живой (`requireAdmin`), статус в токен не зашит.
 
 ## JWT-сессии и отзыв
 
@@ -86,15 +91,30 @@ JWT выпускается на 14 дней с claims `sub`, `tgId`, `ver`, `iat
 
 - `API_READ_RATE_LIMITER`: 120 запросов за 60 секунд, ключ — `userId`;
 - `API_MUTATION_RATE_LIMITER`: 30 запросов за 60 секунд, ключ — `userId:routeGroup`;
-- `AUTH_RATE_LIMITER`: 10 запросов за 60 секунд, ключ — `CF-Connecting-IP`. Применяется на `/auth/telegram` и `/auth/widget` до валидации `initData`/подписи виджета — эти эндпоинты не аутентифицированы, поэтому user-keyed лимитеры выше им недоступны.
+- `AUTH_RATE_LIMITER`: широкий потолок 300 запросов за 60 секунд, ключ — `CF-Connecting-IP`;
+- `AUTH_IDENTITY_RATE_LIMITER`: 10 запросов за 60 секунд, ключ — `IP:telegramId`.
+
+Оба auth-limiter применяются на `/auth/telegram` и `/auth/widget` до проверки Telegram-подписи.
+Telegram id извлекается из неподписанного тела только для ключа и не участвует в авторизации.
+Составной ключ не позволяет постороннему IP заблокировать известный id, а IP-потолок ограничивает
+перебор поддельных id. Если id безопасно извлечь нельзя, identity-limiter пропускается; битый JSON
+доходит до Zod и возвращает `400`.
 
 Локальный запуск без bindings работает в режиме no-op. Отказ limiter возвращает `429`, заголовок `Retry-After: 60` и JSON-поле `retryAfterSeconds: 60`. Счётчики Cloudflare являются location-local и eventually consistent, поэтому не используются как точный бизнес-счётчик; существующие бизнес-лимиты хранятся отдельно.
 
-Перед deployment проверить namespace `2026072001`, `2026072002` и `2026072003` на уникальность в пределах Cloudflare account. `AUTH_RATE_LIMITER` — базовая защита от брутфорса/спама на `/auth/*`, но не замена полноценному WAF: тонкая настройка порогов по реальному трафику и общее IP-правило для остального API остаются production rollout: observe/log → настройка порогов → blocking. `OPTIONS` и `/telegram/webhook` исключаются из строгого общего IP-правила.
+Live probe после первого deployment двухуровневой схемы подтвердил permissive-семантику:
+при конфигурации identity 10/мин первый `429` появился на 34-м запросе для двух свежих ключей.
+Binding ограничивает устойчивый поток, но не гарантирует точный отказ на 11-м запросе; если
+нужна строгая граница, потребуется другой stateful-механизм.
+
+Перед deployment проверить namespace `2026072001`, `2026072002`, `2026072601` и
+`2026072602` на уникальность в пределах Cloudflare account. Новые namespace для auth-limiter
+намеренно обнуляют старые счётчики при ослаблении IP-порога. Счётчики и долю `429` нужно
+наблюдать в первые сутки запуска; `OPTIONS` и `/telegram/webhook` не входят в auth-limiter.
 
 ## Пул БД и нагрузочный runner
 
-На один Worker isolate `postgres.js` явно ограничен параметрами `max: 3`, `idle_timeout: 20`, `connect_timeout: 10`, `prepare: false`; `max_lifetime` остаётся библиотечным default. Production `DATABASE_URL` должен указывать на Supabase transaction pooler через порт `6543`. Session-bound prepared statements с transaction pooler несовместимы, поэтому `prepare` не включать.
+На один Worker isolate `postgres.js` явно ограничен параметрами `max: 3`, `idle_timeout: 20`, `connect_timeout: 10`, `prepare: false`; `max_lifetime` остаётся библиотечным default. Production подключается через биндинг `HYPERDRIVE` (`backend/src/db.ts`, `createClient`), настроенный на Supavisor **session-mode** через порт `5432`, с `--caching-disabled` — Hyperdrive по умолчанию кеширует чтения на 60с без инвалидации при записи, что ломает свежесть auth-кеша и профиля сразу после записи. `DATABASE_URL`-секрет остаётся: он используется на локальном Bun (там `HYPERDRIVE` отсутствует) и как ручной fallback при инциденте с самим Hyperdrive — там, где он используется напрямую (локально), это по-прежнему Supavisor transaction-mode (`6543`), поэтому `prepare: false` не убираем ни при каком пути подключения.
 
 Runner запускается только вручную командой `bun run load:test`. Обязательные env guards: `LOAD_TEST_API_URL`, точное подтверждение origin в `LOAD_TEST_ALLOW_TARGET`, `LOAD_TEST_TELEGRAM_BOT_TOKEN` (или fallback `TELEGRAM_BOT_TOKEN`), `LOAD_TEST_USERS`, `LOAD_TEST_CONCURRENCY`, `LOAD_TEST_DURATION_SECONDS`. Значения ограничены сверху: 2 000 пользователей, concurrency 200 и 1 800 секунд. Даже default journey требует `LOAD_TEST_ALLOW_TARGET`, поскольку `/auth/telegram` выполняет DB upsert. Oversized probe выполняется один раз и требует `413`.
 

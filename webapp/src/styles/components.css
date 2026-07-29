@@ -71,6 +71,10 @@ dd {
   color: var(--color-danger);
 }
 
+.rate-limit-countdown {
+  font-variant-numeric: tabular-nums;
+}
+
 .muted {
   color: var(--color-text-muted);
 }

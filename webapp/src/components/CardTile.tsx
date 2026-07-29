@@ -26,7 +26,7 @@ export function CardTile({ item }: { item: CardListItem }) {
         <FavoriteButton item={item} />
       </div>
       <div className="card-tile-body">
-        <p className="card-tile-price">{formatPrice(item.priceType, item.priceAmount, item.priceUnit)}</p>
+        <p className="card-tile-price">{formatPrice(item.priceType, item.priceAmount)}</p>
         <p className="card-tile-title">{item.title}</p>
         {item.shortSpec && <span className="card-tile-spec">{item.shortSpec}</span>}
       </div>

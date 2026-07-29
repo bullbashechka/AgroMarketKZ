@@ -2,13 +2,13 @@ import { createMiddleware } from "hono/factory";
 import { getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { verifyToken } from "../lib/jwt";
-import { findAuthUser } from "../repos/users";
+import { findAuthUserCached } from "../repos/users";
 import { enforceAuthenticatedRateLimit } from "./rateLimit";
 
-type AuthUserLookup = typeof findAuthUser;
+type AuthUserLookup = typeof findAuthUserCached;
 
 /** Создаёт middleware авторизации; lookup выделен для изолированной проверки границ JWT и БД. */
-export function createRequireAuth(authUserLookup: AuthUserLookup = findAuthUser) {
+export function createRequireAuth(authUserLookup: AuthUserLookup = findAuthUserCached) {
   return createMiddleware<HonoEnv>(async (c, next) => {
     const header = c.req.header("Authorization");
     const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;

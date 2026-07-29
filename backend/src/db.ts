@@ -15,7 +15,7 @@ export const POSTGRES_POOL_OPTIONS = Object.freeze({
 }) satisfies postgres.Options<{}>;
 
 function createClient(env: AppEnv): Sql {
-  return postgres(env.DATABASE_URL, POSTGRES_POOL_OPTIONS);
+  return postgres(env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL, POSTGRES_POOL_OPTIONS);
 }
 
 /**
@@ -113,8 +113,9 @@ export function withReconnect(hooks: ClientHooks): Sql {
 
 /**
  * Ленивый синглтон клиента PostgreSQL (postgres.js), обёрнутый прозрачным реконнектом.
- * Работает и на Bun (локальная БД), и на Cloudflare Workers — единый код-путь по `DATABASE_URL`.
- * `prepare: false` совместимо с пуллером Supabase (transaction mode).
+ * Работает и на Bun (локальная БД, по `DATABASE_URL`), и на Cloudflare Workers (по `HYPERDRIVE`
+ * биндингу, если он есть — иначе тоже `DATABASE_URL`). `prepare: false` совместимо и с
+ * transaction-mode Supavisor (локально/fallback), и с Hyperdrive поверх session-mode.
  */
 export function getDb(env: AppEnv): Sql {
   if (!client) {
