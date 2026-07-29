@@ -10,7 +10,9 @@
 flowchart TD
 Open([Открывает приложение]) --> Auth[Вход через Telegram<br/>initData или Login Widget]
 Auth --> Catalog{{Каталог доступен сразу}}
-Catalog --> Browse[Поиск, фильтры,<br/>категории и карточки]
+Catalog --> Browse[Сразу все карточки,<br/>поиск и фильтры]
+Browse --> Category[Категории — компактный<br/>фильтр в шторке]
+Category --> Browse
 Browse --> Intent{Что хочет сделать?}
 Intent -->|Только смотреть| Browse
 Intent -->|Оставить заявку| Request[Форма: имя, телефон,<br/>комментарий]

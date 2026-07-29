@@ -1,13 +1,12 @@
 import type { CatalogType } from "@agromarket/contracts";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useState, type MouseEvent } from "react";
 import { CardsList } from "../components/CardsList";
+import { CategoryFilter } from "../components/CategoryFilter";
 import { PriceFilter } from "../components/PriceFilter";
 import { RequestSheet } from "../components/RequestSheet";
 import { Screen } from "../components/Screen";
 import { SearchBar } from "../components/SearchBar";
-import { categoriesQueryOptions } from "../lib/queries";
 import { buildSearchQuery, type CatalogSearch } from "../lib/searchParams";
 import { tabRootPath, type TabSection } from "../lib/tabHistory";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
@@ -17,7 +16,7 @@ interface CategoryScreenProps {
   section: TabSection;
 }
 
-/** Второй уровень стека вкладки: карточки категории с поиском (+ фолбэк на всю вкладку) и фильтром цены. */
+/** Второй уровень стека вкладки: карточки выбранной категории с поиском и фильтром цены. */
 export function CategoryScreen({ type, section }: CategoryScreenProps) {
   const { categoryId } = useParams({ strict: false }) as { categoryId: string };
   const search = useSearch({ strict: false }) as CatalogSearch;
@@ -26,8 +25,6 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
   const debouncedQuery = useDebouncedValue(inputValue, 500);
   const [requestOpen, setRequestOpen] = useState(false);
 
-  const { data: categories } = useQuery(categoriesQueryOptions(type));
-  const category = categories?.find((c) => c.id === categoryId);
   const basePath = `${tabRootPath(section)}/${categoryId}`;
   const activeQuery = search.q ?? "";
 
@@ -47,12 +44,13 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
 
   function goToWholeTab(event: MouseEvent) {
     event.preventDefault();
-    navigate({ href: tabRootPath(section) + buildSearchQuery({ q: activeQuery }) });
+    navigate({ href: tabRootPath(section) + buildSearchQuery({ q: activeQuery || undefined, price: search.price }) });
   }
 
   return (
-    <Screen back title={category?.name ?? "Категория"} fallbackTo={tabRootPath(section)}>
+    <Screen back fallbackTo={tabRootPath(section)}>
       <SearchBar value={inputValue} onChange={setInputValue} />
+      <CategoryFilter type={type} section={section} selectedCategoryId={categoryId} search={search} />
       <PriceFilter value={search.price} onChange={handlePriceChange} />
 
       <CardsList
