@@ -139,6 +139,40 @@ export async function sendTelegramMessage(
 }
 
 /**
+ * Одна попытка отправки фотографии через Bot API. Фото передаётся публичной
+ * HTTPS-ссылкой, поэтому не требует загрузки бинарного файла в Worker.
+ */
+export async function sendTelegramPhoto(
+  env: AppEnv,
+  chatId: string,
+  photoUrl: string,
+  htmlCaption: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<boolean> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        photo: photoUrl,
+        caption: htmlCaption,
+        parse_mode: "HTML",
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+      })
+    });
+    if (!res.ok) {
+      console.error("sendTelegramPhoto: Telegram API вернул ошибку", res.status, await res.text());
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("sendTelegramPhoto: не удалось отправить фото", err);
+    return false;
+  }
+}
+
+/**
  * Отправляет уведомление в чат администраторов через Bot API. Best-effort
  * с одной немедленной повторной попыткой: сбой не должен ломать создание
  * заявки/сообщения обратной связи (заявка в любом случае видна в админке).

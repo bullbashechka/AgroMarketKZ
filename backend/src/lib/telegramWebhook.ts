@@ -16,6 +16,7 @@ interface TelegramChatMember {
 interface TelegramUpdate {
   message?: {
     chat?: TelegramChat;
+    text?: string;
     migrate_to_chat_id?: number;
   };
   my_chat_member?: {
@@ -43,7 +44,7 @@ const OUT_OF_CHAT_STATUSES = new Set(["left", "kicked"]);
  *   `save_chat`, если добавил пользователь из allowlist админов, иначе `ignore`;
  *   бот удалён (стал left/kicked) — `clear_chat` независимо от того, кто удалил.
  * - `message.migrate_to_chat_id` — `migrate_chat` (смена id при апгрейде группы).
- * - Любое личное сообщение — `greet`.
+ * - Команда `/start` в личном чате — `greet`.
  * - Всё остальное (групповые сообщения, каналы, мусор) — `ignore`.
  */
 export function classifyUpdate(update: unknown, adminIds: ReadonlySet<number>): WebhookAction {
@@ -75,7 +76,7 @@ export function classifyUpdate(update: unknown, adminIds: ReadonlySet<number>): 
         toChatId: message.migrate_to_chat_id
       };
     }
-    if (message.chat.type === "private") {
+    if (message.chat.type === "private" && /^\/start(?:\s|$)/.test(message.text ?? "")) {
       return { type: "greet", chatId: message.chat.id };
     }
   }
