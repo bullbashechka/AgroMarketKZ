@@ -337,7 +337,7 @@ dd {
   text-align: left;
 }
 
-/* ---------- Каталог (задел под Этап 6) ---------- */
+/* ---------- Каталог ---------- */
 
 .grid-cards {
   display: grid;
@@ -352,30 +352,85 @@ dd {
   }
 }
 
-.category-chip {
+.category-filter-trigger {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  width: 100%;
+  min-height: 48px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-control);
   background: var(--color-surface);
-  padding: var(--space-5) var(--space-6);
+  margin: 0 0 var(--space-3);
+  padding: 10px var(--space-4);
   color: var(--color-text);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   text-align: left;
-  text-decoration: none;
   cursor: pointer;
 }
 
-.category-chip:hover {
+.category-filter-trigger:hover:not(:disabled) {
   border-color: var(--color-primary);
 }
 
-.category-chip-count {
+.category-filter-trigger:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.category-filter-icon,
+.category-filter-chevron {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--color-primary);
+}
+
+.category-filter-label {
+  flex: 1;
+  min-width: 0;
+  margin: 0 var(--space-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-sheet {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.category-sheet-options {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.category-sheet-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-alt);
+  padding: 14px var(--space-4);
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.category-sheet-option--selected {
+  border-color: var(--color-primary);
+  background: var(--green-50);
+  color: var(--color-primary-hover);
+}
+
+.category-sheet-count {
   flex-shrink: 0;
   border-radius: 999px;
-  background: var(--color-surface-alt);
+  background: var(--color-surface);
   padding: 2px 10px;
   color: var(--color-text-muted);
   font-size: 13px;
