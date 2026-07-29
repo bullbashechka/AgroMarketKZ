@@ -5,7 +5,8 @@ import {
   escapeHtml,
   formatFeedbackNotification,
   formatRequestNotification,
-  sendAdminNotification
+  sendAdminNotification,
+  sendTelegramPhoto
 } from "../src/lib/telegramBot";
 
 describe("escapeHtml", () => {
@@ -175,6 +176,39 @@ describe("sendAdminNotification (ретрай)", () => {
     }) as typeof fetch;
 
     await expect(sendAdminNotification(env, "-100", "test")).resolves.toBeUndefined();
+  });
+});
+
+describe("sendTelegramPhoto", () => {
+  const realFetch = globalThis.fetch;
+  const env = { TELEGRAM_BOT_TOKEN: "123:TEST" } as AppEnv;
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("отправляет фото с HTML-подписью и кнопкой", async () => {
+    let requestedUrl = "";
+    let body: Record<string, unknown> | null = null;
+    globalThis.fetch = (async (input, init) => {
+      requestedUrl = String(input);
+      body = JSON.parse(String(init?.body));
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    const replyMarkup = { inline_keyboard: [[{ text: "Открыть", url: "https://t.me/agromarket" }]] };
+    await expect(
+      sendTelegramPhoto(env, "777", "https://agromarket.example/welcome-banner.png", "<b>Добро пожаловать</b>", replyMarkup)
+    ).resolves.toBeTrue();
+
+    expect(requestedUrl).toBe("https://api.telegram.org/bot123:TEST/sendPhoto");
+    expect(body).toEqual({
+      chat_id: "777",
+      photo: "https://agromarket.example/welcome-banner.png",
+      caption: "<b>Добро пожаловать</b>",
+      parse_mode: "HTML",
+      reply_markup: replyMarkup
+    });
   });
 });
 

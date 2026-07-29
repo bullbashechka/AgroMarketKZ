@@ -1,10 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createApp } from "../src/app";
 import type { AppEnv } from "../src/env";
 import { classifyUpdate } from "../src/lib/telegramWebhook";
 
 const ADMIN_ID = 111;
 const admins = new Set([ADMIN_ID]);
+const realFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
 
 /** my_chat_member: бот появился/исчез в групповом чате. */
 function memberUpdate(opts: { fromId: number; oldStatus: string; newStatus: string; chatType?: string }) {
@@ -55,9 +60,14 @@ describe("classifyUpdate", () => {
     expect(action).toEqual({ type: "migrate_chat", fromChatId: -100500, toChatId: -1009999 });
   });
 
-  test("личное сообщение → greet", () => {
+  test("/start в личном чате → greet", () => {
     const action = classifyUpdate({ message: { chat: { id: 777, type: "private" }, text: "/start" } }, admins);
     expect(action).toEqual({ type: "greet", chatId: 777 });
+  });
+
+  test("обычное личное сообщение → ignore", () => {
+    const action = classifyUpdate({ message: { chat: { id: 777, type: "private" }, text: "привет" } }, admins);
+    expect(action).toEqual({ type: "ignore" });
   });
 
   test("групповое сообщение → ignore", () => {
@@ -83,7 +93,9 @@ describe("classifyUpdate", () => {
 describe("POST /telegram/webhook (секрет)", () => {
   const env: Partial<AppEnv> = {
     TELEGRAM_WEBHOOK_SECRET: "test-secret",
-    ADMIN_ALLOWLIST: String(ADMIN_ID)
+    TELEGRAM_BOT_TOKEN: "test-token",
+    ADMIN_ALLOWLIST: String(ADMIN_ID),
+    WEBAPP_ORIGIN: "https://agromarket.example"
   };
 
   function post(body: unknown, secret?: string) {
@@ -122,6 +134,27 @@ describe("POST /telegram/webhook (секрет)", () => {
     const res = await post({ unknown_field: 1 }, "test-secret");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+  });
+
+  test("/start отправляет приветственное фото с инструкцией", async () => {
+    let requestedUrl = "";
+    let body: Record<string, unknown> | null = null;
+    globalThis.fetch = (async (input, init) => {
+      requestedUrl = String(input);
+      body = JSON.parse(String(init?.body));
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    const res = await post({ message: { chat: { id: 777, type: "private" }, text: "/start" } }, "test-secret");
+
+    expect(res.status).toBe(200);
+    expect(requestedUrl).toBe("https://api.telegram.org/bottest-token/sendPhoto");
+    expect(body).toEqual({
+      chat_id: "777",
+      photo: "https://agromarket.example/welcome-banner.png",
+      caption: expect.stringContaining("Добро пожаловать в AgroMarketKZ"),
+      parse_mode: "HTML"
+    });
   });
 
   test("верный секрет и невалидный JSON → 200 ok (Telegram не ретраит)", async () => {

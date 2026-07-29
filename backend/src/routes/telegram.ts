@@ -3,11 +3,18 @@ import { getEnv, type AppEnv, type HonoEnv } from "../env";
 import { parseAllowlist } from "../lib/admin";
 import { HttpError } from "../lib/errors";
 import { timingSafeEqual } from "../lib/telegram";
-import { sendTelegramMessage, type InlineKeyboardMarkup } from "../lib/telegramBot";
+import { sendTelegramMessage, sendTelegramPhoto, type InlineKeyboardMarkup } from "../lib/telegramBot";
 import { classifyUpdate, type WebhookAction } from "../lib/telegramWebhook";
 import { getAdminChatId, updateSettings } from "../repos/settings";
 
 export const telegramRoutes = new Hono<HonoEnv>();
+
+const WELCOME_CAPTION = [
+  "<b>Добро пожаловать в AgroMarketKZ!</b>",
+  "Здесь вы найдёте сельхозтовары, технику и услуги.",
+  "",
+  "Нажмите кнопку ниже, чтобы открыть каталог, выбрать объявление и связаться с продавцом."
+].join("\n");
 
 /** Кнопка запуска Mini App для приветствия в личке (null — env не настроен). */
 function buildAppButton(env: AppEnv): InlineKeyboardMarkup | null {
@@ -22,6 +29,26 @@ function buildAppButton(env: AppEnv): InlineKeyboardMarkup | null {
       ]
     ]
   };
+}
+
+/** URL приветственного баннера в статических файлах webapp. */
+function buildWelcomeBannerUrl(env: AppEnv): string | null {
+  try {
+    const origin = new URL(env.WEBAPP_ORIGIN);
+    if (origin.protocol !== "https:") return null;
+    return new URL("/welcome-banner.png", origin).toString();
+  } catch {
+    return null;
+  }
+}
+
+async function sendWelcomeMessage(env: AppEnv, chatId: string): Promise<void> {
+  const button = buildAppButton(env) ?? undefined;
+  const bannerUrl = buildWelcomeBannerUrl(env);
+
+  if (bannerUrl && (await sendTelegramPhoto(env, chatId, bannerUrl, WELCOME_CAPTION, button))) return;
+
+  await sendTelegramMessage(env, chatId, WELCOME_CAPTION, button);
 }
 
 /** Выполняет действие по апдейту. Ошибки здесь ловит вызывающий код вебхука. */
@@ -52,12 +79,7 @@ async function applyWebhookAction(env: AppEnv, action: WebhookAction): Promise<v
       return;
     }
     case "greet": {
-      await sendTelegramMessage(
-        env,
-        String(action.chatId),
-        "Здравствуйте! Это бот площадки AgroMarketKZ — каталог сельскохозяйственных товаров и услуг.",
-        buildAppButton(env) ?? undefined
-      );
+      await sendWelcomeMessage(env, String(action.chatId));
       return;
     }
     case "ignore":
