@@ -4,6 +4,16 @@ compatibility_date = "2026-06-28"
 # postgres.js использует TCP-сокеты через Node-совместимость на Workers.
 compatibility_flags = ["nodejs_compat"]
 
+# API делает несколько последовательных SQL-запросов, а production Supabase расположен
+# в AWS Tokyo. Явное размещение убирает межрегиональный round-trip для каждого SQL.
+[placement]
+region = "aws:ap-northeast-1"
+
+# Сохраняем production-логи для расследований и post-deploy smoke-test.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 # "0 3 * * *" — ежедневная уборка orphaned-файлов card-images/cards/* (storageCleanup.ts).
 # "*/5 * * * *" — проверка здоровья БД/5xx через Analytics Engine (lib/alerts.ts); scheduled()
 # в worker.ts ветвится по event.cron.
@@ -73,13 +83,10 @@ namespace_id = "2026072602"
   limit = 10
   period = 60
 
-# TODO(Этап 13 №4): [[hyperdrive]] (binding = "HYPERDRIVE") и [[kv_namespaces]]
-# (binding = "AUTH_CACHE_KV") — код в src/db.ts и src/repos/users.ts уже умеет их
-# использовать и штатно деградирует в их отсутствие, но сами ресурсы ещё не созданы:
-# текущий CLOUDFLARE_API_TOKEN не имеет прав Workers KV Storage:Edit / Hyperdrive Configs:Edit.
-# После расширения токена:
-#   wrangler hyperdrive create agromarketkz-backend-prod \
-#     --connection-string="postgresql://postgres.qxyieyzfdcosmmckyocm:<PASSWORD>@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres" \
-#     --caching-disabled
-#   wrangler kv namespace create AUTH_CACHE_KV
-# и вписать возвращённые id сюда.
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "2a6a43b891504d61af053a17ca5aa598"
+
+[[kv_namespaces]]
+binding = "AUTH_CACHE_KV"
+id = "7c37c39ccbf748f196e4f182982b2aa4"
