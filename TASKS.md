@@ -367,27 +367,25 @@ JWT и предзарегистрированным профилем, `freshUser
 
 ## Этап 13. Ёмкость и производительность под 24k (день 2)
 
-- [ ] **(№4 — 8/10) Снять нагрузку с БД в горячем пути.** Код закоммичен (`801d5cc`), инфраструктура (Hyperdrive/KV-ресурсы, staging-деплой, нагрузочный тест) ждёт доступа к Cloudflare-токену с правами KV/Hyperdrive.
-  - [ ] Подключить Cloudflare Hyperdrive поверх Supavisor, перевести `DATABASE_URL` на биндинг. Код готов (`db.ts` падает на `DATABASE_URL`, если биндинга нет) — не создан сам Hyperdrive-конфиг, нужен токен с правом Hyperdrive Configs:Edit.
-  - [ ] `backend/src/middleware/auth.ts`: кешировать `{tokenVersion, isRegistered}` по `userId` в Workers KV с TTL 60 с. Код готов (`findAuthUserCached` в `repos/users.ts`) — не создан KV-неймспейс, нужен токен с правом Workers KV Storage:Edit.
-  - [ ] Инвалидировать ключ KV в `revokeUserSessions`, чтобы отзыв сессии не ждал TTL. Код готов (инвалидация добавлена и в `revokeUserSessions`, и в `register()` — иначе свежезарегистрированный до минуты видел бы себя незарегистрированным), эффекта не будет до создания KV-неймспейса выше.
-  - [ ] Прогнать `bun run load:test` на максимуме (2000 пользователей, concurrency 200) против прод-конфигурации, зафиксировать p50/p95/p99 и `poolSignals`. Staging Supabase-проект создан и засеян (`AgroMarketKZ-staging`), сам прогон не запущен — ждёт staging Worker-деплоя (тот же токен) и пароля от staging-БД.
-  - [ ] Настроить алерты: ошибки подключения к БД, доля 5xx, Logpush с `wrangler tail`. Реализовано иначе, чем в формулировке: `wrangler tail`/Logpush не годятся для Worker без своего домена (не видят HTTP-статусы) — вместо этого свой счётчик через Workers Analytics Engine + cron раз в 5 мин → тот же Telegram admin-чат. Код готов, сейчас no-op — нужен отдельный Cloudflare-токен (Account Analytics: Read) в секрет `CF_ANALYTICS_API_TOKEN`.
+- [x] **(№4 — 8/10) Снять нагрузку с БД в горячем пути.** Production-инфраструктура завершена 31.07.2026; staging-нагрузка и автоматические алерты исключены по решению владельца как принятые остаточные риски.
+  - [x] Подключить Cloudflare Hyperdrive поверх Supavisor session mode (`:5432`), caching disabled, origin connection limit 5. Production binding `HYPERDRIVE` активен.
+  - [x] Подключить Workers KV `AUTH_CACHE_KV` для `{tokenVersion, isRegistered}` с TTL 60 с.
+  - [x] Инвалидировать auth-cache в `revokeUserSessions` и `register()`; код был готов и начал работать после подключения binding.
+  - [x] Разместить backend Worker рядом с production-БД через explicit Placement `aws:ap-northeast-1`, чтобы последовательные SQL не ходили между регионами.
+  - [x] Задеплоить production version `d9e7145b-3b7a-45b8-86eb-4254a866e3b3`; synthetic smoke `auth → profile → categories → cards` вернул `200`, тестовая строка удалена.
+  - [x] По решению владельца не создавать staging и не запускать максимальный load-test против production. Вместо рискованной синтетической нагрузки принят production smoke-test; отсутствие p50/p95/p99 под 2000 пользователей зафиксировано как принятый остаточный риск.
+  - [x] Пока не активировать автоматические алерты по решению владельца. `REQUEST_METRICS`, cron, persisted Worker logs и код сохранены готовыми к будущему включению; `CF_ANALYTICS_API_TOKEN` не задан.
 
 - [x] **(№20 — 3/10) Индекс для поиска.** `create extension pg_trgm` + GIN-индекс по `cards(title gin_trgm_ops)`. Применено без частичного условия (в отличие от исходной формулировки) — админский поиск (`adminCatalog.ts`) ищет и по архивным/неопубликованным карточкам, частичный индекс их бы не ускорил. Собран и провалидирован в production напрямую (миграция `database/migrations/0010_cards_title_trgm_search.sql` — код менять не нужно, планировщик подхватил сам).
 
-### Осталось по №4 (упирается в доступ к Cloudflare/Supabase, не в код)
+### Выполнено по №4
 
-- [ ] Расширить `CLOUDFLARE_API_TOKEN` (или выпустить новый) правами `Workers KV Storage:Edit` + `Hyperdrive Configs:Edit` — dash.cloudflare.com/profile/api-tokens. Текущий токен в `backend/.dev.vars` видит только `Workers Scripts:Edit` + `Pages:Edit`.
-- [ ] Создать прод-Hyperdrive: `wrangler hyperdrive create agromarketkz-backend-prod --connection-string="postgresql://postgres.qxyieyzfdcosmmckyocm:<PASSWORD>@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres" --caching-disabled` → вписать `id` в `[[hyperdrive]]` в `backend/wrangler.toml`.
-- [ ] Создать прод-KV: `wrangler kv namespace create AUTH_CACHE_KV` → вписать `id` в `[[kv_namespaces]]` в `backend/wrangler.toml`.
-- [ ] Задеплоить прод с новыми биндингами, ручной smoke-test (логин, профиль, каталог) + `wrangler tail` на предмет новых ошибок.
-- [ ] Выпустить отдельный токен с правом только `Account Analytics:Read` → `wrangler secret put CF_ANALYTICS_API_TOKEN` — без него алерты остаются no-op.
-- [ ] Достать пароль БД нового staging-проекта (`AgroMarketKZ-staging`, ref `iialwefekmefiwamgebu`) — Supabase Dashboard → Project Settings → Database.
-- [ ] Подтвердить, какой из токенов в `.env`/`backend/.dev.vars` — dev-бот (они разные), для секрета `TELEGRAM_BOT_TOKEN` на staging.
-- [ ] Добавить `[env.staging]` в `backend/wrangler.toml` (свои Hyperdrive/KV/rate-limiters на staging-проект), выставить секреты, `wrangler deploy --env staging`.
-- [ ] Прогнать `bun run load:test` на staging (2000 пользователей, concurrency 200, `LOAD_TEST_ENABLE_MUTATIONS=1`), зафиксировать p50/p95/p99 и `poolSignals` из JSON-отчёта.
-- [ ] Снести staging-ресурсы после теста (`wrangler delete --env staging`, KV/Hyperdrive, при желании — сам Supabase-проект).
+- [x] Авторизовать Wrangler через OAuth с правами Workers KV/Hyperdrive, не расширяя старые deploy-токены.
+- [x] Создать production Hyperdrive `agromarketkz-backend-prod` и binding `HYPERDRIVE`.
+- [x] Создать production KV `agromarketkz-auth-cache-prod` и binding `AUTH_CACHE_KV`.
+- [x] Задеплоить production с Hyperdrive/KV/Placement и выполнить ручной smoke-test.
+- [x] Не создавать staging и не проводить максимальный load-test по решению владельца; production не нагружать синтетическими пользователями.
+- [x] Не выпускать пока `CF_ANALYTICS_API_TOKEN` по решению владельца; автоматические алерты остаются no-op, persisted Worker logs доступны для ручной диагностики.
 
 ---
 

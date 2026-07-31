@@ -6,6 +6,8 @@
 - **Webapp (Cloudflare Pages):** `https://agromarketkz-webapp.pages.dev`
 - **Telegram-вебхук** переключён на прод-backend.
 - Прод-секреты (`JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_ALLOWLIST`, `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) заданы через `wrangler secret put`.
+- Backend использует Hyperdrive `agromarketkz-backend-prod` (Supavisor session mode `:5432`, SQL cache disabled, origin limit 5), KV `agromarketkz-auth-cache-prod` и explicit Placement `aws:ap-northeast-1` рядом с production Supabase.
+- Persisted Worker logs включены. По решению владельца автоматические алерты Analytics Engine пока не активируются: secret `CF_ANALYTICS_API_TOKEN` не создаётся, ручная диагностика остаётся доступна через сохранённые Worker logs.
 - **GitHub Actions не используется** — CI/CD полностью на стороне Cloudflare. `.github/workflows/ci.yml` удалён.
 - **Webapp (Cloudflare Pages) деплоится автоматически**: проект `agromarketkz-webapp` привязан к репозиторию через Git-интеграцию Cloudflare Pages (не GitHub Actions) — любой пуш в любую ветку собирает preview-деплой, пуш в `main` собирает production. `VITE_API_URL`, `SUPABASE_URL`, `CSP_ENFORCE` заданы в `deployment_configs` проекта (Cloudflare dashboard → Pages → agromarketkz-webapp → Settings → Environment variables), а не через env репозитория.
 - **Backend (Cloudflare Workers) деплоится только вручную** — Git-интеграции у Workers-проекта нет, см. «Деплой backend» ниже.
@@ -39,6 +41,20 @@ bun run build                     # прод-сборка (нужны VITE_API_U
   переиспользовал backend с другим окружением; global setup дополнительно проверит `isAdmin`.
 - `bun run load:test` также не запускать против корневого `.env`: auth journey создаёт
   пользователей, а mutation mode — заявки и обратную связь.
+
+## Производительность backend
+
+31.07.2026 задеплоена production version `d9e7145b-3b7a-45b8-86eb-4254a866e3b3` с
+Hyperdrive, auth-cache KV и Tokyo Placement. Synthetic smoke `auth → profile → categories → cards`
+вернул `200` на всех маршрутах; созданная smoke-запись удалена и повторно проверена как
+отсутствующая. Наблюдавшиеся warm timings из Алматы после выкладки: профиль `474–501 мс`,
+категории `393–530 мс`, карточки `403–463 мс`.
+
+По решению владельца отдельный staging не создаётся, а максимальный load-test на 2000
+синтетических пользователей не проводится. Запускать его против production запрещено: auth
+journey создаёт пользователей, а mutation mode — заявки и обратную связь. Нагрузочная ёмкость
+до 24k поэтому не подтверждена p50/p95/p99-тестом и остаётся принятым остаточным риском;
+production smoke-test подтверждает только работоспособность оптимизированного горячего пути.
 
 Если всё применимое зелёное — деплой.
 
