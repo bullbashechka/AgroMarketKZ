@@ -2,6 +2,7 @@ import {
   adminCardListQuery,
   adminCardListResponse,
   adminCardDetailSchema,
+  cardVersionInput,
   createCardInput,
   updateCardInput
 } from "@agromarket/contracts";
@@ -71,7 +72,8 @@ adminCardsRoutes.put("/:id", async (c) => {
 adminCardsRoutes.delete("/:id", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
-  const removedPaths = await deleteCard(env, id);
+  const { expectedVersion } = cardVersionInput.parse(await c.req.json());
+  const removedPaths = await deleteCard(env, id, expectedVersion);
   if (removedPaths.length > 0) {
     runInBackground(c, deleteStorageObjects(env, removedPaths));
   }
@@ -81,14 +83,16 @@ adminCardsRoutes.delete("/:id", async (c) => {
 adminCardsRoutes.post("/:id/archive", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
-  const card = await archiveCard(env, id);
+  const { expectedVersion } = cardVersionInput.parse(await c.req.json());
+  const card = await archiveCard(env, id, expectedVersion);
   return c.json(adminCardDetailSchema.parse(card));
 });
 
 adminCardsRoutes.post("/:id/publish", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
-  const card = await publishCard(env, id);
+  const { expectedVersion } = cardVersionInput.parse(await c.req.json());
+  const card = await publishCard(env, id, expectedVersion);
   return c.json(adminCardDetailSchema.parse(card));
 });
 
@@ -96,6 +100,7 @@ adminCardsRoutes.post("/:id/publish", async (c) => {
 adminCardsRoutes.post("/:id/unarchive", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
-  const card = await publishCard(env, id);
+  const { expectedVersion } = cardVersionInput.parse(await c.req.json());
+  const card = await publishCard(env, id, expectedVersion);
   return c.json(adminCardDetailSchema.parse(card));
 });

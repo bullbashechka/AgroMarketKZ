@@ -9,6 +9,7 @@ export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
 export * from "./constants";
 export * from "./enums";
+export * from "./territory";
 export * from "./phone";
 export * from "./primitives";
 export * from "./pagination";

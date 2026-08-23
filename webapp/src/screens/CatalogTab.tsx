@@ -3,10 +3,12 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { CardsList } from "../components/CardsList";
 import { CategoryFilter } from "../components/CategoryFilter";
+import { ListingSubmissionSheet } from "../components/ListingSubmissionSheet";
 import { PriceFilter } from "../components/PriceFilter";
-import { RequestSheet } from "../components/RequestSheet";
+import { RegionFilter } from "../components/RegionFilter";
 import { SearchBar } from "../components/SearchBar";
 import { buildSearchQuery, type CatalogSearch } from "../lib/searchParams";
+import { useCatalogRegion } from "../lib/catalogRegion";
 import { tabRootPath, type TabSection } from "../lib/tabHistory";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 
@@ -23,6 +25,8 @@ export function CatalogTab({ type, section, title }: CatalogTabProps) {
   const [inputValue, setInputValue] = useState(search.q ?? "");
   const debouncedQuery = useDebouncedValue(inputValue, 500);
   const [requestOpen, setRequestOpen] = useState(false);
+  const { region, setRegion } = useCatalogRegion();
+  const ctaLabel = type === "product" ? "Продать объём" : "Опубликовать услугу";
 
   const activeQuery = search.q ?? "";
 
@@ -47,12 +51,14 @@ export function CatalogTab({ type, section, title }: CatalogTabProps) {
       </div>
 
       <SearchBar value={inputValue} onChange={setInputValue} placeholder={`Поиск по названию`} />
+      <RegionFilter value={region} onChange={setRegion} />
       <CategoryFilter type={type} section={section} search={search} />
       <PriceFilter value={search.price} onChange={handlePriceChange} />
       <CardsList
         type={type}
         search={activeQuery || undefined}
         price={search.price}
+        region={region}
         emptyState={
           activeQuery ? (
             <div className="empty-state">
@@ -61,14 +67,14 @@ export function CatalogTab({ type, section, title }: CatalogTabProps) {
                 Сбросить поиск
               </button>
               <button type="button" className="button button-primary" onClick={() => setRequestOpen(true)}>
-                Оставить заявку
+                {ctaLabel}
               </button>
             </div>
           ) : (
             <div className="empty-state">
               <p>Объявлений в этой вкладке пока нет.</p>
               <button type="button" className="button button-primary" onClick={() => setRequestOpen(true)}>
-                Оставить заявку
+                {ctaLabel}
               </button>
             </div>
           )
@@ -81,13 +87,13 @@ export function CatalogTab({ type, section, title }: CatalogTabProps) {
         data-testid="tab-request-cta"
         onClick={() => setRequestOpen(true)}
       >
-        Оставить заявку
+        {ctaLabel}
       </button>
 
-      <RequestSheet
+      <ListingSubmissionSheet
         open={requestOpen}
         onClose={() => setRequestOpen(false)}
-        source={{ source: "tab", tabType: type }}
+        type={type}
       />
     </div>
   );

@@ -31,7 +31,7 @@ bun run build                     # прод-сборка (нужны VITE_API_U
 
 Перед каждым релизом дополнительно:
 
-- Supabase Security и Performance Advisors — ноль `ERROR`/`WARN`; девять
+- Supabase Security и Performance Advisors — ноль `ERROR`/`WARN`; двенадцать
   `INFO rls_enabled_no_policy` для закрытых backend-only таблиц ожидаемы.
 - Проверить production `ADMIN_ALLOWLIST`: владелец `1295392762` и оператор видят раздел
   «Управление», посторонний аккаунт получает `403`; в `wrangler tail` нет предупреждений
@@ -112,7 +112,8 @@ join pg_namespace n on n.oid = c.relnamespace
 where n.nspname = 'public'
   and c.relname in (
     'users', 'categories', 'cards', 'card_images', 'card_specs',
-    'favorites', 'requests', 'feedback_messages', 'platform_settings'
+    'favorites', 'requests', 'feedback_messages', 'platform_settings',
+    'territories', 'card_service_territories', 'request_service_territories'
   )
 order by c.relname;
 
@@ -128,14 +129,38 @@ where d.defaclnamespace = 'public'::regnamespace
   and e.grantee in ('anon'::regrole, 'authenticated'::regrole);
 ```
 
-Ожидается `relrowsecurity = true` у всех девяти таблиц, ноль table grants и ноль строк
+Ожидается `relrowsecurity = true` у всех двенадцати таблиц, ноль table grants и ноль строк
 default ACL для `anon` / `authenticated`. Hosted Supabase может запретить роли `postgres`
 менять defaults владельца `supabase_admin`; тогда миграция выдаёт `WARNING`, а в Dashboard →
 Project Settings → Data API нужно отключить автоматическую публикацию новых таблиц и повторить
-последний запрос. Затем повторно запустить Security Advisor: девять INFO допустимы, новых
+последний запрос. Затем повторно запустить Security Advisor: двенадцать INFO допустимы, новых
 `ERROR`/`WARN` быть не должно. Внешняя проверка с anon-ключом должна вернуть
 `permission denied for table users`, после чего проверить каталог, загрузку/показ фото и один
 админский endpoint. Схему `storage` миграция намеренно не меняет.
+
+После `0011_territories_and_listing_data.sql` отдельно проверить, что опубликованных карточек
+без структурированной географии не осталось:
+
+```sql
+select c.id, c.type, c.title, c.location
+from cards c
+where c.published_at is not null
+  and c.archived_at is null
+  and (
+    (c.type = 'product' and c.territory_code is null)
+    or (
+      c.type = 'service'
+      and not c.service_all_kazakhstan
+      and not exists (
+        select 1 from card_service_territories cst where cst.card_id = c.id
+      )
+    )
+  )
+order by c.type, c.title;
+```
+
+Ненулевой результат требует ручного backfill и повторной проверки до публикации новых
+территориальных фильтров.
 
 ## Регламент апгрейда Supabase
 

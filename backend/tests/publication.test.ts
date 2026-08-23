@@ -22,6 +22,31 @@ describe("getPublicationIssues", () => {
     expect(getPublicationIssues(complete)).toEqual([]);
   });
 
+  test("требует точные данные товара и географию услуги", () => {
+    expect(getPublicationIssues({
+      ...complete,
+      type: "product",
+      territoryCode: null,
+      ownershipForm: null,
+      productLocation: null,
+      serviceAllKazakhstan: false,
+      serviceTerritoryCount: 0
+    })).toEqual(expect.arrayContaining([
+      "Выберите регион",
+      "Выберите форму собственности",
+      "Выберите местонахождение"
+    ]));
+    expect(getPublicationIssues({
+      ...complete,
+      type: "service",
+      territoryCode: null,
+      ownershipForm: null,
+      productLocation: null,
+      serviceAllKazakhstan: false,
+      serviceTerritoryCount: 0
+    })).toContain("Выберите хотя бы один регион или весь Казахстан");
+  });
+
   test("возвращает все причины, мешающие публикации", () => {
     const issues = getPublicationIssues({
       ...complete,

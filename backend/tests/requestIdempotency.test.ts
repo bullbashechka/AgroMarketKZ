@@ -28,6 +28,25 @@ describe("requestPayloadHash", () => {
       await requestPayloadHash({ ...base, comment: "Позвонить утром" }),
     );
   });
+
+  test("считает одинаковым набор регионов услуги в разном порядке", async () => {
+    const first: CreateRequestInput = {
+      ...base,
+      source: "tab",
+      tabType: "service",
+      listingSubmission: {
+        type: "service",
+        categoryId: "11111111-1111-4111-8111-111111111112",
+        allKazakhstan: false,
+        territoryCodes: ["almaty_region", "astana_city"]
+      }
+    };
+    const second: CreateRequestInput = {
+      ...first,
+      listingSubmission: { ...first.listingSubmission, territoryCodes: ["astana_city", "almaty_region"] }
+    };
+    expect(await requestPayloadHash(first)).toBe(await requestPayloadHash(second));
+  });
 });
 
 test("rate limit сохраняет точный retryAfterSeconds в машинном поле", () => {

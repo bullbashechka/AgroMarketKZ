@@ -23,7 +23,7 @@ adminRequestsRoutes.get("/:id", async (c) => {
     throw new HttpError(404, "Заявка не найдена");
   }
   const row = await getRequestById(env, id.data);
-  return c.json(requestSchema.parse(toRequest(row)));
+  return c.json(requestSchema.parse(await toRequest(env, row)));
 });
 
 /** Смена статуса заявки. Переходы свободные. */
@@ -35,5 +35,5 @@ adminRequestsRoutes.patch("/:id/status", async (c) => {
   }
   const { status } = updateRequestStatusInput.parse(await c.req.json());
   const row = await updateRequestStatus(env, id.data, status);
-  return c.json(requestSchema.parse(toRequest(row)));
+  return c.json(requestSchema.parse(await toRequest(env, row)));
 });

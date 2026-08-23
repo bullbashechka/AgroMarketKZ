@@ -3,14 +3,15 @@ import {
   cardListQuery,
   cardListResponse,
   categoryListItemResponse,
-  categoryListQuery
+  categoryListQuery,
+  territoryListResponse
 } from "@agromarket/contracts";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { requireAuth } from "../middleware/auth";
-import { getCardById, listCards, listCategories } from "../repos/catalog";
+import { getCardById, listCards, listCategories, listTerritories } from "../repos/catalog";
 
 export const catalogRoutes = new Hono<HonoEnv>();
 
@@ -20,9 +21,15 @@ catalogRoutes.use("*", requireAuth);
 /** Категории вкладки с числом карточек; пустые категории скрыты от пользователей. */
 catalogRoutes.get("/categories", async (c) => {
   const env = getEnv(c);
-  const { type } = categoryListQuery.parse(c.req.query());
-  const categories = await listCategories(env, type);
+  const { type, includeEmpty } = categoryListQuery.parse(c.req.query());
+  const categories = await listCategories(env, type, includeEmpty);
   return c.json(categoryListItemResponse.parse(categories));
+});
+
+/** Точные территории для пользовательского фильтра и форм. */
+catalogRoutes.get("/territories", async (c) => {
+  const env = getEnv(c);
+  return c.json(territoryListResponse.parse(await listTerritories(env)));
 });
 
 /** Карточки вкладки с фильтрами и постраничной выдачей (load-more). Архив не попадает. */
@@ -33,7 +40,7 @@ catalogRoutes.get("/cards", async (c) => {
   return c.json(cardListResponse.parse(result));
 });
 
-/** Карточка по id, включая архивные — фронт покажет заглушку «снято с публикации». */
+/** Публичная карточка по id; архивные и черновики отвечают 404. */
 catalogRoutes.get("/cards/:id", async (c) => {
   const env = getEnv(c);
   const id = z.uuid().safeParse(c.req.param("id"));

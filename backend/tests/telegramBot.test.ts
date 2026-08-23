@@ -27,6 +27,7 @@ describe("formatRequestNotification", () => {
       contactPhone: "+77011234567",
       contactPhoneVerified: false,
       comment: "Нужно 5 тонн",
+      listingSubmission: null,
       telegramUsername: "aibek"
     });
     expect(html).toContain("Источник: Из карточки");
@@ -47,6 +48,7 @@ describe("formatRequestNotification", () => {
       contactPhone: "+77011234567",
       contactPhoneVerified: false,
       comment: null,
+      listingSubmission: null,
       telegramUsername: null
     });
     expect(html).toContain("Цена: Цена по запросу");
@@ -65,9 +67,45 @@ describe("formatRequestNotification", () => {
       contactPhone: "+77011234567",
       contactPhoneVerified: false,
       comment: null,
+      listingSubmission: null,
       telegramUsername: null
     });
     expect(html).toContain("Вкладка: Услуги");
+  });
+
+  test("предложение товара содержит все структурированные параметры", () => {
+    const html = formatRequestNotification({
+      source: "tab",
+      tabType: "product",
+      cardTitleSnapshot: null,
+      cardPriceTypeSnapshot: null,
+      cardPriceAmountSnapshot: null,
+      cardPriceUnitSnapshot: null,
+      cardPriceReasonSnapshot: null,
+      contactName: "Айбек",
+      contactPhone: "+77011234567",
+      contactPhoneVerified: false,
+      comment: null,
+      listingSubmission: {
+        type: "product",
+        categoryId: "11111111-1111-4111-8111-111111111111",
+        categoryName: "Зерно",
+        territory: {
+          code: "kostanay_region",
+          name: "Костанайская область",
+          kind: "region",
+          sortOrder: 110
+        },
+        ownershipForm: "llp_trader",
+        productLocation: "seller_site",
+        productLocationDetail: "Склад <№1>"
+      },
+      telegramUsername: null
+    });
+    expect(html).toContain("Категория: Зерно");
+    expect(html).toContain("Регион: Костанайская область");
+    expect(html).toContain("Форма собственности: ТОО Трейдер");
+    expect(html).toContain("Местонахождение: С места — Склад &lt;№1&gt;");
   });
 
   test("заявка из профиля не содержит карточку/вкладку", () => {
@@ -81,6 +119,7 @@ describe("formatRequestNotification", () => {
       contactPhone: "+77011234567",
       contactPhoneVerified: false,
       comment: null,
+      listingSubmission: null,
       telegramUsername: null
     });
     expect(html).not.toContain("Карточка:");
@@ -100,6 +139,7 @@ describe("отметка подтверждённого телефона", () =>
       contactPhone: "+77011234567",
       contactPhoneVerified: true,
       comment: null,
+      listingSubmission: null,
       telegramUsername: null
     });
     expect(html).toContain("Телефон: +77011234567 ✓ подтверждён через Telegram");

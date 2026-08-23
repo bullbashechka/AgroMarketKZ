@@ -6,3 +6,11 @@
 export function escapeLike(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
+
+/** Каноническое написание категории и поисковых запросов. */
+export function normalizeCatalogText(value: string): string {
+  return value.replace(/маслянич/giu, (match) => {
+    if (match === match.toLocaleUpperCase("ru")) return "МАСЛИЧ";
+    return match[0] === match[0]?.toLocaleUpperCase("ru") ? "Маслич" : "маслич";
+  });
+}

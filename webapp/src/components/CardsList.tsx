@@ -1,4 +1,4 @@
-import type { CatalogType, PriceFilter } from "@agromarket/contracts";
+import type { CatalogRegionFilter, CatalogType, PriceFilter } from "@agromarket/contracts";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useRef, type ReactNode } from "react";
 import { cardsInfiniteQueryOptions } from "../lib/queries";
@@ -11,14 +11,15 @@ interface CardsListProps {
   categoryId?: string;
   search?: string;
   price?: PriceFilter;
+  region: CatalogRegionFilter;
   /** Показывается вместо сетки, когда выдача пуста (текст различается для каталога/поиска). */
   emptyState: ReactNode;
 }
 
 /** Постраничный список карточек: автоподгрузка по скроллу + кнопка-фолбэк «Показать ещё». */
-export function CardsList({ type, categoryId, search, price, emptyState }: CardsListProps) {
+export function CardsList({ type, categoryId, search, price, region, emptyState }: CardsListProps) {
   const { data, isPending, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage, isPlaceholderData } =
-    useInfiniteQuery(cardsInfiniteQueryOptions({ type, categoryId, search, price }));
+    useInfiniteQuery(cardsInfiniteQueryOptions({ type, categoryId, search, price, region }));
 
   const sentinelRef = useRef<HTMLDivElement>(null);
 

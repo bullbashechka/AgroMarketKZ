@@ -86,6 +86,10 @@ export function CardScreen({ section }: { section: TabSection }) {
   }
 
   const card = cardQuery.data;
+  const hasStructuredLocation = card.type === "product"
+    ? card.territory !== null
+    : card.serviceAllKazakhstan || card.serviceTerritories.length > 0;
+  const shortSpec = [hasStructuredLocation ? null : card.location, card.availability].filter(Boolean).join(" · ") || null;
   return (
     <Screen back fallbackTo={tabRootPath(section)}>
       <div className="card-detail-scroll">
@@ -107,7 +111,12 @@ export function CardScreen({ section }: { section: TabSection }) {
             priceAmount: card.priceAmount,
             priceUnit: card.priceUnit,
             imageUrl: card.images[0]?.url ?? null,
-            shortSpec: card.location && card.availability ? `${card.location} · ${card.availability}` : null,
+            shortSpec,
+            territory: card.territory,
+            ownershipForm: card.ownershipForm,
+            productLocation: card.productLocation,
+            serviceAllKazakhstan: card.serviceAllKazakhstan,
+            serviceTerritories: card.serviceTerritories,
           }} />
         </div>
       </div>

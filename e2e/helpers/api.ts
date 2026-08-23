@@ -22,7 +22,7 @@ export const api = {
   post: <T>(path: string, token: string, body?: unknown) => request<T>("POST", path, token, body),
   put: <T>(path: string, token: string, body?: unknown) => request<T>("PUT", path, token, body),
   patch: <T>(path: string, token: string, body?: unknown) => request<T>("PATCH", path, token, body),
-  delete: <T>(path: string, token: string) => request<T>("DELETE", path, token)
+  delete: <T>(path: string, token: string, body?: unknown) => request<T>("DELETE", path, token, body)
 };
 
 export const E2E_PREFIX = "[e2e]";
@@ -74,7 +74,9 @@ export async function createTestCard(
 }
 
 export async function deleteTestCard(token: string, id: string) {
-  await api.delete(`/admin/cards/${id}`, token).catch(() => {});
+  const card = await api.get<{ version: number }>(`/admin/cards/${id}`, token).catch(() => undefined);
+  if (!card) return;
+  await api.delete(`/admin/cards/${id}`, token, { expectedVersion: card.version }).catch(() => {});
 }
 
 export async function sweepE2eLeftovers(adminToken: string) {

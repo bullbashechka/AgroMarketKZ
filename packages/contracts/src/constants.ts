@@ -11,6 +11,7 @@ export const SPEC_VALUE_MAX = 300;
 export const PRICE_UNIT_MAX = 80;
 export const PRICE_REASON_MAX = 500;
 export const LOCATION_MAX = 160;
+export const PRODUCT_LOCATION_DETAIL_MAX = 200;
 export const AVAILABILITY_MAX = 160;
 export const REQUEST_COMMENT_MAX = 1000;
 export const FEEDBACK_MESSAGE_MAX = 2000;

@@ -1,4 +1,4 @@
-import type { CatalogType, PriceType } from "@agromarket/contracts";
+import type { CatalogType, PriceType, ProductLocation, ProductOwnershipForm, TerritoryCode } from "@agromarket/contracts";
 import type { DraftImage } from "./useImageUploads";
 
 const DRAFT_KEY = "agromarket.cardDraft";
@@ -18,7 +18,12 @@ export interface CardDraft {
   priceAmount: string;
   priceUnit: string;
   priceReason: string;
-  location: string;
+  territoryCode?: TerritoryCode;
+  ownershipForm?: ProductOwnershipForm;
+  productLocation?: ProductLocation;
+  productLocationDetail?: string;
+  serviceAllKazakhstan?: boolean;
+  serviceTerritoryCodes?: TerritoryCode[];
   availability: string;
   specs: CardDraftSpec[];
   images: DraftImage[];

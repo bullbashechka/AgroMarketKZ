@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { REQUEST_COMMENT_MAX } from "./constants";
+import { PRODUCT_LOCATION_DETAIL_MAX, REQUEST_COMMENT_MAX } from "./constants";
 import {
   catalogTypeSchema,
   priceTypeSchema,
@@ -9,6 +9,70 @@ import {
 import { paginated, paginationQuerySchema } from "./pagination";
 import { contactNameSchema, optionalText } from "./primitives";
 import { phoneSchema } from "./phone";
+import {
+  productLocationSchema,
+  productOwnershipFormSchema,
+  territoryCodeSchema,
+  territorySchema
+} from "./territory";
+
+const territoryCodesSchema = z.array(territoryCodeSchema).max(20).refine(
+  (codes) => new Set(codes).size === codes.length,
+  "Регионы не должны повторяться"
+);
+
+export const listingSubmissionInputSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("product"),
+    categoryId: z.uuid({ error: "Выберите категорию" }),
+    territoryCode: territoryCodeSchema,
+    ownershipForm: productOwnershipFormSchema,
+    productLocation: productLocationSchema,
+    productLocationDetail: z.string()
+      .trim()
+      .max(PRODUCT_LOCATION_DETAIL_MAX)
+      .optional()
+      .transform((value) => value || undefined)
+  }),
+  z.object({
+    type: z.literal("service"),
+    categoryId: z.uuid({ error: "Выберите категорию" }),
+    allKazakhstan: z.boolean(),
+    territoryCodes: territoryCodesSchema
+  })
+]).superRefine((input, ctx) => {
+  if (input.type === "service") {
+    if (input.allKazakhstan && input.territoryCodes.length > 0) {
+      ctx.addIssue({ code: "custom", path: ["territoryCodes"], message: "Выберите регионы или весь Казахстан" });
+    }
+    if (!input.allKazakhstan && input.territoryCodes.length === 0) {
+      ctx.addIssue({ code: "custom", path: ["territoryCodes"], message: "Выберите хотя бы один регион" });
+    }
+  }
+});
+
+export type ListingSubmissionInput = z.infer<typeof listingSubmissionInputSchema>;
+
+export const listingSubmissionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("product"),
+    categoryId: z.uuid().nullable(),
+    categoryName: z.string(),
+    territory: territorySchema,
+    ownershipForm: productOwnershipFormSchema,
+    productLocation: productLocationSchema,
+    productLocationDetail: z.string().nullable()
+  }),
+  z.object({
+    type: z.literal("service"),
+    categoryId: z.uuid().nullable(),
+    categoryName: z.string(),
+    allKazakhstan: z.boolean(),
+    territories: z.array(territorySchema)
+  })
+]);
+
+export type ListingSubmission = z.infer<typeof listingSubmissionSchema>;
 
 /** Заявка (ответ API). Snapshot-поля хранят данные карточки на момент создания заявки. */
 export const requestSchema = z.object({
@@ -27,6 +91,7 @@ export const requestSchema = z.object({
   contactPhone: z.string(),
   contactPhoneVerified: z.boolean(),
   comment: z.string().nullable(),
+  listingSubmission: listingSubmissionSchema.nullable(),
   status: requestStatusSchema,
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
@@ -44,13 +109,7 @@ const contactFields = {
   comment: optionalText(REQUEST_COMMENT_MAX)
 };
 
-/**
- * Создание заявки. Форма зависит от источника (snapshot карточки заполняет backend):
- * - `card` → нужен `cardId`;
- * - `tab` → нужен `tabType` (с какой вкладки);
- * - `profile` → только контакты.
- */
-export const createRequestInput = z.discriminatedUnion("source", [
+const createRequestInputBase = z.discriminatedUnion("source", [
   z.object({
     source: z.literal("card"),
     cardId: z.uuid({ error: "Не указана карточка" }),
@@ -59,6 +118,7 @@ export const createRequestInput = z.discriminatedUnion("source", [
   z.object({
     source: z.literal("tab"),
     tabType: catalogTypeSchema,
+    listingSubmission: listingSubmissionInputSchema.optional(),
     ...contactFields
   }),
   z.object({
@@ -66,6 +126,13 @@ export const createRequestInput = z.discriminatedUnion("source", [
     ...contactFields
   })
 ]);
+
+/** Создание обычной либо структурированной tab-заявки. */
+export const createRequestInput = createRequestInputBase.superRefine((input, ctx) => {
+  if (input.source === "tab" && input.listingSubmission?.type !== undefined && input.listingSubmission.type !== input.tabType) {
+    ctx.addIssue({ code: "custom", path: ["listingSubmission", "type"], message: "Тип заявки не совпадает с вкладкой" });
+  }
+});
 
 export type CreateRequestInput = z.infer<typeof createRequestInput>;
 

@@ -27,11 +27,12 @@ requestsRoutes.post("/", async (c) => {
     if (replay.request_payload_hash !== payloadHash) {
       throw new HttpError(409, "Эта попытка отправки уже использована для другой заявки");
     }
-    return c.json(requestSchema.parse(toRequest(replay)), 200);
+    return c.json(requestSchema.parse(await toRequest(env, replay)), 200);
   }
 
   const verifiedPhone = await tryValidateContactPhoneForUser(input.contactResponse, telegramId, env);
   const { row, created } = await createRequest(env, userId, input, payloadHash, verifiedPhone);
+  const request = await toRequest(env, row);
 
   const chatId = created ? await getAdminChatId(env) : null;
   if (chatId) {
@@ -48,6 +49,7 @@ requestsRoutes.post("/", async (c) => {
       contactPhone: row.contact_phone,
       contactPhoneVerified: row.contact_phone_verified,
       comment: row.comment,
+      listingSubmission: request.listingSubmission,
       telegramUsername: user?.telegram_username ?? null
     });
     const deepLink = buildRequestDeepLink(env, row.id);
@@ -57,5 +59,5 @@ requestsRoutes.post("/", async (c) => {
     runInBackground(c, sendAdminNotification(env, chatId, html, replyMarkup));
   }
 
-  return c.json(requestSchema.parse(toRequest(row)), created ? 201 : 200);
+  return c.json(requestSchema.parse(request), created ? 201 : 200);
 });

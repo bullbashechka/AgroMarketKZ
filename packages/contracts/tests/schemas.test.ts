@@ -5,6 +5,7 @@ import { contactNameSchema } from "../src/primitives";
 import { createUploadUrlInput } from "../src/upload";
 import { adminCardListQuery } from "../src/admin";
 import { adminPlatformSettingsSchema } from "../src/settings";
+import { categoryListQuery } from "../src/catalog";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 const oneImage = [{ storagePath: "cards/a.jpg" }];
@@ -16,6 +17,9 @@ const baseCard = {
   description: "Пшеница третьего класса",
   priceUnit: "за тонну",
   location: "Костанайская область",
+  territoryCode: "kostanay_region" as const,
+  ownershipForm: "peasant_farm" as const,
+  productLocation: "elevator" as const,
   availability: "В наличии",
   images: oneImage,
 };
@@ -88,6 +92,48 @@ describe("createCardInput — фото и характеристики", () => {
   });
 });
 
+describe("publishCardInput — география по типу", () => {
+  const baseService = {
+    type: "service" as const,
+    categoryId: UUID,
+    title: "Перевозка зерна",
+    description: "Перевозка по регионам Казахстана",
+    priceType: "on_request" as const,
+    priceAmount: null,
+    priceUnit: "за рейс",
+    priceReason: "Зависит от маршрута",
+    availability: "По согласованию",
+    images: oneImage,
+  };
+
+  test("услуга принимает весь Казахстан или непустой список регионов", () => {
+    expect(publishCardInput.safeParse({
+      ...baseService,
+      serviceAllKazakhstan: true,
+      serviceTerritoryCodes: [],
+    }).success).toBe(true);
+    expect(publishCardInput.safeParse({
+      ...baseService,
+      serviceAllKazakhstan: false,
+      serviceTerritoryCodes: ["akmola_region"],
+    }).success).toBe(true);
+    expect(publishCardInput.safeParse({
+      ...baseService,
+      serviceAllKazakhstan: false,
+      serviceTerritoryCodes: [],
+    }).success).toBe(false);
+  });
+
+  test("товар не принимает географию услуги", () => {
+    expect(publishCardInput.safeParse({
+      ...baseCard,
+      priceType: "fixed",
+      priceAmount: 120000,
+      serviceTerritoryCodes: ["akmola_region"],
+    }).success).toBe(false);
+  });
+});
+
 describe("createRequestInput — источник", () => {
   const contacts = {
     clientRequestId: UUID,
@@ -109,6 +155,26 @@ describe("createRequestInput — источник", () => {
   test("tab требует tabType", () => {
     expect(createRequestInput.safeParse({ source: "tab", tabType: "service", ...contacts }).success).toBe(true);
     expect(createRequestInput.safeParse({ source: "tab", ...contacts }).success).toBe(false);
+  });
+
+  test("пробельное уточнение места товара нормализуется в отсутствие значения", () => {
+    const parsed = createRequestInput.parse({
+      source: "tab",
+      tabType: "product",
+      listingSubmission: {
+        type: "product",
+        categoryId: UUID,
+        territoryCode: "kostanay_region",
+        ownershipForm: "peasant_farm",
+        productLocation: "elevator",
+        productLocationDetail: "   ",
+      },
+      ...contacts,
+    });
+    expect(parsed.source === "tab" && parsed.listingSubmission?.type === "product").toBe(true);
+    if (parsed.source === "tab" && parsed.listingSubmission?.type === "product") {
+      expect(parsed.listingSubmission.productLocationDetail).toBeUndefined();
+    }
   });
 
   test("profile — только контакты", () => {
@@ -161,5 +227,13 @@ describe("adminPlatformSettingsSchema", () => {
       adminChatId: null
     });
     expect(r.success).toBe(true);
+  });
+});
+
+describe("categoryListQuery", () => {
+  test("пустые категории включаются только по явному флагу", () => {
+    expect(categoryListQuery.parse({ type: "product" }).includeEmpty).toBe(false);
+    expect(categoryListQuery.parse({ type: "product", includeEmpty: "true" }).includeEmpty).toBe(true);
+    expect(categoryListQuery.parse({ type: "product", includeEmpty: "false" }).includeEmpty).toBe(false);
   });
 });
