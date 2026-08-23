@@ -8,6 +8,7 @@ import type {
   CardListItem,
   CardListResponse,
   CatalogType,
+  CatalogRegionFilter,
   CategoryListItem,
   PlatformSettings,
   PriceFilter,
@@ -25,11 +26,26 @@ export const categoriesQueryOptions = (type: CatalogType) =>
     queryFn: () => apiGet<CategoryListItem[]>(`/catalog/categories?type=${type}`)
   });
 
+/** Активные категории для предложения объявления, включая ещё пустые. */
+export const listingCategoriesQueryOptions = (type: CatalogType) =>
+  queryOptions({
+    queryKey: ["listing-categories", type] as const,
+    queryFn: () => apiGet<CategoryListItem[]>(`/catalog/categories?type=${type}&includeEmpty=true`)
+  });
+
+/** Территории для фильтра и форм; справочник меняется редко. */
+export const territoriesQueryOptions = queryOptions({
+  queryKey: ["territories"] as const,
+  queryFn: () => apiGet<import("@agromarket/contracts").Territory[]>("/catalog/territories"),
+  staleTime: 60 * 60_000
+});
+
 interface CardsQueryParams {
   type: CatalogType;
   categoryId?: string;
   search?: string;
   price?: PriceFilter;
+  region: CatalogRegionFilter;
 }
 
 function buildCardsQuery(params: CardsQueryParams, offset: number): string {
@@ -37,6 +53,7 @@ function buildCardsQuery(params: CardsQueryParams, offset: number): string {
   if (params.categoryId) query.set("categoryId", params.categoryId);
   if (params.search) query.set("search", params.search);
   if (params.price) query.set("price", params.price);
+  query.set("region", params.region);
   return query.toString();
 }
 
@@ -48,7 +65,8 @@ export const cardsInfiniteQueryOptions = (params: CardsQueryParams) =>
       params.type,
       params.categoryId ?? null,
       params.search ?? "",
-      params.price ?? null
+      params.price ?? null,
+      params.region
     ] as const,
     queryFn: ({ pageParam }) => apiGet<CardListResponse>(`/catalog/cards?${buildCardsQuery(params, pageParam)}`),
     initialPageParam: 0,
@@ -113,7 +131,8 @@ export const adminCardsInfiniteQueryOptions = (params: AdminCardsQueryParams) =>
 export const adminCardQueryOptions = (cardId: string) =>
   queryOptions({
     queryKey: ["admin-card", cardId] as const,
-    queryFn: () => apiGet<AdminCardDetail>(`/admin/cards/${cardId}`)
+    queryFn: () => apiGet<AdminCardDetail>(`/admin/cards/${cardId}`),
+    retry: (failureCount, error) => !(error instanceof ApiError && error.status === 404) && failureCount < 2
   });
 
 /** Категории вкладки (админ) — включая неактивные, со счётчиками карточек. */

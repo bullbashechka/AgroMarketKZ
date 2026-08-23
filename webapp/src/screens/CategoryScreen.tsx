@@ -3,11 +3,13 @@ import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useState, type MouseEvent } from "react";
 import { CardsList } from "../components/CardsList";
 import { CategoryFilter } from "../components/CategoryFilter";
+import { ListingSubmissionSheet } from "../components/ListingSubmissionSheet";
 import { PriceFilter } from "../components/PriceFilter";
-import { RequestSheet } from "../components/RequestSheet";
+import { RegionFilter } from "../components/RegionFilter";
 import { Screen } from "../components/Screen";
 import { SearchBar } from "../components/SearchBar";
 import { buildSearchQuery, type CatalogSearch } from "../lib/searchParams";
+import { useCatalogRegion } from "../lib/catalogRegion";
 import { tabRootPath, type TabSection } from "../lib/tabHistory";
 import { useDebouncedValue } from "../lib/useDebouncedValue";
 
@@ -24,6 +26,8 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
   const [inputValue, setInputValue] = useState(search.q ?? "");
   const debouncedQuery = useDebouncedValue(inputValue, 500);
   const [requestOpen, setRequestOpen] = useState(false);
+  const { region, setRegion } = useCatalogRegion();
+  const ctaLabel = type === "product" ? "Продать объём" : "Опубликовать услугу";
 
   const basePath = `${tabRootPath(section)}/${categoryId}`;
   const activeQuery = search.q ?? "";
@@ -50,6 +54,7 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
   return (
     <Screen back fallbackTo={tabRootPath(section)}>
       <SearchBar value={inputValue} onChange={setInputValue} />
+      <RegionFilter value={region} onChange={setRegion} />
       <CategoryFilter type={type} section={section} selectedCategoryId={categoryId} search={search} />
       <PriceFilter value={search.price} onChange={handlePriceChange} />
 
@@ -58,6 +63,7 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
         categoryId={categoryId}
         search={activeQuery || undefined}
         price={search.price}
+        region={region}
         emptyState={
           activeQuery ? (
             <div className="empty-state">
@@ -69,24 +75,24 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
                 Сбросить поиск
               </button>
               <button type="button" className="button button-primary" onClick={() => setRequestOpen(true)}>
-                Оставить заявку
+                {ctaLabel}
               </button>
             </div>
           ) : (
             <div className="empty-state">
               <p>В этой категории пока нет карточек.</p>
               <button type="button" className="button button-primary" onClick={() => setRequestOpen(true)}>
-                Оставить заявку
+                {ctaLabel}
               </button>
             </div>
           )
         }
       />
 
-      <RequestSheet
+      <ListingSubmissionSheet
         open={requestOpen}
         onClose={() => setRequestOpen(false)}
-        source={{ source: "tab", tabType: type }}
+        type={type}
       />
     </Screen>
   );

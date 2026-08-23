@@ -1,4 +1,10 @@
-import type { CreateRequestInput, Request as RequestDto, RequestListQuery } from "@agromarket/contracts";
+import type {
+  CreateRequestInput,
+  ListingSubmission,
+  Request as RequestDto,
+  RequestListQuery,
+  Territory
+} from "@agromarket/contracts";
 import { getDb } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
@@ -22,6 +28,14 @@ export interface RequestRow {
   contact_phone: string;
   contact_phone_verified: boolean;
   comment: string | null;
+  listing_submission_type: "product" | "service" | null;
+  submission_category_id: string | null;
+  submission_category_name_snapshot: string | null;
+  submission_territory_code: string | null;
+  submission_ownership_form: "peasant_farm" | "llp_vat_agricultural_producer" | "llp_trader" | null;
+  submission_product_location: "elevator" | "seller_site" | null;
+  submission_product_location_detail: string | null;
+  submission_all_kazakhstan: boolean;
   status: "new" | "in_progress" | "closed";
   created_at: Date;
   updated_at: Date;
@@ -35,7 +49,71 @@ interface CardSnapshot {
   price_reason: string | null;
 }
 
-export function toRequest(row: RequestRow): RequestDto {
+interface TerritoryRow {
+  code: Territory["code"];
+  name: string;
+  kind: Territory["kind"];
+  sort_order: number;
+}
+
+interface RequestTerritoryRow extends TerritoryRow {
+  request_id: string;
+  relation_sort_order: number;
+}
+
+function toTerritory(row: TerritoryRow): Territory {
+  return { code: row.code, name: row.name, kind: row.kind, sortOrder: row.sort_order };
+}
+
+async function getListingSubmission(
+  env: AppEnv,
+  row: RequestRow,
+  prefetchedTerritories?: Territory[]
+): Promise<ListingSubmission | null> {
+  if (!row.listing_submission_type || !row.submission_category_name_snapshot) return null;
+  const sql = getDb(env);
+  if (row.listing_submission_type === "product") {
+    if (!row.submission_territory_code || !row.submission_ownership_form || !row.submission_product_location) {
+      return null;
+    }
+    const territory = prefetchedTerritories
+      ? prefetchedTerritories[0]
+      : (await sql<TerritoryRow[]>`
+          select code, name, kind, sort_order from territories where code = ${row.submission_territory_code}
+        `)[0];
+    if (!territory) return null;
+    return {
+      type: "product",
+      categoryId: row.submission_category_id,
+      categoryName: row.submission_category_name_snapshot,
+      territory: "sortOrder" in territory ? territory : toTerritory(territory),
+      ownershipForm: row.submission_ownership_form,
+      productLocation: row.submission_product_location,
+      productLocationDetail: row.submission_product_location_detail
+    };
+  }
+
+  const territories = prefetchedTerritories ?? (await sql<TerritoryRow[]>`
+    select t.code, t.name, t.kind, t.sort_order
+    from request_service_territories rst
+    join territories t on t.code = rst.territory_code
+    where rst.request_id = ${row.id}
+    order by rst.sort_order
+  `).map(toTerritory);
+  return {
+    type: "service",
+    categoryId: row.submission_category_id,
+    categoryName: row.submission_category_name_snapshot,
+    allKazakhstan: row.submission_all_kazakhstan,
+    territories
+  };
+}
+
+export async function toRequest(
+  env: AppEnv,
+  row: RequestRow,
+  prefetchedTerritories?: Territory[]
+): Promise<RequestDto> {
   return {
     id: row.id,
     userId: row.user_id,
@@ -52,6 +130,7 @@ export function toRequest(row: RequestRow): RequestDto {
     contactPhone: row.contact_phone,
     contactPhoneVerified: row.contact_phone_verified,
     comment: row.comment,
+    listingSubmission: await getListingSubmission(env, row, prefetchedTerritories),
     status: row.status,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString()
@@ -137,20 +216,44 @@ export async function createRequest(
       if (!card) throw new HttpError(409, "Объявление уже недоступно. Заявка не отправлена");
     }
 
+    const listingSubmission = input.source === "tab" ? input.listingSubmission : undefined;
+    let categoryName: string | null = null;
+    if (listingSubmission) {
+      const [category] = await tx<{ name: string }[]>`
+        select name from categories
+        where id = ${listingSubmission.categoryId}
+          and type = ${listingSubmission.type}
+          and is_active
+      `;
+      if (!category) {
+        throw new HttpError(400, "Выбранная категория больше недоступна");
+      }
+      categoryName = category.name;
+    }
+
     const [inserted] = await tx<RequestRow[]>`
       insert into requests (
         user_id, source, card_id, tab_type,
         card_title_snapshot, card_price_type_snapshot, card_price_amount_snapshot,
         card_price_unit_snapshot, card_price_reason_snapshot,
         client_request_id, request_payload_hash,
-        contact_name, contact_phone, contact_phone_verified, comment
+        contact_name, contact_phone, contact_phone_verified, comment,
+        listing_submission_type, submission_category_id, submission_category_name_snapshot,
+        submission_territory_code, submission_ownership_form, submission_product_location,
+        submission_product_location_detail, submission_all_kazakhstan
       ) values (
         ${userId}, ${input.source}, ${input.source === "card" ? input.cardId : null},
         ${input.source === "tab" ? input.tabType : null},
         ${card?.title ?? null}, ${card?.price_type ?? null}, ${card?.price_amount ?? null},
         ${card?.price_unit ?? null}, ${card?.price_reason ?? null},
         ${input.clientRequestId}, ${requestPayloadHash},
-        ${input.contactName}, ${input.contactPhone}, ${contactPhoneVerified}, ${input.comment ?? null}
+        ${input.contactName}, ${input.contactPhone}, ${contactPhoneVerified}, ${input.comment ?? null},
+        ${listingSubmission?.type ?? null}, ${listingSubmission?.categoryId ?? null}, ${categoryName},
+        ${listingSubmission?.type === "product" ? listingSubmission.territoryCode : null},
+        ${listingSubmission?.type === "product" ? listingSubmission.ownershipForm : null},
+        ${listingSubmission?.type === "product" ? listingSubmission.productLocation : null},
+        ${listingSubmission?.type === "product" ? listingSubmission.productLocationDetail ?? null : null},
+        ${listingSubmission?.type === "service" && listingSubmission.allKazakhstan}
       )
       on conflict (user_id, client_request_id) where client_request_id is not null do nothing
       returning *
@@ -165,6 +268,15 @@ export async function createRequest(
         throw new HttpError(409, "Эта попытка отправки уже использована для другой заявки");
       }
       return { row: replayed, created: false };
+    }
+
+    if (listingSubmission?.type === "service" && listingSubmission.territoryCodes.length > 0) {
+      const territoryRows = listingSubmission.territoryCodes.map((territoryCode, sortOrder) => ({
+        request_id: inserted.id,
+        territory_code: territoryCode,
+        sort_order: sortOrder
+      }));
+      await tx`insert into request_service_territories ${tx(territoryRows, "request_id", "territory_code", "sort_order")}`;
     }
 
     if (user.registered_at === null) {
@@ -196,7 +308,41 @@ export async function listRequests(
     order by created_at desc, id
     limit ${query.limit + 1} offset ${query.offset}
   `;
-  const items = rows.map(toRequest);
+  const structuredRequestIds = rows
+    .filter((row) => row.listing_submission_type !== null)
+    .map((row) => row.id);
+  const territoryRows = structuredRequestIds.length === 0
+    ? []
+    : await sql<RequestTerritoryRow[]>`
+        select
+          r.id as request_id,
+          t.code, t.name, t.kind, t.sort_order,
+          0 as relation_sort_order
+        from requests r
+        join territories t on t.code = r.submission_territory_code
+        where r.id = any(${structuredRequestIds}::uuid[])
+          and r.listing_submission_type = 'product'
+        union all
+        select
+          rst.request_id,
+          t.code, t.name, t.kind, t.sort_order,
+          rst.sort_order as relation_sort_order
+        from request_service_territories rst
+        join territories t on t.code = rst.territory_code
+        where rst.request_id = any(${structuredRequestIds}::uuid[])
+        order by request_id, relation_sort_order
+      `;
+  const territoriesByRequest = new Map<string, Territory[]>();
+  for (const row of territoryRows) {
+    const territories = territoriesByRequest.get(row.request_id) ?? [];
+    territories.push(toTerritory(row));
+    territoriesByRequest.set(row.request_id, territories);
+  }
+  const items = await Promise.all(rows.map((row) => toRequest(
+    env,
+    row,
+    row.listing_submission_type ? territoriesByRequest.get(row.id) ?? [] : undefined
+  )));
   return paginateRows(items, query.limit, query.offset);
 }
 

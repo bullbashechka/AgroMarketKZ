@@ -1,8 +1,11 @@
 import {
   catalogTypeTabLabels,
   priceTypeLabels,
+  productLocationLabels,
+  productOwnershipFormLabels,
   requestSourceLabels,
   type CatalogType,
+  type ListingSubmission,
   type PriceType,
   type RequestSource
 } from "@agromarket/contracts";
@@ -37,6 +40,7 @@ export interface RequestNotificationInput {
   contactPhone: string;
   contactPhoneVerified: boolean;
   comment: string | null;
+  listingSubmission: ListingSubmission | null;
   telegramUsername: string | null;
 }
 
@@ -55,6 +59,28 @@ export function formatRequestNotification(input: RequestNotificationInput): stri
   }
   if (input.source === "tab" && input.tabType) {
     lines.push(`Вкладка: ${escapeHtml(catalogTypeTabLabels[input.tabType])}`);
+  }
+  if (input.listingSubmission) {
+    lines.push(`<b>${input.listingSubmission.type === "product" ? "Предложение товара" : "Предложение услуги"}</b>`);
+    lines.push(`Категория: ${escapeHtml(input.listingSubmission.categoryName)}`);
+    if (input.listingSubmission.type === "product") {
+      lines.push(`Регион: ${escapeHtml(input.listingSubmission.territory.name)}`);
+      lines.push(`Форма собственности: ${escapeHtml(productOwnershipFormLabels[input.listingSubmission.ownershipForm])}`);
+      const location = productLocationLabels[input.listingSubmission.productLocation];
+      lines.push(
+        `Местонахождение: ${escapeHtml(
+          input.listingSubmission.productLocationDetail
+            ? `${location} — ${input.listingSubmission.productLocationDetail}`
+            : location
+        )}`
+      );
+    } else {
+      lines.push(
+        input.listingSubmission.allKazakhstan
+          ? "Регион работы: весь Казахстан"
+          : `Регионы: ${escapeHtml(input.listingSubmission.territories.map((territory) => territory.name).join(", "))}`
+      );
+    }
   }
 
   lines.push(`Имя: ${escapeHtml(input.contactName)}`);

@@ -5,10 +5,15 @@ import {
   DESCRIPTION_MAX,
   CARD_TITLE_MAX,
   priceTypeLabels,
+  productLocationLabels,
+  productOwnershipFormLabels,
   type AdminCardDetail,
   type CardDetail,
   type CatalogType,
-  type PriceType
+  type PriceType,
+  type ProductLocation,
+  type ProductOwnershipForm,
+  type TerritoryCode
 } from "@agromarket/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
@@ -25,7 +30,7 @@ import { SkeletonList } from "../../components/Skeleton";
 import { ApiError, apiDelete, apiPost, apiPut } from "../../lib/api";
 import { clearCardDraft, loadCardDraft, saveCardDraft, type CardDraft } from "../../lib/cardDraft";
 import { zodFieldErrorsByPath } from "../../lib/formErrors";
-import { adminCardQueryOptions, adminCategoriesQueryOptions } from "../../lib/queries";
+import { adminCardQueryOptions, adminCategoriesQueryOptions, territoriesQueryOptions } from "../../lib/queries";
 import type { AdminTypeSearch } from "../../lib/searchParams";
 import { hapticNotify } from "../../lib/telegram";
 import { useDebouncedValue } from "../../lib/useDebouncedValue";
@@ -54,7 +59,7 @@ function CardEditorEdit({ cardId }: { cardId: string }) {
     <Screen back title="Карточка" fallbackTo="/admin/cards">
       {isPending && <SkeletonList />}
       {isError && <ErrorState onRetry={refetch} />}
-      {data && <CardEditorForm mode="edit" initial={data} />}
+      {data && <CardEditorForm key={data.version} mode="edit" initial={data} />}
     </Screen>
   );
 }
@@ -125,7 +130,14 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
   );
   const [priceUnit, setPriceUnit] = useState(initial?.priceUnit ?? draft?.priceUnit ?? "");
   const [priceReason, setPriceReason] = useState(initial?.priceReason ?? draft?.priceReason ?? "");
-  const [location, setLocation] = useState(initial?.location ?? draft?.location ?? "");
+  const [territoryCode, setTerritoryCode] = useState<TerritoryCode | "">(initial?.territory?.code ?? draft?.territoryCode ?? "");
+  const [ownershipForm, setOwnershipForm] = useState<ProductOwnershipForm | "">(initial?.ownershipForm ?? draft?.ownershipForm ?? "");
+  const [productLocation, setProductLocation] = useState<ProductLocation | "">(initial?.productLocation ?? draft?.productLocation ?? "");
+  const [productLocationDetail, setProductLocationDetail] = useState(initial?.productLocationDetail ?? draft?.productLocationDetail ?? "");
+  const [serviceAllKazakhstan, setServiceAllKazakhstan] = useState(initial?.serviceAllKazakhstan ?? draft?.serviceAllKazakhstan ?? false);
+  const [serviceTerritoryCodes, setServiceTerritoryCodes] = useState<TerritoryCode[]>(
+    initial?.serviceTerritories.map((territory) => territory.code) ?? draft?.serviceTerritoryCodes ?? []
+  );
   const [availability, setAvailability] = useState(initial?.availability ?? draft?.availability ?? "");
   const [specs, setSpecs] = useState<SpecRow[]>(
     (initial?.specs ?? draft?.specs ?? []).map((s) => ({ localId: crypto.randomUUID(), key: s.key, value: s.value }))
@@ -134,12 +146,14 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [saveAction, setSaveAction] = useState<"draft" | "publish" | null>(null);
+  const [typeChange, setTypeChange] = useState<CatalogType | null>(null);
 
   const initialImages: DraftImage[] =
     initial?.images.map((img) => ({ storagePath: img.storagePath, publicUrl: img.url })) ?? draft?.images ?? [];
   const imageUploads = useImageUploads(initialImages);
 
   const categoriesQuery = useQuery(adminCategoriesQueryOptions(type));
+  const territoriesQuery = useQuery(territoriesQueryOptions);
   const selectedCategory = categoriesQuery.data?.find((category) => category.id === categoryId);
 
   useEffect(() => {
@@ -164,6 +178,19 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
     if (cardId) qc.invalidateQueries({ queryKey: ["card", cardId] });
   }
 
+  /** После сетевой ошибки перечитываем карточку: сервер мог уже применить мутацию. */
+  async function reconcileCardMutation(cardId: string): Promise<"exists" | "deleted" | "unknown"> {
+    try {
+      await qc.fetchQuery(adminCardQueryOptions(cardId));
+      invalidateCatalogQueries(cardId);
+      return "exists";
+    } catch (error) {
+      invalidateCatalogQueries(cardId);
+      if (error instanceof ApiError && error.status === 404) return "deleted";
+      return "unknown";
+    }
+  }
+
   const saveMutation = useMutation({
     mutationFn: async ({
       input,
@@ -173,11 +200,19 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
       publish: boolean;
     }) => {
       const saved = mode === "edit" && initial
-        ? await apiPut<AdminCardDetail>(`/admin/cards/${initial.id}`, input)
+        ? await apiPut<AdminCardDetail>(`/admin/cards/${initial.id}`, { ...input, expectedVersion: initial.version })
         : await apiPost<AdminCardDetail>("/admin/cards", input);
-      return publish
-        ? apiPost<AdminCardDetail>(`/admin/cards/${saved.id}/publish`)
-        : saved;
+      if (!publish) return saved;
+      try {
+        return await apiPost<AdminCardDetail>(`/admin/cards/${saved.id}/publish`, { expectedVersion: saved.version });
+      } catch (error) {
+        // PUT уже мог закоммититься, а publish — также успеть выполниться до потери
+        // ответа. Перечитываем серверную версию, чтобы повтор не застрял на 409.
+        qc.setQueryData(adminCardQueryOptions(saved.id).queryKey, saved);
+        await qc.invalidateQueries({ queryKey: adminCardQueryOptions(saved.id).queryKey, exact: true });
+        invalidateCatalogQueries(saved.id);
+        throw error;
+      }
     },
     onSuccess: (card) => {
       qc.setQueryData(adminCardQueryOptions(card.id).queryKey, card);
@@ -190,20 +225,38 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
   });
 
   const archiveMutation = useMutation({
-    mutationFn: () => apiPost<AdminCardDetail>(`/admin/cards/${initial!.id}/archive`),
+    mutationFn: () => apiPost<AdminCardDetail>(`/admin/cards/${initial!.id}/archive`, { expectedVersion: initial!.version }),
+    onMutate: () => setErrors({}),
     onSuccess: (card) => {
       qc.setQueryData(adminCardQueryOptions(card.id).queryKey, card);
       invalidateCatalogQueries(card.id);
-    }
+    },
+    onError: (error) => {
+      setErrors({ form: error instanceof ApiError ? error.message : "Не удалось скрыть карточку" });
+      void reconcileCardMutation(initial!.id).then((result) => {
+        if (result === "deleted") navigate({ href: "/admin/cards" });
+      });
+    },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => apiDelete(`/admin/cards/${initial!.id}`),
+    mutationFn: () => apiDelete(`/admin/cards/${initial!.id}`, { expectedVersion: initial!.version }),
+    onMutate: () => setErrors({}),
     onSuccess: () => {
       qc.removeQueries({ queryKey: ["admin-card", initial!.id] });
       invalidateCatalogQueries();
       navigate({ href: "/admin/cards" });
-    }
+    },
+    onError: (error) => {
+      setDeleteOpen(false);
+      setErrors({ form: error instanceof ApiError ? error.message : "Не удалось удалить карточку" });
+      void reconcileCardMutation(initial!.id).then((result) => {
+        if (result === "deleted") {
+          qc.removeQueries({ queryKey: ["admin-card", initial!.id] });
+          navigate({ href: "/admin/cards" });
+        }
+      });
+    },
   });
 
   // Черновик — только для create, только когда есть что сохранять (пустая форма не пишется).
@@ -216,7 +269,12 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
     priceAmount,
     priceUnit,
     priceReason,
-    location,
+    territoryCode: territoryCode || undefined,
+    ownershipForm: ownershipForm || undefined,
+    productLocation: productLocation || undefined,
+    productLocationDetail,
+    serviceAllKazakhstan,
+    serviceTerritoryCodes,
     availability,
     specs: specs.map(({ key, value }) => ({ key, value })),
     images: imageUploads.images.filter((img) => img.status === "done").map((img) => ({
@@ -231,9 +289,31 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
     saveCardDraft(JSON.parse(debouncedSnapshot) as CardDraft);
   }, [debouncedSnapshot, mode]);
 
-  function handleTypeChange(nextType: CatalogType) {
+  function applyTypeChange(nextType: CatalogType) {
     setType(nextType);
     setCategoryId("");
+    setTerritoryCode("");
+    setOwnershipForm("");
+    setProductLocation("");
+    setProductLocationDetail("");
+    setServiceAllKazakhstan(false);
+    setServiceTerritoryCodes([]);
+    setTypeChange(null);
+  }
+
+  function handleTypeChange(nextType: CatalogType) {
+    if (nextType === type) return;
+    if (categoryId || territoryCode || ownershipForm || productLocation || serviceTerritoryCodes.length > 0) {
+      setTypeChange(nextType);
+      return;
+    }
+    applyTypeChange(nextType);
+  }
+
+  function toggleServiceTerritory(code: TerritoryCode) {
+    setServiceTerritoryCodes((current) => current.includes(code)
+      ? current.filter((value) => value !== code)
+      : [...current, code]);
   }
 
   function buildPayload(completeSpecsOnly = false) {
@@ -250,7 +330,13 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
       priceAmount: priceType === "on_request" || !priceAmount ? null : Number(priceAmount),
       priceUnit,
       priceReason: priceType === "fixed" ? null : priceReason,
-      location,
+      location: null,
+      territoryCode: type === "product" ? territoryCode || null : null,
+      ownershipForm: type === "product" ? ownershipForm || null : null,
+      productLocation: type === "product" ? productLocation || null : null,
+      productLocationDetail: type === "product" ? productLocationDetail || null : null,
+      serviceAllKazakhstan: type === "service" && serviceAllKazakhstan,
+      serviceTerritoryCodes: type === "service" && !serviceAllKazakhstan ? serviceTerritoryCodes : [],
       availability,
       images: imageUploads.images
         .filter((img) => img.status === "done")
@@ -293,6 +379,7 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
       setSaveAction(action);
       await saveMutation.mutateAsync({ input: parsed.data, publish: action === "publish" });
     } catch (error) {
+      if (mode === "edit" && initial) await reconcileCardMutation(initial.id);
       setErrors({ form: error instanceof ApiError ? error.message : "Не удалось сохранить карточку" });
     }
   }
@@ -314,9 +401,20 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
     priceAmount: previewPayload.priceAmount,
     priceUnit: priceUnit || null,
     priceReason: priceType === "fixed" ? null : priceReason || null,
-    location: location || null,
+    location: null,
+    territory: type === "product"
+      ? territoriesQuery.data?.find((territory) => territory.code === territoryCode) ?? null
+      : null,
+    ownershipForm: type === "product" ? ownershipForm || null : null,
+    productLocation: type === "product" ? productLocation || null : null,
+    productLocationDetail: type === "product" ? productLocationDetail || null : null,
+    serviceAllKazakhstan: type === "service" && serviceAllKazakhstan,
+    serviceTerritories: type === "service"
+      ? (territoriesQuery.data ?? []).filter((territory) => serviceTerritoryCodes.includes(territory.code))
+      : [],
     availability: availability || null,
     sortOrder: initial?.sortOrder ?? 0,
+    version: initial?.version ?? 1,
     publishedAt: initial?.publishedAt ?? null,
     archivedAt: initial?.archivedAt ?? null,
     createdAt: initial?.createdAt ?? new Date().toISOString(),
@@ -439,11 +537,69 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
         </label>
       )}
 
-      <label className="field">
-        <span className="field-label">Регион или территория</span>
-        <input className="input" data-testid="card-editor-location" value={location} onChange={(event) => setLocation(event.target.value)} />
-        {errors.location && <span className="field-error">{errors.location}</span>}
-      </label>
+      {type === "product" ? (
+        <>
+          <label className="field">
+            <span className="field-label">Регион</span>
+            <select
+              className="input"
+              data-testid="card-editor-territory"
+              value={territoryCode}
+              onChange={(event) => setTerritoryCode(event.target.value as TerritoryCode | "")}
+              disabled={territoriesQuery.isPending}
+            >
+              <option value="">Выберите регион</option>
+              {(territoriesQuery.data ?? []).map((territory) => (
+                <option key={territory.code} value={territory.code}>{territory.name}</option>
+              ))}
+            </select>
+            {errors.territoryCode && <span className="field-error">{errors.territoryCode}</span>}
+          </label>
+          <label className="field">
+            <span className="field-label">Форма собственности</span>
+            <select className="input" value={ownershipForm} onChange={(event) => setOwnershipForm(event.target.value as ProductOwnershipForm | "")}>
+              <option value="">Выберите форму</option>
+              {Object.entries(productOwnershipFormLabels).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            {errors.ownershipForm && <span className="field-error">{errors.ownershipForm}</span>}
+          </label>
+          <label className="field">
+            <span className="field-label">Местонахождение товара</span>
+            <select className="input" value={productLocation} onChange={(event) => setProductLocation(event.target.value as ProductLocation | "")}>
+              <option value="">Выберите местонахождение</option>
+              {Object.entries(productLocationLabels).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            {errors.productLocation && <span className="field-error">{errors.productLocation}</span>}
+          </label>
+          <label className="field">
+            <span className="field-label">Уточнение места (необязательно)</span>
+            <input className="input" value={productLocationDetail} onChange={(event) => setProductLocationDetail(event.target.value)} maxLength={200} />
+          </label>
+        </>
+      ) : (
+        <fieldset className="field listing-territories">
+          <legend className="field-label">География услуги</legend>
+          <label className="check-row">
+            <input type="checkbox" checked={serviceAllKazakhstan} onChange={(event) => setServiceAllKazakhstan(event.target.checked)} />
+            <span>Весь Казахстан</span>
+          </label>
+          {!serviceAllKazakhstan && (
+            <div className="territory-checklist" role="group" aria-label="Регионы работы услуги">
+              {(territoriesQuery.data ?? []).map((territory) => (
+                <label className="check-row" key={territory.code}>
+                  <input type="checkbox" checked={serviceTerritoryCodes.includes(territory.code)} onChange={() => toggleServiceTerritory(territory.code)} />
+                  <span>{territory.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          {errors.serviceTerritoryCodes && <span className="field-error">{errors.serviceTerritoryCodes}</span>}
+        </fieldset>
+      )}
 
       <label className="field">
         <span className="field-label">Наличие, срок поставки или исполнения</span>
@@ -546,6 +702,14 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
         pending={deleteMutation.isPending}
         onConfirm={() => deleteMutation.mutate()}
         onClose={() => setDeleteOpen(false)}
+      />
+      <ConfirmSheet
+        open={typeChange !== null}
+        title="Сменить тип карточки?"
+        description="Параметры региона, формы собственности и географии услуги будут очищены. Другие данные карточки сохранятся."
+        confirmLabel="Сменить тип"
+        onConfirm={() => { if (typeChange) applyTypeChange(typeChange); }}
+        onClose={() => setTypeChange(null)}
       />
     </form>
   );

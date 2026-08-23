@@ -82,6 +82,7 @@ For non-trivial work, define a short acceptance contract when it clarifies compl
 
 ## Research And Change-Surface Rules
 
+- Use `$code-scout` for non-trivial repository discovery to delegate broad code reading to a lower-cost subagent scout and keep irrelevant file contents out of the primary agent's context.
 - Trace non-trivial behavior vertically before changing it: UI or caller, route and guard, screen or handler, query or service, shared contract, repository, database, and external integrations.
 - Inspect horizontal neighbors such as sibling routes, related components, shared helpers, schemas, serializers, tests, and documentation.
 - Fix the owning layer. Do not hide upstream mistakes with leaf-level fallbacks, duplicate decision logic, flags, or wrappers.

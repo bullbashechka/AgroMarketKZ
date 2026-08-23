@@ -36,7 +36,7 @@ export function FavoritesScreen() {
       {data && data.length === 0 && (
         <div className="empty-state">
           <p>В избранном пока пусто.</p>
-          <button type="button" className="button button-primary" onClick={() => navigate({ href: "/services" })}>
+          <button type="button" className="button button-primary" onClick={() => navigate({ href: "/products" })}>
             В каталог
           </button>
         </div>

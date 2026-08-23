@@ -1,4 +1,11 @@
-import { catalogTypeTabLabels, requestStatusLabels, type Request, type RequestStatus } from "@agromarket/contracts";
+import {
+  catalogTypeTabLabels,
+  productLocationLabels,
+  productOwnershipFormLabels,
+  requestStatusLabels,
+  type Request,
+  type RequestStatus
+} from "@agromarket/contracts";
 import { formatDateTime, formatPrice } from "../../lib/format";
 
 const nextAction: Record<RequestStatus, { label: string; next: RequestStatus }> = {
@@ -47,6 +54,26 @@ export function RequestItem({ request, onChangeStatus, pending }: RequestItemPro
         <p className="muted">
           {formatPrice(request.cardPriceTypeSnapshot, request.cardPriceAmountSnapshot, request.cardPriceUnitSnapshot)}
         </p>
+      )}
+
+      {request.listingSubmission && (
+        <div className="request-listing-submission">
+          <strong>{request.listingSubmission.type === "product" ? "Предложение товара" : "Предложение услуги"}</strong>
+          <span>Категория: {request.listingSubmission.categoryName}</span>
+          {request.listingSubmission.type === "product" ? (
+            <>
+              <span>Регион: {request.listingSubmission.territory.name}</span>
+              <span>Форма: {productOwnershipFormLabels[request.listingSubmission.ownershipForm]}</span>
+              <span>Местонахождение: {productLocationLabels[request.listingSubmission.productLocation]}{request.listingSubmission.productLocationDetail ? ` — ${request.listingSubmission.productLocationDetail}` : ""}</span>
+            </>
+          ) : (
+            <span>
+              Регион работы: {request.listingSubmission.allKazakhstan
+                ? "весь Казахстан"
+                : request.listingSubmission.territories.map((territory) => territory.name).join(", ")}
+            </span>
+          )}
+        </div>
       )}
 
       {request.comment && <p className="request-item-comment">«{request.comment}»</p>}

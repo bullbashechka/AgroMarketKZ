@@ -1,4 +1,5 @@
 import { expect, test } from "../fixtures/auth.fixture";
+import type { Page } from "@playwright/test";
 import { api } from "../helpers/api";
 
 interface CardListItem {
@@ -23,6 +24,14 @@ async function closeCreatedRequest(adminToken: string, marker: string) {
   }
 }
 
+async function fillProductListingFields(page: Page) {
+  const selects = page.locator("select");
+  await selects.nth(0).selectOption({ index: 1 });
+  await selects.nth(1).selectOption({ index: 1 });
+  await selects.nth(2).selectOption({ index: 1 });
+  await selects.nth(3).selectOption({ index: 1 });
+}
+
 // Каждый тест логинится под своим свежим telegram id (freshUserPage), чтобы не делить
 // общий rate-limit заявок (5/10 мин) с остальными спеками, использующими TEST_USER.
 test.describe("Заявки — 3 источника", () => {
@@ -33,12 +42,13 @@ test.describe("Заявки — 3 источника", () => {
     const marker = `[e2e] первая заявка гостя ${Date.now()}`;
     await page.goto("/products");
     await page.getByTestId("tab-request-cta").click();
+    await fillProductListingFields(page);
     await page.getByTestId("request-name-input").fill("E2E Гость");
     await page.getByTestId("request-phone-input").fill("+77012223340");
     await page.locator("textarea").fill(marker);
-    await page.getByTestId("request-submit").click();
+    await page.getByTestId("listing-submission-submit").click();
 
-    await expect(page.getByText(/заявка принята/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/предложение отправлено/i)).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "Продолжить просмотр" }).click();
     await page.goto("/general");
     await expect(page.getByRole("heading", { name: "Добро пожаловать, E2E Гость!" })).toBeVisible({ timeout: 15_000 });
@@ -68,12 +78,13 @@ test.describe("Заявки — 3 источника", () => {
     const marker = `[e2e] заявка с вкладки ${Date.now()}`;
     await page.goto("/products");
     await page.getByTestId("tab-request-cta").click();
+    await fillProductListingFields(page);
 
     await page.getByTestId("request-phone-input").fill("+77012223345");
     await page.locator("textarea").fill(marker);
-    await page.getByTestId("request-submit").click();
+    await page.getByTestId("listing-submission-submit").click();
 
-    await expect(page.getByText(/заявка принята/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/предложение отправлено/i)).toBeVisible({ timeout: 15_000 });
 
     await closeCreatedRequest(adminToken, marker);
   });
@@ -107,11 +118,12 @@ test.describe("Заявки — 3 источника", () => {
 
     await page.goto("/products");
     await page.getByTestId("tab-request-cta").click();
+    await fillProductListingFields(page);
     await page.locator("textarea").fill(marker);
-    await page.getByTestId("request-submit").click();
+    await page.getByTestId("listing-submission-submit").click();
     await expect(page.getByText(/не удалось отправить/i)).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId("request-submit").click();
-    await expect(page.getByText(/заявка принята/i)).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("listing-submission-submit").click();
+    await expect(page.getByText(/предложение отправлено/i)).toBeVisible({ timeout: 15_000 });
 
     let matches = 0;
     for (const status of ["new", "in_progress", "closed"] as const) {

@@ -6,6 +6,7 @@ import { RateLimitedState } from "../components/RateLimitedState";
 import { Skeleton } from "../components/Skeleton";
 import { useAuth } from "../lib/auth";
 import { RegistrationIntentProvider } from "../lib/registrationIntent";
+import { CatalogRegionProvider } from "../lib/catalogRegion";
 import { LoginScreen } from "./LoginScreen";
 
 const RouterDevtools = import.meta.env.DEV
@@ -49,11 +50,13 @@ export function RootLayout() {
     );
   } else {
     content = (
-      <RegistrationIntentProvider>
-        <AppShell>
-          <Outlet />
-        </AppShell>
-      </RegistrationIntentProvider>
+      <CatalogRegionProvider>
+        <RegistrationIntentProvider>
+          <AppShell>
+            <Outlet />
+          </AppShell>
+        </RegistrationIntentProvider>
+      </CatalogRegionProvider>
     );
   }
 

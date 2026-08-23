@@ -9,7 +9,7 @@ insert into platform_settings (
   1,
   '+77000000000',
   '+77000000000',
-  'agromarketkz',
+  'https://t.me/agromarketkz',
   'hello@agromarket.kz',
   null
 )
@@ -52,7 +52,12 @@ seed_cards as (
     'Северный Казахстан' as location,
     'В наличии' as availability,
     10 as sort_order,
-    'Семена и посадочный материал' as category_name
+    'Семена и посадочный материал' as category_name,
+    'north_kazakhstan_region'::text as territory_code,
+    'peasant_farm'::text as ownership_form,
+    'elevator'::text as product_location,
+    null::text as product_location_detail,
+    false as service_all_kazakhstan
   union all
   select
     'product'::catalog_type,
@@ -65,7 +70,12 @@ seed_cards as (
     'Казахстан',
     'Срок поставки по согласованию',
     20,
-    'Удобрения и средства защиты'
+    'Удобрения и средства защиты',
+    'akmola_region',
+    'llp_vat_agricultural_producer',
+    'seller_site',
+    'Склад поставщика',
+    false
   union all
   select
     'product'::catalog_type,
@@ -78,7 +88,12 @@ seed_cards as (
     'Костанайская область',
     'В наличии',
     30,
-    'Сельхозтехника'
+    'Сельхозтехника',
+    'kostanay_region',
+    'llp_trader',
+    'seller_site',
+    'База продавца',
+    false
   union all
   select
     'service'::catalog_type,
@@ -91,7 +106,12 @@ seed_cards as (
     'Казахстан',
     'Запись на ближайшую неделю',
     10,
-    'Агрономические услуги'
+    'Агрономические услуги',
+    null,
+    null,
+    null,
+    null,
+    true
   union all
   select
     'service'::catalog_type,
@@ -104,7 +124,12 @@ seed_cards as (
     'По Казахстану',
     'Срок подачи по согласованию',
     20,
-    'Логистика и перевозки'
+    'Логистика и перевозки',
+    null,
+    null,
+    null,
+    null,
+    true
   union all
   select
     'service'::catalog_type,
@@ -117,7 +142,12 @@ seed_cards as (
     'По согласованию',
     'Выезд по записи',
     30,
-    'Ремонт техники'
+    'Ремонт техники',
+    null,
+    null,
+    null,
+    null,
+    false
 )
 insert into cards (
   type,
@@ -130,6 +160,11 @@ insert into cards (
   price_reason,
   location,
   availability,
+  territory_code,
+  ownership_form,
+  product_location,
+  product_location_detail,
+  service_all_kazakhstan,
   published_at,
   sort_order
 )
@@ -144,6 +179,11 @@ select
   seed_cards.price_reason,
   seed_cards.location,
   seed_cards.availability,
+  seed_cards.territory_code,
+  seed_cards.ownership_form,
+  seed_cards.product_location,
+  seed_cards.product_location_detail,
+  seed_cards.service_all_kazakhstan,
   now(),
   seed_cards.sort_order
 from seed_cards
@@ -156,6 +196,37 @@ where not exists (
   where cards.type = seed_cards.type
     and lower(btrim(cards.title)) = lower(btrim(seed_cards.title))
 );
+
+-- Повторный dev-seed обновляет уже существующие демонстрационные карточки,
+-- чтобы они не остались legacy после применения миграции 0011.
+update cards as c
+set
+  territory_code = seed.territory_code,
+  ownership_form = seed.ownership_form,
+  product_location = seed.product_location,
+  product_location_detail = seed.product_location_detail,
+  service_all_kazakhstan = seed.service_all_kazakhstan
+from (
+  values
+    ('product'::catalog_type, 'Семена пшеницы Астана-2', 'north_kazakhstan_region', 'peasant_farm', 'elevator', null::text, false),
+    ('product'::catalog_type, 'Комплексное удобрение NPK', 'akmola_region', 'llp_vat_agricultural_producer', 'seller_site', 'Склад поставщика', false),
+    ('product'::catalog_type, 'Б/у трактор 150 л.с.', 'kostanay_region', 'llp_trader', 'seller_site', 'База продавца', false),
+    ('service'::catalog_type, 'Консультация агронома', null::text, null::text, null::text, null::text, true),
+    ('service'::catalog_type, 'Перевозка зерна по Казахстану', null::text, null::text, null::text, null::text, true),
+    ('service'::catalog_type, 'Выездной ремонт сельхозтехники', null::text, null::text, null::text, null::text, false)
+) as seed(type, title, territory_code, ownership_form, product_location, product_location_detail, service_all_kazakhstan)
+where c.type = seed.type
+  and lower(btrim(c.title)) = lower(btrim(seed.title));
+
+with service_territory_seed as (
+  select 'Выездной ремонт сельхозтехники' as card_title, 'kostanay_region'::text as territory_code, 0 as sort_order
+  union all select 'Выездной ремонт сельхозтехники', 'akmola_region', 1
+)
+insert into card_service_territories (card_id, territory_code, sort_order)
+select cards.id, service_territory_seed.territory_code, service_territory_seed.sort_order
+from service_territory_seed
+join cards on cards.type = 'service' and cards.title = service_territory_seed.card_title
+on conflict (card_id, territory_code) do nothing;
 
 with spec_seed as (
   select 'Семена пшеницы Астана-2' as card_title, 'Регион' as key, 'Северный Казахстан' as value, 10 as sort_order

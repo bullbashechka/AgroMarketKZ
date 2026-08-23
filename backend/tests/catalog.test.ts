@@ -104,6 +104,32 @@ describe("toCardListItem", () => {
     const row: CardListRow = { ...base, first_spec_key: "Мощность", first_spec_value: "82 л.с." };
     expect(toCardListItem(row, env).shortSpec).toBe("Мощность: 82 л.с.");
   });
+
+  test("структурированная география не дублирует legacy-локацию в shortSpec", () => {
+    const row: CardListRow = {
+      ...base,
+      location: "Акмолинская область",
+      availability: "В наличии",
+      territory_code: "akmola_region",
+      territory_name: "Акмолинская область",
+      territory_kind: "region",
+      territory_sort_order: 20
+    };
+    expect(toCardListItem(row, env).shortSpec).toBe("В наличии");
+  });
+
+  test("структурированная география скрывает legacy-spec «Регион»", () => {
+    const row: CardListRow = {
+      ...base,
+      territory_code: "akmola_region",
+      territory_name: "Акмолинская область",
+      territory_kind: "region",
+      territory_sort_order: 20,
+      first_spec_key: "Регион",
+      first_spec_value: "Акмолинская область"
+    };
+    expect(toCardListItem(row, env).shortSpec).toBeNull();
+  });
 });
 
 describe("toCardDetail", () => {

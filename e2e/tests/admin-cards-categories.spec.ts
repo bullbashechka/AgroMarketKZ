@@ -43,7 +43,9 @@ test.describe("Админ — категории и карточки", () => {
     await page.getByTestId("card-editor-description").fill("Тестовое описание опубликованной карточки");
     await page.getByTestId("card-editor-price").fill("5000");
     await page.getByTestId("card-editor-price-unit").fill("за штуку");
-    await page.getByTestId("card-editor-location").fill("Алматы");
+    await page.getByTestId("card-editor-territory").selectOption({ index: 1 });
+    await page.getByLabel("Форма собственности").selectOption({ index: 1 });
+    await page.getByLabel("Местонахождение товара").selectOption({ index: 1 });
     await page.getByTestId("card-editor-availability").fill("В наличии");
     await page.getByTestId("card-spec-value-0").fill("2024");
     await page.locator('input[type="file"]').setInputFiles(TEST_IMAGE);

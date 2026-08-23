@@ -4,10 +4,12 @@ import { cardListItemSchema } from "./card";
 import { categorySchema, categoryListItemSchema } from "./category";
 import { catalogTypeSchema, priceFilterSchema } from "./enums";
 import { paginated, paginationQuerySchema } from "./pagination";
+import { catalogRegionFilterSchema, territoryListResponse } from "./territory";
 
 /** Список категорий вкладки. */
 export const categoryListQuery = z.object({
-  type: catalogTypeSchema
+  type: catalogTypeSchema,
+  includeEmpty: z.enum(["true", "false"]).optional().transform((value) => value === "true")
 });
 
 /** Список категорий (админ, включая неактивные и пустые). */
@@ -33,10 +35,13 @@ export const cardListQuery = paginationQuerySchema.extend({
     .max(SEARCH_MAX)
     .optional()
     .transform((value) => (value && value.length > 0 ? value : undefined)),
-  price: priceFilterSchema.optional()
+  price: priceFilterSchema.optional(),
+  region: catalogRegionFilterSchema.optional().default("all_regions")
 });
 
 export type CardListQuery = z.infer<typeof cardListQuery>;
 
 export const cardListResponse = paginated(cardListItemSchema);
 export type CardListResponse = z.infer<typeof cardListResponse>;
+
+export { territoryListResponse };

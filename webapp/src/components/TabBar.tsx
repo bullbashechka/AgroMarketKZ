@@ -4,8 +4,8 @@ import { getRememberedHref, resetTab, sectionOf, tabRootPath, type TabSection } 
 import { useKeyboardOpen } from "../lib/useKeyboardOpen";
 
 const tabs: { section: TabSection; label: string; icon: IconKind }[] = [
-  { section: "services", label: catalogTypeTabLabels.service, icon: "services" },
   { section: "products", label: catalogTypeTabLabels.product, icon: "products" },
+  { section: "services", label: catalogTypeTabLabels.service, icon: "services" },
   { section: "general", label: "Общее", icon: "general" }
 ];
 

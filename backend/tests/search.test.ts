@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { escapeLike } from "../src/lib/search";
+import { escapeLike, normalizeCatalogText } from "../src/lib/search";
 
 describe("escapeLike", () => {
   test("обычная строка не меняется", () => {
@@ -24,5 +24,12 @@ describe("escapeLike", () => {
 
   test("пустая строка", () => {
     expect(escapeLike("")).toBe("");
+  });
+});
+
+describe("normalizeCatalogText", () => {
+  test("исправляет масляничные и сохраняет корректное написание", () => {
+    expect(normalizeCatalogText("Масляничные культуры")).toBe("Масличные культуры");
+    expect(normalizeCatalogText("масличные культуры")).toBe("масличные культуры");
   });
 });

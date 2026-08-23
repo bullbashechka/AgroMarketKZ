@@ -49,9 +49,9 @@ export function LoginScreen() {
     const container = containerRef.current;
     if (!BOT_USERNAME || !container) return;
 
-    // Возвращаем на тот же путь; кроме "/" — там beforeLoad-редирект на /services сотрёт
+    // Возвращаем на тот же путь; кроме "/" — там beforeLoad-редирект на /products сотрёт
     // query string раньше, чем страница успеет её прочитать.
-    const returnPath = window.location.pathname === "/" ? "/services" : window.location.pathname;
+    const returnPath = window.location.pathname === "/" ? "/products" : window.location.pathname;
 
     const script = document.createElement("script");
     script.src = "https://telegram.org/js/telegram-widget.js?22";
