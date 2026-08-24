@@ -47,6 +47,13 @@ describe("buildCardImagePath", () => {
       "cards/11111111-1111-4111-8111-111111111111.webp"
     );
   });
+
+  test("строит run-scoped путь для E2E и отклоняет небезопасный идентификатор", () => {
+    expect(buildCardImagePath("image/webp", "11111111-1111-4111-8111-111111111111", "run-1")).toBe(
+      "e2e/run-1/11111111-1111-4111-8111-111111111111.webp"
+    );
+    expect(() => buildCardImagePath("image/webp", "11111111-1111-4111-8111-111111111111", "run_under")).toThrow();
+  });
 });
 
 describe("signedUploadUrlFromResponse", () => {

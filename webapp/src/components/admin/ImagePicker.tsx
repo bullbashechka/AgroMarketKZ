@@ -23,6 +23,7 @@ export function ImagePicker({ images, onAdd, onRemove, onMakeCover, onRetry, err
   const active = activeIndex >= 0 ? images[activeIndex] : undefined;
   const uploadPending = images.some((image) => image.status === "compressing" || image.status === "uploading");
   const uploadReady = images.length > 0 && images.every((image) => image.status === "done");
+  const uploadError = images.some((image) => image.status === "error");
 
   function handleFiles(event: ChangeEvent<HTMLInputElement>) {
     if (event.target.files && event.target.files.length > 0) onAdd(event.target.files);
@@ -62,9 +63,13 @@ export function ImagePicker({ images, onAdd, onRemove, onMakeCover, onRetry, err
         )}
       </div>
       <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={handleFiles} />
-      {(uploadPending || uploadReady) && (
+      {(uploadPending || uploadReady || uploadError) && (
         <p className="muted" role="status" aria-live="polite" data-testid="card-image-upload-status">
-          {uploadPending ? "Фото загружается — публикация станет доступна после завершения." : "Фото готово к публикации."}
+          {uploadPending
+            ? "Фото загружается — публикация станет доступна после завершения."
+            : uploadError
+              ? "Некоторые фото не загрузились — повторите загрузку или удалите их."
+              : "Фото готово к публикации."}
         </p>
       )}
       {error && <span className="field-error">{error}</span>}

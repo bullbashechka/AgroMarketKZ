@@ -124,6 +124,10 @@ const optionalNullableText = (max: number) =>
   z.preprocess((value) => value === null ? undefined : value, optionalText(max));
 
 const cardBaseInput = z.object({
+  /** UUID попытки создания; используется как существующий primary key для безопасного replay без миграции. */
+  clientRequestId: z.uuid({ error: "Некорректный идентификатор создания" }).optional(),
+  /** UUID одной попытки PUT; create его игнорирует, update использует для receipt. */
+  mutationId: z.uuid({ error: "Некорректный идентификатор изменения" }).optional(),
   type: catalogTypeSchema,
   categoryId: z.uuid({ error: "Выберите категорию" }),
   title: requiredText(CARD_TITLE_MAX, "Укажите название"),
@@ -224,7 +228,7 @@ export type PublishCardInput = z.infer<typeof publishCardInput>;
 
 /** Редактирование карточки — полная замена полей (админ задаёт все поля). */
 export const updateCardInput = createCardInput.and(z.object({
-  expectedVersion: z.number().int().positive({ error: "Некорректная версия карточки" })
+  expectedVersion: z.number().int().positive({ error: "Некорректная версия карточки" }),
 }));
 export type UpdateCardInput = z.infer<typeof updateCardInput>;
 

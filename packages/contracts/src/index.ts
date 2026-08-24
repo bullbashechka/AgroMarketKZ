@@ -15,6 +15,7 @@ export * from "./primitives";
 export * from "./pagination";
 export * from "./category";
 export * from "./card";
+export * from "./publication";
 export * from "./catalog";
 export * from "./favorite";
 export * from "./request";

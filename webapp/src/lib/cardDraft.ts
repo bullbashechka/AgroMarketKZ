@@ -10,6 +10,8 @@ export interface CardDraftSpec {
 
 /** Черновик формы создания карточки — только для create (в edit не читается и не пишется). */
 export interface CardDraft {
+  /** Сохраняется вместе с черновиком, чтобы повтор POST после перезагрузки был идемпотентным. */
+  clientRequestId?: string;
   type: CatalogType;
   categoryId: string;
   title: string;

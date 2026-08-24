@@ -31,14 +31,28 @@ bun run build                     # прод-сборка (нужны VITE_API_U
 
 Перед каждым релизом дополнительно:
 
-- Supabase Security и Performance Advisors — ноль `ERROR`/`WARN`; двенадцать
-  `INFO rls_enabled_no_policy` для закрытых backend-only таблиц ожидаемы.
+- Supabase Security и Performance Advisors — ноль `ERROR`/`WARN`; тринадцать
+  `INFO rls_enabled_no_policy` для закрытых backend-only таблиц ожидаемы после применения 0012.
 - Проверить production `ADMIN_ALLOWLIST`: владелец `1295392762` и оператор видят раздел
   «Управление», посторонний аккаунт получает `403`; в `wrangler tail` нет предупреждений
   про синтетические id.
-- `bun run test:e2e` пока **не запускать**: корневой `.env` ведёт в production-БД. После
-  выделения test-БД перед прогоном остановить обычный `bun run dev`, чтобы Playwright не
-  переиспользовал backend с другим окружением; global setup дополнительно проверит `isAdmin`.
+- `bun run test:e2e` запускается только с отдельными `E2E_DATABASE_URL`, `E2E_SUPABASE_URL`,
+  Storage bucket/service key и Telegram/JWT secrets из `.env.e2e`. Корневой `.env` не
+  наследуется и читается только как production baseline: для удалённых E2E-БД/Supabase он
+  обязателен, а полностью локальная конфигурация может работать без него. Конфигурация с
+  production URL/секретом отклоняется до старта серверов, а уже запущенные dev-серверы не
+  переиспользуются. На бесплатном Supabase без отдельного проекта E2E ожидаемо останавливается
+  безопасной проверкой и не создаёт записи.
+- Данные E2E помечаются уникальным `[e2e:<run-id>]`, а синтетические Telegram id генерируются
+  отдельно для каждого run. Global teardown через test-only cleanup endpoint синхронно удаляет только этот
+  префикс в карточках, категориях, заявках, feedback, Storage и тестовых профилях и строго сообщает
+об ошибках удаления. Storage удаляется перед SQL-транзакцией, поэтому повтор teardown может
+использовать сохранённые ссылки после временного сбоя; старые префиксы намеренно не удаляются автоматически, чтобы не затронуть
+  параллельный прогон. После проверки, что активных прогонов нет, такие leftovers удаляются
+  отдельной ручной операцией по конкретному префиксу.
+- Signed uploads E2E используют `e2e/<run-id>/`. Teardown перечисляет этот префикс, удаляет
+  unbound-файлы и при потерянном ответе DELETE подтверждает отсутствие объекта через HEAD;
+  production-загрузки по-прежнему используют `cards/<uuid>.<ext>`.
 - `bun run load:test` также не запускать против корневого `.env`: auth journey создаёт
   пользователей, а mutation mode — заявки и обратную связь.
 
@@ -103,7 +117,9 @@ echo -n "новое-значение" | ./node_modules/.bin/wrangler secret put 
 прогоном `0001`→latest на отдельной безопасной БД, затем применять к production точечно через
 Supabase SQL Editor или `apply_migration`.
 
-Для `0009_enable_rls.sql` после применения проверить:
+Перед включением recovery для редактирования карточек сначала точечно применить
+`0012_card_update_mutations.sql` через Supabase SQL Editor или `apply_migration`, а затем
+выполнить финальную проверку RLS для всех прикладных таблиц:
 
 ```sql
 select c.relname, c.relrowsecurity
@@ -113,7 +129,8 @@ where n.nspname = 'public'
   and c.relname in (
     'users', 'categories', 'cards', 'card_images', 'card_specs',
     'favorites', 'requests', 'feedback_messages', 'platform_settings',
-    'territories', 'card_service_territories', 'request_service_territories'
+    'territories', 'card_service_territories', 'request_service_territories',
+    'card_update_mutations'
   )
 order by c.relname;
 
@@ -129,11 +146,11 @@ where d.defaclnamespace = 'public'::regnamespace
   and e.grantee in ('anon'::regrole, 'authenticated'::regrole);
 ```
 
-Ожидается `relrowsecurity = true` у всех двенадцати таблиц, ноль table grants и ноль строк
+Ожидается `relrowsecurity = true` у всех тринадцати таблиц, ноль table grants и ноль строк
 default ACL для `anon` / `authenticated`. Hosted Supabase может запретить роли `postgres`
 менять defaults владельца `supabase_admin`; тогда миграция выдаёт `WARNING`, а в Dashboard →
 Project Settings → Data API нужно отключить автоматическую публикацию новых таблиц и повторить
-последний запрос. Затем повторно запустить Security Advisor: двенадцать INFO допустимы, новых
+последний запрос. Затем повторно запустить Security Advisor: тринадцать INFO допустимы, новых
 `ERROR`/`WARN` быть не должно. Внешняя проверка с anon-ключом должна вернуть
 `permission denied for table users`, после чего проверить каталог, загрузку/показ фото и один
 админский endpoint. Схему `storage` миграция намеренно не меняет.
@@ -159,8 +176,10 @@ where c.published_at is not null
 order by c.type, c.title;
 ```
 
-Ненулевой результат требует ручного backfill и повторной проверки до публикации новых
-территориальных фильтров.
+Ненулевой результат проверки географии требует ручного backfill и повторной проверки до
+публикации новых территориальных фильтров. После успешной финальной RLS-проверки миграция
+0012 безопасна для существующих карточек и не требует backfill; только теперь можно выкатывать
+backend с recovery PUT.
 
 ## Регламент апгрейда Supabase
 

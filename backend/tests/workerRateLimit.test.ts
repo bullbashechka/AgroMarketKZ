@@ -71,6 +71,8 @@ describe("Cloudflare authenticated rate limiting", () => {
     expect(response.headers.get("Retry-After")).toBe("60");
     expect(await response.json()).toEqual({
       error: "Слишком много запросов",
+      code: "RATE_LIMITED",
+      requestId: expect.any(String),
       retryAfterSeconds: 60,
     });
   });
@@ -373,7 +375,11 @@ describe("AUTH_IDENTITY_RATE_LIMITER (pre-auth, по IP + Telegram id)", () => {
     });
 
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Отсутствует подпись Telegram" });
+    expect(await response.json()).toEqual({
+      error: "Отсутствует подпись Telegram",
+      code: "HTTP_ERROR",
+      requestId: expect.any(String),
+    });
     expect(identityLimiter.calls).toEqual([{ key: "unknown:555" }]);
   });
 });

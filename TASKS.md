@@ -266,6 +266,15 @@ JWT и предзарегистрированным профилем, `freshUser
 Известное ограничение: общий dev-Supabase не подходит для параллельных CI-прогонов
 (нужна отдельная БД/ветка на прогон) — see e2e/playwright.config.ts.
 
+Текущая конфигурация supersedes это ограничение: `e2e/playwright.config.ts` не наследует
+корневой `.env`, требует отдельные `E2E_*` DB/Storage/Telegram/JWT значения, запускает
+серверы с явным окружением и проверяет, что тестовые ресурсы не совпадают с production.
+Для удалённых E2E-БД/Supabase корневой `.env` с production baseline обязателен; полностью
+локальная конфигурация может работать без него.
+Каждый прогон получает уникальный префикс и отдельные synthetic Telegram ids, удаляет только свои
+карточки, категории, заявки, feedback, Storage и тестовые профили; старые leftovers
+удаляются вручную после проверки отсутствия активных прогонов.
+
 ---
 
 ## Этап 9.1. Реализация когнитивного UX-аудита
@@ -450,7 +459,8 @@ JWT и предзарегистрированным профилем, `freshUser
 
 - [ ] `bun run typecheck` — зелёный.
 - [ ] `cd backend && bun test` — зелёный.
-- [ ] `bun run test:e2e` — отложен до отдельной test-БД; текущий прогон пишет в production.
+- [ ] `bun run test:e2e` — запускать только с изолированными `E2E_*` DB/Storage/Telegram/JWT
+  значениями из `.env.e2e`; конфигурация с production-ресурсами блокируется до старта.
 - [ ] Security и performance advisors Supabase — ноль ERROR/WARN.
 - [ ] Живая проверка заголовков: CSP enforcing, HSTS, `nosniff`, `Cache-Control: no-store` на API.
 - [ ] Живая проверка CORS: preflight с посторонним Origin не получает `Access-Control-Allow-Origin`.

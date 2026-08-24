@@ -18,6 +18,7 @@ import {
   createCard,
   deleteCard,
   getAdminCardDetail,
+  getAdminCardDetailForMutation,
   publishCard,
   updateCard
 } from "../../repos/adminCatalog";
@@ -42,8 +43,19 @@ adminCardsRoutes.get("/", async (c) => {
 adminCardsRoutes.get("/:id", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
-  const card = await getAdminCardDetail(env, id);
+  const mutationId = c.req.query("mutationId");
+  if (mutationId !== undefined && !z.uuid().safeParse(mutationId).success) {
+    throw new HttpError(400, "Некорректный идентификатор изменения");
+  }
+  const card = mutationId === undefined
+    ? await getAdminCardDetail(env, id)
+    : await getAdminCardDetailForMutation(env, id, mutationId);
   if (!card) {
+    if (mutationId !== undefined) {
+      throw new HttpError(409, "Изменение с указанным идентификатором не найдено", {
+        code: "CARD_UPDATE_MUTATION_NOT_FOUND",
+      });
+    }
     throw new HttpError(404, "Карточка не найдена");
   }
   return c.json(adminCardDetailSchema.parse(card));

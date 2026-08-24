@@ -32,7 +32,68 @@ import {
 } from "./catalog";
 
 function isPgError(err: unknown, code: string): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: string }).code === code;
+  return typeof err === "object" && err !== null && String((err as { code?: unknown }).code) === code;
+}
+
+function pgConstraint(err: unknown): string | undefined {
+  if (typeof err !== "object" || err === null) return undefined;
+  const source = err as { constraint?: unknown; constraint_name?: unknown };
+  const constraint = source.constraint ?? source.constraint_name;
+  return typeof constraint === "string" ? constraint : undefined;
+}
+
+const CARD_CHECK_CONSTRAINTS = new Set([
+  "cards_archived_requires_publication",
+  "cards_availability_not_blank",
+  "cards_location_not_blank",
+  "cards_ownership_form_valid",
+  "cards_price_reason_not_blank",
+  "cards_price_unit_not_blank",
+  "cards_product_location_detail_not_blank",
+  "cards_product_location_valid",
+  "cards_published_price_complete",
+  "cards_published_product_fields_complete",
+  "cards_title_not_blank",
+  "cards_type_specific_fields",
+  "cards_valid_price",
+  "cards_version_positive",
+  "card_images_alt_text_not_blank",
+  "card_images_storage_path_not_blank",
+  "card_specs_key_not_blank",
+  "card_specs_value_not_blank",
+  "card_service_territories_sort_order_nonnegative",
+]);
+
+/** Преобразует ожидаемые ошибки целостности формы в понятный 4xx, не скрывая неизвестные сбои. */
+export function cardConstraintError(err: unknown): HttpError | undefined {
+  const constraint = pgConstraint(err);
+  if (isPgError(err, "23503")) {
+    if (constraint === "cards_category_type_fkey") {
+      return new HttpError(400, "Категория не подходит по типу карточки", { code: "CATEGORY_TYPE_MISMATCH" });
+    }
+    if (constraint === "cards_territory_code_fkey" || constraint === "card_service_territories_territory_code_fkey") {
+      return new HttpError(400, "Выбранный регион больше недоступен", { code: "TERRITORY_NOT_FOUND" });
+    }
+  }
+  if (isPgError(err, "23505")) {
+    if (constraint === "card_images_card_path_unique") {
+      return new HttpError(400, "Одно и то же фото добавлено повторно", { code: "DUPLICATE_IMAGE" });
+    }
+    if (constraint === "card_specs_card_key_uidx") {
+      return new HttpError(400, "Характеристики не должны повторяться по названию", { code: "DUPLICATE_SPEC" });
+    }
+    if (constraint === "card_update_mutations_pkey") {
+      return new HttpError(409, "Эта попытка изменения уже использована", {
+        code: "CARD_UPDATE_REQUEST_REUSED",
+      });
+    }
+  }
+  if (isPgError(err, "23514") && constraint && CARD_CHECK_CONSTRAINTS.has(constraint)) {
+    return new HttpError(400, "Карточка не соответствует требованиям публикации", {
+      code: "CARD_CONSTRAINT_VIOLATION",
+    });
+  }
+  return undefined;
 }
 
 function normalizeCardInput(input: CreateCardInput): CreateCardInput {
@@ -51,6 +112,108 @@ function normalizeCardInput(input: CreateCardInput): CreateCardInput {
       value: normalizeCatalogText(spec.value)
     }))
   };
+}
+
+/**
+ * Стабильное представление PUT для server-side receipt. Не включает mutationId:
+ * идентификатор сам является ключом receipt, а payload нужен для защиты replay
+ * другим набором данных.
+ */
+function cardUpdatePayload(input: CreateCardInput, expectedVersion: number): string {
+  return JSON.stringify({
+    expectedVersion,
+    type: input.type,
+    categoryId: input.categoryId,
+    title: input.title,
+    description: input.description,
+    priceType: input.priceType,
+    priceAmount: input.priceType === "on_request" ? null : input.priceAmount ?? null,
+    priceUnit: input.priceUnit ?? null,
+    priceReason: input.priceType === "fixed" ? null : input.priceReason ?? null,
+    location: input.location ?? null,
+    territoryCode: input.type === "product" ? input.territoryCode ?? null : null,
+    ownershipForm: input.type === "product" ? input.ownershipForm ?? null : null,
+    productLocation: input.type === "product" ? input.productLocation ?? null : null,
+    productLocationDetail: input.type === "product" ? input.productLocationDetail ?? null : null,
+    serviceAllKazakhstan: input.type === "service" && input.serviceAllKazakhstan,
+    serviceTerritoryCodes: input.type === "service" && !input.serviceAllKazakhstan
+      ? input.serviceTerritoryCodes
+      : [],
+    availability: input.availability ?? null,
+    sortOrder: input.sortOrder,
+    images: input.images.map((image) => ({
+      storagePath: image.storagePath,
+      altText: image.altText ?? null,
+      sortOrder: image.sortOrder,
+    })),
+    specs: input.specs.map((spec) => ({
+      key: spec.key,
+      value: spec.value,
+      sortOrder: spec.sortOrder,
+    })),
+  });
+}
+
+function sameCardImageInputs(
+  detail: AdminCardDetail,
+  input: CreateCardInput,
+): boolean {
+  return detail.images.length === input.images.length
+    && detail.images.every((image, index) => {
+      const expected = input.images[index];
+      return expected !== undefined
+        && image.storagePath === expected.storagePath
+        && image.altText === (expected.altText ?? null)
+        && image.sortOrder === expected.sortOrder;
+    });
+}
+
+function sameCardSpecInputs(
+  detail: AdminCardDetail,
+  input: CreateCardInput,
+): boolean {
+  return detail.specs.length === input.specs.length
+    && detail.specs.every((spec, index) => {
+      const expected = input.specs[index];
+      return expected !== undefined
+        && spec.key === expected.key
+        && spec.value === expected.value
+        && spec.sortOrder === expected.sortOrder;
+    });
+}
+
+/** Проверяет replay create-запроса перед возвратом уже сохранённой карточки. */
+export function cardMatchesCreateInput(
+  detail: AdminCardDetail,
+  input: CreateCardInput,
+  expectedLocation?: string | null,
+): boolean {
+  const expectedPriceAmount = input.priceType === "on_request" ? null : input.priceAmount ?? null;
+  const expectedPriceReason = input.priceType === "fixed" ? null : input.priceReason ?? null;
+  const expectedServiceTerritories = input.type === "service" && !input.serviceAllKazakhstan
+    ? input.serviceTerritoryCodes
+    : [];
+
+  return detail.type === input.type
+    && detail.categoryId === input.categoryId
+    && detail.title === input.title
+    && detail.description === input.description
+    && detail.priceType === input.priceType
+    && detail.priceAmount === expectedPriceAmount
+    && detail.priceUnit === (input.priceUnit ?? null)
+    && detail.priceReason === expectedPriceReason
+    && detail.availability === (input.availability ?? null)
+    && (expectedLocation === undefined || detail.location === expectedLocation)
+    && detail.sortOrder === input.sortOrder
+    && (detail.territory?.code ?? null) === (input.type === "product" ? input.territoryCode ?? null : null)
+    && detail.ownershipForm === (input.type === "product" ? input.ownershipForm ?? null : null)
+    && detail.productLocation === (input.type === "product" ? input.productLocation ?? null : null)
+    && detail.productLocationDetail === (input.type === "product" ? input.productLocationDetail ?? null : null)
+    && detail.serviceAllKazakhstan === (input.type === "service" && input.serviceAllKazakhstan)
+    && detail.serviceTerritories.length === expectedServiceTerritories.length
+    && detail.serviceTerritories.every((territory, index) => territory.code === expectedServiceTerritories[index])
+    && sameCardImageInputs(detail, input)
+    && sameCardSpecInputs(detail, input);
 }
 
 async function legacyLocationForInput(env: AppEnv, input: CreateCardInput): Promise<string | null> {
@@ -335,21 +498,46 @@ export async function getAdminCardDetail(env: AppEnv, id: string): Promise<Admin
   return detail ? toAdminCardDetail(env, detail) : undefined;
 }
 
+/**
+ * Reads a card only when the exact update mutation was committed. A normal GET
+ * must not be used for ambiguous PUT recovery: another editor may have written
+ * the same values with a different mutation id.
+ */
+export async function getAdminCardDetailForMutation(
+  env: AppEnv,
+  id: string,
+  mutationId: string,
+): Promise<AdminCardDetail | undefined> {
+  const sql = getDb(env);
+  const [receipt] = await sql<{ card_id: string; result_version: number }[]>`
+    select card_id, result_version
+    from card_update_mutations
+    where mutation_id = ${mutationId} and card_id = ${id}
+  `;
+  if (!receipt) return undefined;
+  const detail = await getAdminCardDetail(env, id);
+  return detail?.version === receipt.result_version ? detail : undefined;
+}
+
 /** Создаёт серверный черновик вместе с уже успешно загруженными фото и характеристиками. */
 export async function createCard(env: AppEnv, input: CreateCardInput): Promise<AdminCardDetail> {
   const sql = getDb(env);
   const normalizedInput = normalizeCardInput(input);
   const legacyLocation = await legacyLocationForInput(env, normalizedInput);
+  const cardId = normalizedInput.clientRequestId ?? crypto.randomUUID();
+  let replayedCardId: string | undefined;
   try {
     const detail = await sql.begin(async (tx) => {
       const [card] = await tx<{ id: string }[]>`
         insert into cards (
+          id,
           type, category_id, title, description, price_type, price_amount,
           price_unit, price_reason, location, availability, sort_order,
           territory_code, ownership_form, product_location, product_location_detail,
           service_all_kazakhstan
         )
         values (
+          ${cardId},
           ${normalizedInput.type}, ${normalizedInput.categoryId}, ${normalizedInput.title}, ${normalizedInput.description},
           ${normalizedInput.priceType}, ${normalizedInput.priceType === "on_request" ? null : normalizedInput.priceAmount ?? null},
           ${normalizedInput.priceUnit ?? null}, ${normalizedInput.priceType === "fixed" ? null : normalizedInput.priceReason ?? null},
@@ -360,9 +548,14 @@ export async function createCard(env: AppEnv, input: CreateCardInput): Promise<A
           ${normalizedInput.type === "product" ? normalizedInput.productLocationDetail ?? null : null},
           ${normalizedInput.type === "service" && normalizedInput.serviceAllKazakhstan}
         )
+        on conflict (id) do nothing
         returning id
       `;
-      const createdId = card!.id;
+      if (!card) {
+        replayedCardId = cardId;
+        return undefined;
+      }
+      const createdId = card.id;
 
       if (normalizedInput.images.length > 0) {
         const imageRows = normalizedInput.images.map((img) => ({
@@ -428,11 +621,20 @@ export async function createCard(env: AppEnv, input: CreateCardInput): Promise<A
         category?.required_specs ?? []
       );
     });
+    if (replayedCardId) {
+      const existing = await getAdminCardDetail(env, replayedCardId);
+      if (!existing || !cardMatchesCreateInput(existing, normalizedInput, legacyLocation)) {
+        throw new HttpError(409, "Эта попытка создания уже использована для другой карточки", {
+          code: "CARD_CREATE_REQUEST_REUSED",
+        });
+      }
+      return existing;
+    }
+    if (!detail) throw new Error("Создание карточки не вернуло результат");
     return detail;
   } catch (err) {
-    if (isPgError(err, "23503")) {
-      throw new HttpError(400, "Категория не подходит по типу карточки");
-    }
+    const mappedError = cardConstraintError(err);
+    if (mappedError) throw mappedError;
     throw err;
   }
 }
@@ -450,6 +652,8 @@ export async function updateCard(
   const sql = getDb(env);
   const normalizedInput = normalizeCardInput(input);
   const legacyLocation = await legacyLocationForInput(env, normalizedInput);
+  const mutationId = input.mutationId ?? crypto.randomUUID();
+  const mutationPayload = cardUpdatePayload(normalizedInput, input.expectedVersion);
   try {
     const result = await sql.begin(async (tx) => {
       const [existingCard] = await tx<{
@@ -462,6 +666,33 @@ export async function updateCard(
         for update
       `;
       if (!existingCard) throw new HttpError(404, "Карточка не найдена");
+
+      // Lock the card before checking the receipt. This serializes a replay with
+      // a newer edit and lets us reject a stale receipt instead of returning the
+      // newer card as if it were the original PUT result.
+      const [replayedReceipt] = await tx<{
+        card_id: string;
+        payload: string;
+        result_version: number;
+      }[]>`
+        select card_id, payload, result_version
+        from card_update_mutations
+        where mutation_id = ${mutationId}
+      `;
+      if (replayedReceipt) {
+        if (replayedReceipt.card_id !== id || replayedReceipt.payload !== mutationPayload) {
+          throw new HttpError(409, "Эта попытка изменения уже использована для другой карточки или данных", {
+            code: "CARD_UPDATE_REQUEST_REUSED",
+          });
+        }
+        if (existingCard.version !== replayedReceipt.result_version) {
+          throw new HttpError(409, "Карточка уже изменена после этого сохранения. Обновите данные перед публикацией", {
+            code: "CARD_CHANGED_AFTER_REPLAY",
+          });
+        }
+        return { replayed: true as const };
+      }
+
       if (existingCard.version !== input.expectedVersion) {
         throw new HttpError(409, "Карточка была изменена в другом окне. Обновите данные перед сохранением");
       }
@@ -594,6 +825,11 @@ export async function updateCard(
       const newPaths = new Set(normalizedInput.images.map((img) => img.storagePath));
       const removedPaths = oldImages.map((r) => r.storage_path).filter((p) => !newPaths.has(p));
 
+      await tx`
+        insert into card_update_mutations (mutation_id, card_id, expected_version, result_version, payload)
+        values (${mutationId}, ${id}, ${input.expectedVersion}, ${card.version}, ${mutationPayload})
+      `;
+
       return {
         detail: toAdminCardDetailWithRequiredSpecs(
           toCardDetail(detailRow, images, specs, env, serviceTerritories.map(toTerritory)),
@@ -602,12 +838,16 @@ export async function updateCard(
         removedPaths
       };
     });
+    if ("replayed" in result && result.replayed) {
+      const replayedDetail = await getAdminCardDetail(env, id);
+      if (!replayedDetail) throw new HttpError(404, "Карточка не найдена");
+      return { detail: replayedDetail, removedPaths: [] };
+    }
     return result;
   } catch (err) {
     if (err instanceof HttpError) throw err;
-    if (isPgError(err, "23503")) {
-      throw new HttpError(400, "Категория не подходит по типу карточки");
-    }
+    const mappedError = cardConstraintError(err);
+    if (mappedError) throw mappedError;
     throw err;
   }
 }

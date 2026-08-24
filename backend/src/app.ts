@@ -1,5 +1,5 @@
 import { healthResponseSchema } from "@agromarket/contracts";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -24,10 +24,59 @@ type AppOptions = {
 
 export const JSON_BODY_LIMIT_BYTES = 256 * 1024;
 
-const BODY_LIMIT_ERROR = { error: "Размер запроса превышает 256 KiB" };
+const BODY_LIMIT_ERROR = {
+  error: "Размер запроса превышает 256 KiB",
+  code: "BODY_TOO_LARGE",
+};
+
+function safeErrorMetadata(err: unknown): Record<string, unknown> {
+  if (typeof err !== "object" || err === null) return {};
+  const source = err as {
+    name?: unknown;
+    code?: unknown;
+    constraint?: unknown;
+    schema?: unknown;
+    table?: unknown;
+    column?: unknown;
+    schema_name?: unknown;
+    table_name?: unknown;
+    column_name?: unknown;
+    constraint_name?: unknown;
+  };
+  return Object.fromEntries(
+    Object.entries({
+      name: source.name,
+      code: source.code,
+      constraint: source.constraint ?? source.constraint_name,
+      schema: source.schema ?? source.schema_name,
+      table: source.table ?? source.table_name,
+      column: source.column ?? source.column_name,
+    }).filter(([, value]) => typeof value === "string" && value.length > 0),
+  );
+}
+
+function safeErrorKind(err: unknown): string {
+  if (err instanceof Error && err.name) return err.name;
+  return typeof err;
+}
+
+function requestIdOf(c: Context<HonoEnv>): string {
+  return c.get("requestId");
+}
+
+function errorBody(c: Context<HonoEnv>, body: Record<string, unknown>): Record<string, unknown> {
+  return { ...body, requestId: requestIdOf(c) };
+}
 
 export function createApp(options: AppOptions = {}) {
   const app = new Hono<HonoEnv>();
+
+  app.use("*", async (c, next) => {
+    const requestId = crypto.randomUUID();
+    c.set("requestId", requestId);
+    c.header("X-Request-ID", requestId);
+    await next();
+  });
 
   // Слияние окружения: Workers-биндинги (c.env) + локальный override (Bun.env).
   app.use("*", async (c, next) => {
@@ -68,7 +117,7 @@ export function createApp(options: AppOptions = {}) {
     "*",
     bodyLimit({
       maxSize: JSON_BODY_LIMIT_BYTES,
-      onError: (c) => c.json(BODY_LIMIT_ERROR, 413),
+      onError: (c) => c.json(errorBody(c, BODY_LIMIT_ERROR), 413),
     }),
   );
 
@@ -84,19 +133,52 @@ export function createApp(options: AppOptions = {}) {
       ) {
         c.header("Retry-After", String(retryAfterSeconds));
       }
-      return c.json({ error: err.message, ...err.details }, err.status as ContentfulStatusCode);
+      const { code: detailCode, ...details } = err.details;
+      return c.json(
+        errorBody(c, {
+          error: err.message,
+          code: typeof detailCode === "string"
+            ? detailCode
+            : err.status === 429
+              ? "RATE_LIMITED"
+              : "HTTP_ERROR",
+          ...details,
+        }),
+        err.status as ContentfulStatusCode,
+      );
     }
     if (err instanceof ZodError) {
-      return c.json({ error: "Проверьте корректность данных", code: "VALIDATION_ERROR" }, 400);
+      return c.json(errorBody(c, {
+        error: "Проверьте корректность данных",
+        code: "VALIDATION_ERROR",
+      }), 400);
     }
-    console.error(err);
-    if (isConnectionError(err)) {
+    const connectionError = isConnectionError(err);
+    console.error("request failed", {
+      event: "request_error",
+      requestId: requestIdOf(c),
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      connectionError,
+      errorCode: connectionError ? "DB_CONNECTION_ERROR" : "INTERNAL_ERROR",
+      errorKind: safeErrorKind(err),
+      ...safeErrorMetadata(err),
+    });
+    if (connectionError) {
       c.get("env").REQUEST_METRICS?.writeDataPoint({
         indexes: ["db_conn_error"],
         blobs: [c.req.method, new URL(c.req.url).pathname]
       });
+      return c.json(errorBody(c, {
+        error: "Сервис временно недоступен. Попробуйте ещё раз",
+        code: "DB_TEMPORARILY_UNAVAILABLE",
+        retryable: true,
+      }), 503);
     }
-    return c.json({ error: "Внутренняя ошибка сервера" }, 500);
+    return c.json(errorBody(c, {
+      error: "Внутренняя ошибка сервера",
+      code: "INTERNAL_ERROR",
+    }), 500);
   });
 
   app.get("/health", (c) => {

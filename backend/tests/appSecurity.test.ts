@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { z } from "zod";
 import { createApp } from "../src/app";
 import type { AppEnv } from "../src/env";
@@ -14,7 +14,7 @@ describe("security headers JSON API", () => {
 });
 
 const JSON_BODY_LIMIT_BYTES = 256 * 1024;
-const BODY_LIMIT_ERROR = { error: "Размер запроса превышает 256 KiB" };
+const BODY_LIMIT_ERROR = { error: "Размер запроса превышает 256 KiB", code: "BODY_TOO_LARGE" };
 const WEBHOOK_ENV: Partial<AppEnv> = {
   ADMIN_ALLOWLIST: "",
   TELEGRAM_WEBHOOK_SECRET: "test-secret",
@@ -59,7 +59,9 @@ describe("ограничение размера request body", () => {
     const response = await createApp({ env: WEBHOOK_ENV }).fetch(request);
 
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual(BODY_LIMIT_ERROR);
+    const responseBody = await response.json() as Record<string, unknown>;
+    expect(responseBody).toMatchObject(BODY_LIMIT_ERROR);
+    expect(responseBody.requestId).toBe(response.headers.get("X-Request-ID"));
   });
 
   test("отклоняет stream больше 256 KiB без Content-Length тем же JSON 413", async () => {
@@ -82,7 +84,9 @@ describe("ограничение размера request body", () => {
     const response = await createApp({ env: WEBHOOK_ENV }).fetch(request);
 
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual(BODY_LIMIT_ERROR);
+    const responseBody = await response.json() as Record<string, unknown>;
+    expect(responseBody).toMatchObject(BODY_LIMIT_ERROR);
+    expect(responseBody.requestId).toBe(response.headers.get("X-Request-ID"));
   });
 
   test("сохраняет существующее поведение malformed JSON в пределах лимита", async () => {
@@ -111,10 +115,12 @@ describe("Retry-After для HttpError 429", () => {
 
     expect(response.status).toBe(429);
     expect(response.headers.get("Retry-After")).toBe("60");
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       error: "Слишком много запросов",
+      code: "RATE_LIMITED",
       retryAfterSeconds: 60,
     });
+    expect(response.headers.get("X-Request-ID")).toBeTruthy();
   });
 
   test.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "60"])(
@@ -139,9 +145,63 @@ describe("безопасный ответ на ZodError", () => {
     const body = (await response.json()) as Record<string, unknown>;
 
     expect(response.status).toBe(400);
-    expect(body).toEqual({ error: "Проверьте корректность данных", code: "VALIDATION_ERROR" });
+    expect(body).toMatchObject({ error: "Проверьте корректность данных", code: "VALIDATION_ERROR" });
+    expect(body.requestId).toBe(response.headers.get("X-Request-ID"));
     expect(body).not.toHaveProperty("issues");
     expect(body).not.toHaveProperty("stack");
     expect(JSON.stringify(body)).not.toContain("field");
+  });
+});
+
+describe("безопасная классификация необработанных ошибок", () => {
+  test("сетевой сбой возвращается как retryable 503", async () => {
+    const app = createApp();
+    app.get("/__test/connection-error", () => {
+      throw Object.assign(new Error("connection closed"), { code: "CONNECTION_CLOSED" });
+    });
+
+    const response = await app.request("/__test/connection-error");
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      error: "Сервис временно недоступен. Попробуйте ещё раз",
+      code: "DB_TEMPORARILY_UNAVAILABLE",
+      retryable: true,
+    });
+    expect(body.requestId).toBe(response.headers.get("X-Request-ID"));
+  });
+
+  test("неизвестный сбой остаётся 500 с requestId", async () => {
+    const app = createApp();
+    app.get("/__test/program-error", () => {
+      throw new Error("programming error");
+    });
+
+    const response = await app.request("/__test/program-error");
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(500);
+    expect(body).toMatchObject({ error: "Внутренняя ошибка сервера", code: "INTERNAL_ERROR" });
+    expect(body.requestId).toBe(response.headers.get("X-Request-ID"));
+    expect(body).not.toHaveProperty("message");
+  });
+
+  test("не пишет raw exception message в production-лог", async () => {
+    const errorLog = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const app = createApp();
+      app.get("/__test/secret-error", () => {
+        throw new Error("database password=super-secret token=do-not-log");
+      });
+
+      await app.request("/__test/secret-error");
+
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain("super-secret");
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain("do-not-log");
+      expect(JSON.stringify(errorLog.mock.calls)).toContain("INTERNAL_ERROR");
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 });

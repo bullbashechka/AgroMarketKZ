@@ -1,5 +1,5 @@
 import { TEST_ADMIN } from "./data/testUsers";
-import { api } from "./helpers/api";
+import { api, E2E_PREFIX } from "./helpers/api";
 import { API_URL, TELEGRAM_BOT_TOKEN } from "./helpers/env";
 import { loginAsTelegramUser } from "./helpers/telegramAuth";
 
@@ -9,7 +9,14 @@ export default async function globalSetup() {
 
   if (!profile.isAdmin) {
     throw new Error(
-      "E2E admin guard failed: TEST_ADMIN is not an admin. Stop an existing dev backend and verify .env.e2e ADMIN_ALLOWLIST."
+      "E2E admin guard failed: generated TEST_ADMIN is not an admin. Stop an existing dev backend and verify the isolated E2E backend environment."
     );
   }
+
+  // Глобальный login создаёт строку users даже если ни один тест не запросит adminToken.
+  // Помечаем её, чтобы test-only cleanup мог удалить только данные этого run.
+  await api.post("/profile/register", token, {
+    contactName: `${E2E_PREFIX} Тестовый админ`,
+    contactPhone: "+77010000002",
+  });
 }
