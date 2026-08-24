@@ -1,5 +1,6 @@
 import {
   catalogTypeLabels,
+  commodityGroupLabels,
   createCardInput,
   publishCardInput,
   DESCRIPTION_MAX,
@@ -10,6 +11,7 @@ import {
   type AdminCardDetail,
   type CardDetail,
   type CatalogType,
+  type CommodityGroup,
   type CreateCardInput,
   type PriceType,
   type ProductLocation,
@@ -147,7 +149,11 @@ function CardEditorForm({
   const [categoryId, setCategoryId] = useState(initial?.categoryId ?? draft?.categoryId ?? "");
   const [title, setTitle] = useState(initial?.title ?? draft?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? draft?.description ?? "");
-  const [priceType, setPriceType] = useState<PriceType>(initial?.priceType ?? draft?.priceType ?? "fixed");
+  const [priceType, setPriceType] = useState<PriceType>(
+    (initial?.type ?? draft?.type ?? initialType) === "product" && (initial?.priceType ?? draft?.priceType) === "on_request"
+      ? "fixed"
+      : initial?.priceType ?? draft?.priceType ?? "fixed"
+  );
   const [priceAmount, setPriceAmount] = useState(
     initial?.priceAmount != null ? String(initial.priceAmount) : draft?.priceAmount ?? ""
   );
@@ -157,6 +163,10 @@ function CardEditorForm({
   const [ownershipForm, setOwnershipForm] = useState<ProductOwnershipForm | "">(initial?.ownershipForm ?? draft?.ownershipForm ?? "");
   const [productLocation, setProductLocation] = useState<ProductLocation | "">(initial?.productLocation ?? draft?.productLocation ?? "");
   const [productLocationDetail, setProductLocationDetail] = useState(initial?.productLocationDetail ?? draft?.productLocationDetail ?? "");
+  const [commodityGroup, setCommodityGroup] = useState<CommodityGroup | "">(initial?.commodityGroup ?? draft?.commodityGroup ?? "");
+  const [volumeTonnes, setVolumeTonnes] = useState(
+    initial?.volumeTonnes != null ? String(initial.volumeTonnes) : draft?.volumeTonnes ?? ""
+  );
   const [serviceAllKazakhstan, setServiceAllKazakhstan] = useState(initial?.serviceAllKazakhstan ?? draft?.serviceAllKazakhstan ?? false);
   const [serviceTerritoryCodes, setServiceTerritoryCodes] = useState<TerritoryCode[]>(
     initial?.serviceTerritories.map((territory) => territory.code) ?? draft?.serviceTerritoryCodes ?? []
@@ -189,6 +199,12 @@ function CardEditorForm({
   const categoriesQuery = useQuery(adminCategoriesQueryOptions(type));
   const territoriesQuery = useQuery(territoriesQueryOptions);
   const selectedCategory = categoriesQuery.data?.find((category) => category.id === categoryId);
+
+  useEffect(() => {
+    if (!selectedCategory || selectedCategory.isCommodity) return;
+    setCommodityGroup("");
+    setVolumeTonnes("");
+  }, [selectedCategory?.id, selectedCategory?.isCommodity]);
 
   useEffect(() => {
     const required = selectedCategory?.requiredSpecs ?? [];
@@ -408,6 +424,8 @@ function CardEditorForm({
     ownershipForm: ownershipForm || undefined,
     productLocation: productLocation || undefined,
     productLocationDetail,
+    commodityGroup: commodityGroup || undefined,
+    volumeTonnes: volumeTonnes || undefined,
     serviceAllKazakhstan,
     serviceTerritoryCodes,
     availability,
@@ -426,11 +444,17 @@ function CardEditorForm({
 
   function applyTypeChange(nextType: CatalogType) {
     setType(nextType);
+    if (nextType === "product" && priceType === "on_request") {
+      setPriceType("fixed");
+      setPriceReason("");
+    }
     setCategoryId("");
     setTerritoryCode("");
     setOwnershipForm("");
     setProductLocation("");
     setProductLocationDetail("");
+    setCommodityGroup("");
+    setVolumeTonnes("");
     setServiceAllKazakhstan(false);
     setServiceTerritoryCodes([]);
     setTypeChange(null);
@@ -438,7 +462,7 @@ function CardEditorForm({
 
   function handleTypeChange(nextType: CatalogType) {
     if (nextType === type) return;
-    if (categoryId || territoryCode || ownershipForm || productLocation || serviceTerritoryCodes.length > 0) {
+    if (categoryId || territoryCode || ownershipForm || productLocation || commodityGroup || volumeTonnes || serviceTerritoryCodes.length > 0) {
       setTypeChange(nextType);
       return;
     }
@@ -449,6 +473,15 @@ function CardEditorForm({
     setServiceTerritoryCodes((current) => current.includes(code)
       ? current.filter((value) => value !== code)
       : [...current, code]);
+  }
+
+  function handleCategoryChange(nextCategoryId: string) {
+    setCategoryId(nextCategoryId);
+    const nextCategory = categoriesQuery.data?.find((category) => category.id === nextCategoryId);
+    if (!nextCategory?.isCommodity) {
+      setCommodityGroup("");
+      setVolumeTonnes("");
+    }
   }
 
   function buildPayload(completeSpecsOnly = false) {
@@ -472,9 +505,11 @@ function CardEditorForm({
       ownershipForm: type === "product" ? ownershipForm || null : null,
       productLocation: type === "product" ? productLocation || null : null,
       productLocationDetail: type === "product" ? productLocationDetail || null : null,
+      commodityGroup: type === "product" && selectedCategory?.isCommodity ? commodityGroup || null : null,
+      volumeTonnes: type === "product" && selectedCategory?.isCommodity && volumeTonnes ? Number(volumeTonnes.replace(",", ".")) : null,
       serviceAllKazakhstan: type === "service" && serviceAllKazakhstan,
       serviceTerritoryCodes: type === "service" && !serviceAllKazakhstan ? serviceTerritoryCodes : [],
-      availability,
+      availability: type === "service" ? availability : null,
       images: imageUploads.images
         .filter((img) => img.status === "done")
         .map((img, idx) => ({ storagePath: img.storagePath!, sortOrder: idx })),
@@ -502,6 +537,9 @@ function CardEditorForm({
     territoryCode: livePayload.territoryCode,
     ownershipForm: livePayload.ownershipForm,
     productLocation: livePayload.productLocation,
+    categoryIsCommodity: selectedCategory?.isCommodity ?? false,
+    commodityGroup: livePayload.commodityGroup,
+    volumeTonnes: livePayload.volumeTonnes,
     serviceAllKazakhstan: livePayload.serviceAllKazakhstan,
     serviceTerritoryCount: livePayload.serviceAllKazakhstan ? 1 : livePayload.serviceTerritoryCodes.length,
     availability: livePayload.availability || null,
@@ -605,6 +643,8 @@ function CardEditorForm({
     priceAmount: previewPayload.priceAmount,
     priceUnit: priceUnit || null,
     priceReason: priceType === "fixed" ? null : priceReason || null,
+    commodityGroup: type === "product" && selectedCategory?.isCommodity ? commodityGroup || null : null,
+    volumeTonnes: type === "product" && selectedCategory?.isCommodity && volumeTonnes ? Number(volumeTonnes.replace(",", ".")) : null,
     location: null,
     territory: type === "product"
       ? territoriesQuery.data?.find((territory) => territory.code === territoryCode) ?? null
@@ -616,7 +656,7 @@ function CardEditorForm({
     serviceTerritories: type === "service"
       ? (territoriesQuery.data ?? []).filter((territory) => serviceTerritoryCodes.includes(territory.code))
       : [],
-    availability: availability || null,
+    availability: type === "service" ? availability || null : null,
     sortOrder: initial?.sortOrder ?? 0,
     version: initial?.version ?? 1,
     publishedAt: initial?.publishedAt ?? null,
@@ -650,7 +690,7 @@ function CardEditorForm({
           className="input"
           data-testid="card-editor-category"
           value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
+          onChange={(e) => handleCategoryChange(e.target.value)}
         >
           <option value="">Выберите категорию</option>
           {(categoriesQuery.data ?? []).map((category) => (
@@ -687,7 +727,12 @@ function CardEditorForm({
         {errors.description && <span className="field-error">{errors.description}</span>}
       </label>
 
-      <Segmented options={priceTypeOptions} value={priceType} onChange={setPriceType} ariaLabel="Тип цены" />
+      <Segmented
+        options={type === "product" ? priceTypeOptions.filter((option) => option.value !== "on_request") : priceTypeOptions}
+        value={priceType === "on_request" && type === "product" ? "fixed" : priceType}
+        onChange={(next) => setPriceType(next)}
+        ariaLabel="Тип цены"
+      />
 
       {priceType !== "on_request" && (
         <label className="field">
@@ -744,7 +789,7 @@ function CardEditorForm({
       {type === "product" ? (
         <>
           <label className="field">
-            <span className="field-label">Регион</span>
+            <span className="field-label">Область</span>
             <select
               className="input"
               data-testid="card-editor-territory"
@@ -753,7 +798,7 @@ function CardEditorForm({
               disabled={territoriesQuery.isPending}
             >
               <option value="">Выберите регион</option>
-              {(territoriesQuery.data ?? []).map((territory) => (
+              {(territoriesQuery.data ?? []).filter((territory) => territory.kind === "region").map((territory) => (
                 <option key={territory.code} value={territory.code}>{territory.name}</option>
               ))}
             </select>
@@ -769,6 +814,31 @@ function CardEditorForm({
             </select>
             {errors.ownershipForm && <span className="field-error">{errors.ownershipForm}</span>}
           </label>
+          {selectedCategory?.isCommodity && (
+            <>
+              <label className="field">
+                <span className="field-label">Группа продукции</span>
+                <select className="input" value={commodityGroup} onChange={(event) => setCommodityGroup(event.target.value as CommodityGroup | "")}>
+                  <option value="">Выберите группу</option>
+                  {Object.entries(commodityGroupLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                {errors.commodityGroup && <span className="field-error">{errors.commodityGroup}</span>}
+              </label>
+              <label className="field">
+                <span className="field-label">Объём, тонн</span>
+                <input
+                  className="input"
+                  value={volumeTonnes}
+                  onChange={(event) => setVolumeTonnes(event.target.value.replace(/[^\d.,]/g, ""))}
+                  inputMode="decimal"
+                  placeholder="Например, 12,375"
+                />
+                {errors.volumeTonnes && <span className="field-error">{errors.volumeTonnes}</span>}
+              </label>
+            </>
+          )}
           <label className="field">
             <span className="field-label">Местонахождение товара</span>
             <select className="input" value={productLocation} onChange={(event) => setProductLocation(event.target.value as ProductLocation | "")}>
@@ -805,11 +875,13 @@ function CardEditorForm({
         </fieldset>
       )}
 
-      <label className="field">
-        <span className="field-label">Наличие, срок поставки или исполнения</span>
-        <input className="input" data-testid="card-editor-availability" value={availability} onChange={(event) => setAvailability(event.target.value)} />
-        {errors.availability && <span className="field-error">{errors.availability}</span>}
-      </label>
+      {type === "service" && (
+        <label className="field">
+          <span className="field-label">Срок исполнения</span>
+          <input className="input" data-testid="card-editor-availability" value={availability} onChange={(event) => setAvailability(event.target.value)} />
+          {errors.availability && <span className="field-error">{errors.availability}</span>}
+        </label>
+      )}
 
       {mode === "create" ? (
         <div className="card notice-card">

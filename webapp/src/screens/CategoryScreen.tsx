@@ -5,6 +5,7 @@ import { CardsList } from "../components/CardsList";
 import { CategoryFilter } from "../components/CategoryFilter";
 import { ListingSubmissionSheet } from "../components/ListingSubmissionSheet";
 import { PriceFilter } from "../components/PriceFilter";
+import { ProductFilters } from "../components/ProductFilters";
 import { RegionFilter } from "../components/RegionFilter";
 import { Screen } from "../components/Screen";
 import { SearchBar } from "../components/SearchBar";
@@ -26,7 +27,8 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
   const [inputValue, setInputValue] = useState(search.q ?? "");
   const debouncedQuery = useDebouncedValue(inputValue, 500);
   const [requestOpen, setRequestOpen] = useState(false);
-  const { region, setRegion } = useCatalogRegion();
+  const { region: serviceRegion, setRegion } = useCatalogRegion();
+  const region = type === "product" ? search.region ?? "all_regions" : serviceRegion;
   const ctaLabel = type === "product" ? "Продать объём" : "Опубликовать услугу";
 
   const basePath = `${tabRootPath(section)}/${categoryId}`;
@@ -36,27 +38,27 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
     const nextQuery = debouncedQuery.trim();
     if (nextQuery === activeQuery) return;
     navigate({
-      href: basePath + buildSearchQuery({ q: nextQuery || undefined, price: search.price }),
+      href: basePath + buildSearchQuery({ ...search, q: nextQuery || undefined }),
       replace: true
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
   function handlePriceChange(price: CatalogSearch["price"]) {
-    navigate({ href: basePath + buildSearchQuery({ q: search.q, price }), replace: true });
+    navigate({ href: basePath + buildSearchQuery({ ...search, price }), replace: true });
   }
 
   function goToWholeTab(event: MouseEvent) {
     event.preventDefault();
-    navigate({ href: tabRootPath(section) + buildSearchQuery({ q: activeQuery || undefined, price: search.price }) });
+    navigate({ href: tabRootPath(section) + buildSearchQuery({ ...search, q: activeQuery || undefined }) });
   }
 
   return (
     <Screen back fallbackTo={tabRootPath(section)}>
       <SearchBar value={inputValue} onChange={setInputValue} />
-      <RegionFilter value={region} onChange={setRegion} />
+      {type === "product" ? <ProductFilters basePath={basePath} search={search} /> : <RegionFilter value={region} onChange={setRegion} />}
       <CategoryFilter type={type} section={section} selectedCategoryId={categoryId} search={search} />
-      <PriceFilter value={search.price} onChange={handlePriceChange} />
+      {type === "service" && <PriceFilter value={search.price} onChange={handlePriceChange} />}
 
       <CardsList
         type={type}
@@ -64,6 +66,10 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
         search={activeQuery || undefined}
         price={search.price}
         region={region}
+        sort={search.sort}
+        commodityGroups={search.commodityGroups}
+        ownershipForms={search.ownershipForms}
+        productLocation={search.productLocation}
         emptyState={
           activeQuery ? (
             <div className="empty-state">

@@ -12,9 +12,11 @@ import { phoneSchema } from "./phone";
 import {
   productLocationSchema,
   productOwnershipFormSchema,
+  productTerritoryCodeSchema,
   territoryCodeSchema,
   territorySchema
 } from "./territory";
+import { commodityGroupSchema, volumeTonnesSchema } from "./commodity";
 
 const territoryCodesSchema = z.array(territoryCodeSchema).max(20).refine(
   (codes) => new Set(codes).size === codes.length,
@@ -25,8 +27,10 @@ export const listingSubmissionInputSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("product"),
     categoryId: z.uuid({ error: "Выберите категорию" }),
-    territoryCode: territoryCodeSchema,
+    territoryCode: productTerritoryCodeSchema,
     ownershipForm: productOwnershipFormSchema,
+    commodityGroup: commodityGroupSchema.optional(),
+    volumeTonnes: volumeTonnesSchema.optional(),
     productLocation: productLocationSchema,
     productLocationDetail: z.string()
       .trim()
@@ -41,7 +45,11 @@ export const listingSubmissionInputSchema = z.discriminatedUnion("type", [
     territoryCodes: territoryCodesSchema
   })
 ]).superRefine((input, ctx) => {
-  if (input.type === "service") {
+  if (input.type === "product") {
+    if ((input.commodityGroup == null) !== (input.volumeTonnes == null)) {
+      ctx.addIssue({ code: "custom", path: ["volumeTonnes"], message: "Укажите группу и объём вместе" });
+    }
+  } else {
     if (input.allKazakhstan && input.territoryCodes.length > 0) {
       ctx.addIssue({ code: "custom", path: ["territoryCodes"], message: "Выберите регионы или весь Казахстан" });
     }
@@ -60,7 +68,9 @@ export const listingSubmissionSchema = z.discriminatedUnion("type", [
     categoryName: z.string(),
     territory: territorySchema,
     ownershipForm: productOwnershipFormSchema,
-    productLocation: productLocationSchema,
+    commodityGroup: commodityGroupSchema.nullable(),
+    volumeTonnes: volumeTonnesSchema.nullable(),
+    productLocation: productLocationSchema.nullable(),
     productLocationDetail: z.string().nullable()
   }),
   z.object({

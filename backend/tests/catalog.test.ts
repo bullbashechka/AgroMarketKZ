@@ -35,6 +35,8 @@ describe("toCategory", () => {
       name: "Зерно",
       sortOrder: 2,
       isActive: true,
+      isCommodity: false,
+      requiredSpecs: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-02T00:00:00.000Z"
     });
@@ -59,6 +61,8 @@ describe("toCategoryListItem", () => {
       name: "Тракторы",
       sortOrder: 1,
       isActive: true,
+      isCommodity: false,
+      requiredSpecs: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-02T00:00:00.000Z",
       cardCount: 7
@@ -115,7 +119,7 @@ describe("toCardListItem", () => {
       territory_kind: "region",
       territory_sort_order: 20
     };
-    expect(toCardListItem(row, env).shortSpec).toBe("В наличии");
+    expect(toCardListItem(row, env).shortSpec).toBeNull();
   });
 
   test("структурированная география скрывает legacy-spec «Регион»", () => {

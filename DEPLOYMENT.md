@@ -181,6 +181,29 @@ order by c.type, c.title;
 0012 безопасна для существующих карточек и не требует backfill; только теперь можно выкатывать
 backend с recovery PUT.
 
+Миграция [`0013_product_catalog_filters.sql`](./database/migrations/0013_product_catalog_filters.sql)
+добавляет признак товарной категории, группу продукции, объём в тоннах и фильтры товарного каталога.
+Она намеренно скрывает все активные товары и очищает их устаревшее поле `availability`, но не удаляет
+карточки, заявки или избранное. Перед production-применением выполните файл точечно через SQL Editor/
+`apply_migration`, затем проверьте:
+
+```sql
+select count(*) as active_products_with_old_availability
+from cards
+where type = 'product'
+  and availability is not null;
+
+select count(*) as visible_products_after_migration
+from cards
+where type = 'product'
+  and published_at is not null
+  and archived_at is null;
+```
+
+Ожидается ноль в обоих результатах. После этого администратор отмечает товарные категории,
+заполняет область, цену, объём, форму собственности и местонахождение и публикует карточки
+вручную. В этой доработке production SQL и деплой не выполнялись.
+
 ## Регламент апгрейда Supabase
 
 - До нагрузочного теста проверить в Billing, что spend cap не заблокирует ручной upgrade.

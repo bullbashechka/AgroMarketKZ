@@ -1,10 +1,12 @@
 import {
   createRequestInput,
+  commodityGroupLabels,
   productLocationLabels,
   productOwnershipFormLabels,
   PRODUCT_LOCATION_DETAIL_MAX,
   REQUEST_COMMENT_MAX,
   type CatalogType,
+  type CommodityGroup,
   type CreateRequestInput,
   type Request,
   type TerritoryCode
@@ -56,6 +58,8 @@ function ListingSubmissionForm({
   const [ownershipForm, setOwnershipForm] = useState<keyof typeof productOwnershipFormLabels | "">("");
   const [productLocation, setProductLocation] = useState<keyof typeof productLocationLabels | "">("");
   const [productLocationDetail, setProductLocationDetail] = useState("");
+  const [commodityGroup, setCommodityGroup] = useState<CommodityGroup | "">("");
+  const [volumeTonnes, setVolumeTonnes] = useState("");
   const [allKazakhstan, setAllKazakhstan] = useState(false);
   const [territoryCodes, setTerritoryCodes] = useState<TerritoryCode[]>([]);
   const [name, setName] = useState(
@@ -70,6 +74,7 @@ function ListingSubmissionForm({
   const [sharing, setSharing] = useState(false);
 
   const categories = categoriesQuery.data ?? [];
+  const selectedCategory = categories.find((category) => category.id === categoryId);
   const title = type === "product" ? "Продать объём" : "Опубликовать услугу";
   const selectedTerritories = useMemo(() => new Set(territoryCodes), [territoryCodes]);
   const mutation = useMutation({
@@ -105,7 +110,9 @@ function ListingSubmissionForm({
           categoryId,
           territoryCode,
           ownershipForm,
-          productLocation,
+          commodityGroup: selectedCategory?.isCommodity ? commodityGroup || undefined : undefined,
+          volumeTonnes: selectedCategory?.isCommodity && volumeTonnes ? Number(volumeTonnes.replace(",", ".")) : undefined,
+          productLocation: productLocation || undefined,
           productLocationDetail: productLocationDetail || undefined
         }
       : {
@@ -162,7 +169,15 @@ function ListingSubmissionForm({
 
       <label className="field">
         <span className="field-label">Категория</span>
-        <select className="input" value={categoryId} onChange={(event) => setCategoryId(event.target.value)} disabled={categoriesQuery.isPending}>
+        <select className="input" value={categoryId} onChange={(event) => {
+          const nextId = event.target.value;
+          setCategoryId(nextId);
+          const nextCategory = categories.find((category) => category.id === nextId);
+          if (!nextCategory?.isCommodity) {
+            setCommodityGroup("");
+            setVolumeTonnes("");
+          }
+        }} disabled={categoriesQuery.isPending}>
           <option value="">Выберите категорию</option>
           {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
         </select>
@@ -171,10 +186,10 @@ function ListingSubmissionForm({
       {type === "product" ? (
         <>
           <label className="field">
-            <span className="field-label">Регион</span>
+            <span className="field-label">Область</span>
             <select className="input" value={territoryCode} onChange={(event) => setTerritoryCode(event.target.value as TerritoryCode | "")} disabled={territoriesQuery.isPending}>
               <option value="">Выберите регион</option>
-              {territories.map((territory) => <option key={territory.code} value={territory.code}>{territory.name}</option>)}
+              {territories.filter((territory) => territory.kind === "region").map((territory) => <option key={territory.code} value={territory.code}>{territory.name}</option>)}
             </select>
           </label>
           <label className="field">
@@ -184,6 +199,21 @@ function ListingSubmissionForm({
               {Object.entries(productOwnershipFormLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
+          {selectedCategory?.isCommodity && (
+            <>
+              <label className="field">
+                <span className="field-label">Группа продукции</span>
+                <select className="input" value={commodityGroup} onChange={(event) => setCommodityGroup(event.target.value as CommodityGroup | "")}>
+                  <option value="">Выберите группу</option>
+                  {Object.entries(commodityGroupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">Объём, тонн</span>
+                <input className="input" value={volumeTonnes} onChange={(event) => setVolumeTonnes(event.target.value.replace(/[^\d.,]/g, ""))} inputMode="decimal" placeholder="Например, 12,375" />
+              </label>
+            </>
+          )}
           <label className="field">
             <span className="field-label">Местонахождение</span>
             <select className="input" value={productLocation} onChange={(event) => setProductLocation(event.target.value as keyof typeof productLocationLabels | "")}>

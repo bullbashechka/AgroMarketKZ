@@ -45,7 +45,9 @@ export function cardMatchesInput(
     && card.priceAmount === expectedPriceAmount
     && normalizeText(card.priceUnit) === normalizeText(input.priceUnit)
     && normalizeText(card.priceReason) === normalizeText(expectedPriceReason)
-    && normalizeText(card.availability) === normalizeText(input.availability)
+    && normalizeText(card.availability) === normalizeText(
+      input.type === "service" || card.availability !== null ? input.availability : null,
+    )
     && card.sortOrder === input.sortOrder
     && (card.territory?.code ?? null) === (input.type === "product" ? input.territoryCode ?? null : null)
     && card.ownershipForm === (input.type === "product" ? input.ownershipForm ?? null : null)
@@ -53,6 +55,8 @@ export function cardMatchesInput(
     && normalizeText(card.productLocationDetail) === normalizeText(
       input.type === "product" ? input.productLocationDetail : null,
     )
+    && (card.commodityGroup ?? null) === (input.type === "product" ? input.commodityGroup ?? null : null)
+    && (card.volumeTonnes ?? null) === (input.type === "product" && input.volumeTonnes != null ? input.volumeTonnes : null)
     && card.serviceAllKazakhstan === (input.type === "service" && input.serviceAllKazakhstan)
     && sameStrings(
       card.serviceTerritories.map((territory) => territory.code),

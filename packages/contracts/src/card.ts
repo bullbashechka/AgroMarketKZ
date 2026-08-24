@@ -17,6 +17,7 @@ import {
   SPEC_VALUE_MAX,
   STORAGE_PATH_MAX
 } from "./constants";
+import { commodityGroupSchema, volumeTonnesSchema } from "./commodity";
 import { catalogTypeSchema, priceTypeSchema, publicationStatusSchema } from "./enums";
 import { optionalText, requiredText } from "./primitives";
 import {
@@ -76,6 +77,8 @@ export const cardListItemSchema = z.object({
   priceType: priceTypeSchema,
   priceAmount: z.number().int().nullable(),
   priceUnit: z.string().nullable(),
+  commodityGroup: commodityGroupSchema.nullable(),
+  volumeTonnes: volumeTonnesSchema.nullable(),
   imageUrl: z.string().nullable(), // первое фото галереи
   shortSpec: z.string().nullable(), // краткая характеристика для превью
   territory: territorySchema.nullable(),
@@ -98,6 +101,8 @@ export const cardDetailSchema = z.object({
   priceAmount: z.number().int().nullable(),
   priceUnit: z.string().nullable(),
   priceReason: z.string().nullable(),
+  commodityGroup: commodityGroupSchema.nullable(),
+  volumeTonnes: volumeTonnesSchema.nullable(),
   location: z.string().nullable(),
   territory: territorySchema.nullable(),
   ownershipForm: productOwnershipFormSchema.nullable(),
@@ -147,6 +152,8 @@ const cardBaseInput = z.object({
   ownershipForm: z.preprocess((value) => value === null ? undefined : value, productOwnershipFormSchema.optional()),
   productLocation: z.preprocess((value) => value === null ? undefined : value, productLocationSchema.optional()),
   productLocationDetail: optionalNullableText(PRODUCT_LOCATION_DETAIL_MAX),
+  commodityGroup: z.preprocess((value) => value === null ? undefined : value, commodityGroupSchema.optional()),
+  volumeTonnes: z.preprocess((value) => value === null ? undefined : value, volumeTonnesSchema.optional()),
   serviceAllKazakhstan: z.boolean().default(false),
   serviceTerritoryCodes: z.array(territoryCodeSchema).max(20).refine(
     (codes) => new Set(codes).size === codes.length,
@@ -180,11 +187,14 @@ export const createCardInput = cardBaseInput.superRefine((input, ctx) => {
     ctx.addIssue({ code: "custom", path: ["priceReason"], message: "Для фиксированной цены пояснение не требуется" });
   }
   if (input.type === "product") {
+    if ((input.commodityGroup == null) !== (input.volumeTonnes == null)) {
+      ctx.addIssue({ code: "custom", path: ["volumeTonnes"], message: "Укажите группу и объём вместе" });
+    }
     if (input.serviceAllKazakhstan || input.serviceTerritoryCodes.length > 0) {
       ctx.addIssue({ code: "custom", path: ["serviceTerritoryCodes"], message: "У товара не может быть региона работы услуги" });
     }
   } else {
-    if (input.territoryCode || input.ownershipForm || input.productLocation || input.productLocationDetail) {
+    if (input.territoryCode || input.ownershipForm || input.productLocation || input.productLocationDetail || input.commodityGroup || input.volumeTonnes) {
       ctx.addIssue({ code: "custom", path: ["territoryCode"], message: "Услуга не использует параметры товара" });
     }
     if (input.serviceAllKazakhstan && input.serviceTerritoryCodes.length > 0) {
@@ -210,8 +220,11 @@ export const publishCardInput = createCardInput.superRefine((input, ctx) => {
   } else if (!input.serviceAllKazakhstan && input.serviceTerritoryCodes.length === 0) {
     ctx.addIssue({ code: "custom", path: ["serviceTerritoryCodes"], message: "Выберите хотя бы один регион или весь Казахстан" });
   }
-  if (!input.availability) {
+  if (input.type === "service" && !input.availability) {
     ctx.addIssue({ code: "custom", path: ["availability"], message: "Укажите наличие или срок исполнения" });
+  }
+  if (input.type === "product" && input.priceType === "on_request") {
+    ctx.addIssue({ code: "custom", path: ["priceType"], message: "У товара всегда должна быть цена" });
   }
   if (!input.priceUnit) {
     ctx.addIssue({ code: "custom", path: ["priceUnit"], message: "Укажите единицу цены" });
@@ -219,7 +232,7 @@ export const publishCardInput = createCardInput.superRefine((input, ctx) => {
   if (input.priceType !== "on_request" && input.priceAmount == null) {
     ctx.addIssue({ code: "custom", path: ["priceAmount"], message: "Укажите цену" });
   }
-  if (input.priceType === "on_request" && !input.priceReason) {
+  if (input.type === "service" && input.priceType === "on_request" && !input.priceReason) {
     ctx.addIssue({ code: "custom", path: ["priceReason"], message: "Объясните, от чего зависит цена" });
   }
 });

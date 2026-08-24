@@ -36,8 +36,8 @@ describeIntegration("admin catalog persistence", () => {
   beforeAll(async () => {
     categoryId = crypto.randomUUID();
     await sql`
-      insert into categories (id, type, name, sort_order, required_specs)
-      values (${categoryId}, 'product', ${`[integration] ${categoryId}`}, 0, ${["Год выпуска"]})
+      insert into categories (id, type, name, sort_order, is_commodity, required_specs)
+      values (${categoryId}, 'product', ${`[integration] ${categoryId}`}, 0, true, ${["Год выпуска"]})
     `;
   });
 
@@ -75,7 +75,8 @@ describeIntegration("admin catalog persistence", () => {
     expect(created.publicationStatus).toBe("draft");
     expect(created.reviewIssues).toEqual(expect.arrayContaining([
       "Добавьте хотя бы одно фото",
-      "Укажите наличие или срок исполнения",
+      "Выберите группу продукции",
+      "Укажите объём в тоннах",
       "Укажите единицу цены",
       "Заполните характеристику «Год выпуска»",
     ]));
@@ -94,9 +95,11 @@ describeIntegration("admin catalog persistence", () => {
       ownershipForm: "peasant_farm",
       productLocation: "elevator",
       productLocationDetail: null,
+      commodityGroup: "cereals",
+      volumeTonnes: 120.5,
       serviceAllKazakhstan: false,
       serviceTerritoryCodes: [],
-      availability: "В наличии",
+      availability: null,
       sortOrder: 0,
       images: [{ storagePath: "cards/integration-image.jpg", sortOrder: 0 }],
       specs: [{ key: "Год выпуска", value: "2026", sortOrder: 0 }],

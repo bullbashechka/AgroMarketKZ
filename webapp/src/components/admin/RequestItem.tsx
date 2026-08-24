@@ -1,5 +1,6 @@
 import {
   catalogTypeTabLabels,
+  commodityGroupLabels,
   productLocationLabels,
   productOwnershipFormLabels,
   requestStatusLabels,
@@ -64,7 +65,9 @@ export function RequestItem({ request, onChangeStatus, pending }: RequestItemPro
             <>
               <span>Регион: {request.listingSubmission.territory.name}</span>
               <span>Форма: {productOwnershipFormLabels[request.listingSubmission.ownershipForm]}</span>
-              <span>Местонахождение: {productLocationLabels[request.listingSubmission.productLocation]}{request.listingSubmission.productLocationDetail ? ` — ${request.listingSubmission.productLocationDetail}` : ""}</span>
+              {request.listingSubmission.commodityGroup && <span>Группа: {commodityGroupLabels[request.listingSubmission.commodityGroup]}</span>}
+              {request.listingSubmission.volumeTonnes !== null && <span>Объём: {request.listingSubmission.volumeTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т</span>}
+              {request.listingSubmission.productLocation && <span>Местонахождение: {productLocationLabels[request.listingSubmission.productLocation]}{request.listingSubmission.productLocationDetail ? ` — ${request.listingSubmission.productLocationDetail}` : ""}</span>}
             </>
           ) : (
             <span>

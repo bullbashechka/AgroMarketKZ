@@ -5,7 +5,7 @@ import { contactNameSchema } from "../src/primitives";
 import { createUploadUrlInput } from "../src/upload";
 import { adminCardListQuery } from "../src/admin";
 import { adminPlatformSettingsSchema } from "../src/settings";
-import { categoryListQuery } from "../src/catalog";
+import { cardListQuery, categoryListQuery } from "../src/catalog";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 const oneImage = [{ storagePath: "cards/a.jpg" }];
@@ -40,15 +40,23 @@ describe("createCardInput — цена", () => {
     expect(r.success).toBe(true);
   });
 
-  test("on_request требует причину и не принимает сумму", () => {
+  test("услуга по запросу требует причину, товар всегда требует сумму", () => {
     expect(
       publishCardInput.safeParse({
         ...baseCard,
+        type: "service",
+        territoryCode: undefined,
+        ownershipForm: undefined,
+        productLocation: undefined,
+        serviceAllKazakhstan: true,
+        serviceTerritoryCodes: [],
+        availability: "По согласованию",
         priceType: "on_request",
         priceAmount: null,
         priceReason: "Зависит от региона и объёма",
       }).success,
     ).toBe(true);
+    expect(publishCardInput.safeParse({ ...baseCard, priceType: "on_request", priceReason: "Зависит от региона" }).success).toBe(false);
     expect(publishCardInput.safeParse({ ...baseCard, priceType: "on_request" }).success).toBe(false);
   });
 
@@ -235,5 +243,30 @@ describe("categoryListQuery", () => {
     expect(categoryListQuery.parse({ type: "product" }).includeEmpty).toBe(false);
     expect(categoryListQuery.parse({ type: "product", includeEmpty: "true" }).includeEmpty).toBe(true);
     expect(categoryListQuery.parse({ type: "product", includeEmpty: "false" }).includeEmpty).toBe(false);
+  });
+});
+
+describe("cardListQuery — фильтры товаров", () => {
+  test("разбирает сортировку, области, группы и формы собственности", () => {
+    const parsed = cardListQuery.parse({
+      type: "product",
+      sort: "volume_asc",
+      region: "kostanay_region",
+      commodityGroups: "cereals,pulses",
+      ownershipForms: "peasant_farm,llp_trader",
+      productLocation: "elevator",
+    });
+    expect(parsed.sort).toBe("volume_asc");
+    expect(parsed.commodityGroups).toEqual(["cereals", "pulses"]);
+    expect(parsed.ownershipForms).toEqual(["peasant_farm", "llp_trader"]);
+  });
+
+  test("не принимает города республиканского значения как область товара", () => {
+    expect(cardListQuery.safeParse({ type: "product", region: "almaty_city" }).success).toBe(false);
+  });
+
+  test("не принимает повторяющиеся значения фильтра", () => {
+    expect(cardListQuery.safeParse({ type: "product", commodityGroups: "cereals,cereals" }).success).toBe(false);
+    expect(cardListQuery.safeParse({ type: "product", ownershipForms: "peasant_farm,peasant_farm" }).success).toBe(false);
   });
 });

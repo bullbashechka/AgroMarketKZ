@@ -33,7 +33,7 @@ export async function listFavorites(env: AppEnv, userId: string): Promise<CardLi
   const rows = await sql<CardListRow[]>`
     select
       c.id, c.type, c.category_id, c.title, c.price_type, c.price_amount,
-      c.price_unit, c.location, c.availability,
+      c.price_unit, c.location, c.availability, c.commodity_group, c.volume_tonnes,
       c.territory_code, territory.name as territory_name, territory.kind as territory_kind,
       territory.sort_order as territory_sort_order,
       c.ownership_form, c.product_location, c.service_all_kazakhstan,

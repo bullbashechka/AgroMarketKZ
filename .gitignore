@@ -47,3 +47,6 @@ playwright/.cache/
 
 # Local AI tool state
 .claude/
+
+# Supabase CLI local project link
+supabase/.temp/

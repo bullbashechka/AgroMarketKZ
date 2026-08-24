@@ -89,7 +89,9 @@ export function CardScreen({ section }: { section: TabSection }) {
   const hasStructuredLocation = card.type === "product"
     ? card.territory !== null
     : card.serviceAllKazakhstan || card.serviceTerritories.length > 0;
-  const shortSpec = [hasStructuredLocation ? null : card.location, card.availability].filter(Boolean).join(" · ") || null;
+  const shortSpec = card.type === "service"
+    ? [hasStructuredLocation ? null : card.location, card.availability].filter(Boolean).join(" · ") || null
+    : null;
   return (
     <Screen back fallbackTo={tabRootPath(section)}>
       <div className="card-detail-scroll">
@@ -110,6 +112,8 @@ export function CardScreen({ section }: { section: TabSection }) {
             priceType: card.priceType,
             priceAmount: card.priceAmount,
             priceUnit: card.priceUnit,
+            commodityGroup: card.commodityGroup,
+            volumeTonnes: card.volumeTonnes,
             imageUrl: card.images[0]?.url ?? null,
             shortSpec,
             territory: card.territory,

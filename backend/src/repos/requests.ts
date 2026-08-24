@@ -3,7 +3,9 @@ import type {
   ListingSubmission,
   Request as RequestDto,
   RequestListQuery,
-  Territory
+  Territory,
+  CommodityGroup,
+  VolumeTonnes
 } from "@agromarket/contracts";
 import { getDb } from "../db";
 import type { AppEnv } from "../env";
@@ -35,6 +37,8 @@ export interface RequestRow {
   submission_ownership_form: "peasant_farm" | "llp_vat_agricultural_producer" | "llp_trader" | null;
   submission_product_location: "elevator" | "seller_site" | null;
   submission_product_location_detail: string | null;
+  submission_commodity_group: CommodityGroup | null;
+  submission_volume_tonnes: number | string | null;
   submission_all_kazakhstan: boolean;
   status: "new" | "in_progress" | "closed";
   created_at: Date;
@@ -73,7 +77,7 @@ async function getListingSubmission(
   if (!row.listing_submission_type || !row.submission_category_name_snapshot) return null;
   const sql = getDb(env);
   if (row.listing_submission_type === "product") {
-    if (!row.submission_territory_code || !row.submission_ownership_form || !row.submission_product_location) {
+    if (!row.submission_territory_code || !row.submission_ownership_form) {
       return null;
     }
     const territory = prefetchedTerritories
@@ -88,6 +92,8 @@ async function getListingSubmission(
       categoryName: row.submission_category_name_snapshot,
       territory: "sortOrder" in territory ? territory : toTerritory(territory),
       ownershipForm: row.submission_ownership_form,
+      commodityGroup: row.submission_commodity_group,
+      volumeTonnes: row.submission_volume_tonnes === null ? null : Number(row.submission_volume_tonnes),
       productLocation: row.submission_product_location,
       productLocationDetail: row.submission_product_location_detail
     };
@@ -219,14 +225,24 @@ export async function createRequest(
     const listingSubmission = input.source === "tab" ? input.listingSubmission : undefined;
     let categoryName: string | null = null;
     if (listingSubmission) {
-      const [category] = await tx<{ name: string }[]>`
-        select name from categories
+      const [category] = await tx<{ name: string; is_commodity: boolean }[]>`
+        select name, is_commodity from categories
         where id = ${listingSubmission.categoryId}
           and type = ${listingSubmission.type}
           and is_active
       `;
       if (!category) {
         throw new HttpError(400, "Выбранная категория больше недоступна");
+      }
+      if (listingSubmission.type === "product") {
+        const hasCommodityFields = listingSubmission.commodityGroup != null || listingSubmission.volumeTonnes != null;
+        if (category.is_commodity) {
+          if (!listingSubmission.commodityGroup || listingSubmission.volumeTonnes == null || !listingSubmission.productLocation) {
+            throw new HttpError(400, "Для этой категории укажите группу, объём и местонахождение товара");
+          }
+        } else if (hasCommodityFields) {
+          throw new HttpError(400, "Выбранная категория не использует группу и объём товара");
+        }
       }
       categoryName = category.name;
     }
@@ -240,7 +256,8 @@ export async function createRequest(
         contact_name, contact_phone, contact_phone_verified, comment,
         listing_submission_type, submission_category_id, submission_category_name_snapshot,
         submission_territory_code, submission_ownership_form, submission_product_location,
-        submission_product_location_detail, submission_all_kazakhstan
+        submission_product_location_detail, submission_commodity_group, submission_volume_tonnes,
+        submission_all_kazakhstan
       ) values (
         ${userId}, ${input.source}, ${input.source === "card" ? input.cardId : null},
         ${input.source === "tab" ? input.tabType : null},
@@ -251,8 +268,10 @@ export async function createRequest(
         ${listingSubmission?.type ?? null}, ${listingSubmission?.categoryId ?? null}, ${categoryName},
         ${listingSubmission?.type === "product" ? listingSubmission.territoryCode : null},
         ${listingSubmission?.type === "product" ? listingSubmission.ownershipForm : null},
-        ${listingSubmission?.type === "product" ? listingSubmission.productLocation : null},
+        ${listingSubmission?.type === "product" ? listingSubmission.productLocation ?? null : null},
         ${listingSubmission?.type === "product" ? listingSubmission.productLocationDetail ?? null : null},
+        ${listingSubmission?.type === "product" ? listingSubmission.commodityGroup ?? null : null},
+        ${listingSubmission?.type === "product" ? listingSubmission.volumeTonnes ?? null : null},
         ${listingSubmission?.type === "service" && listingSubmission.allKazakhstan}
       )
       on conflict (user_id, client_request_id) where client_request_id is not null do nothing

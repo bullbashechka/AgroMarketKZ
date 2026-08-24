@@ -19,14 +19,18 @@ on conflict (id) do update set
   telegram_contact = excluded.telegram_contact,
   email = excluded.email;
 
-insert into categories (type, name, sort_order) values
-  ('product', 'Семена и посадочный материал', 10),
-  ('product', 'Удобрения и средства защиты', 20),
-  ('product', 'Сельхозтехника', 30),
-  ('service', 'Агрономические услуги', 10),
-  ('service', 'Логистика и перевозки', 20),
-  ('service', 'Ремонт техники', 30)
+insert into categories (type, name, sort_order, is_commodity) values
+  ('product', 'Семена и посадочный материал', 10, true),
+  ('product', 'Удобрения и средства защиты', 20, false),
+  ('product', 'Сельхозтехника', 30, false),
+  ('service', 'Агрономические услуги', 10, false),
+  ('service', 'Логистика и перевозки', 20, false),
+  ('service', 'Ремонт техники', 30, false)
 on conflict do nothing;
+
+update categories
+set is_commodity = true
+where type = 'product' and name = 'Семена и посадочный материал';
 
 with category_map as (
   select id, type, name
@@ -50,13 +54,15 @@ seed_cards as (
     'за тонну' as price_unit,
     null::text as price_reason,
     'Северный Казахстан' as location,
-    'В наличии' as availability,
+    null::text as availability,
     10 as sort_order,
     'Семена и посадочный материал' as category_name,
     'north_kazakhstan_region'::text as territory_code,
     'peasant_farm'::text as ownership_form,
     'elevator'::text as product_location,
     null::text as product_location_detail,
+    'cereals'::text as commodity_group,
+    120.500::numeric as volume_tonnes,
     false as service_all_kazakhstan
   union all
   select
@@ -68,13 +74,15 @@ seed_cards as (
     'за тонну',
     'Зависит от объёма и формата поставки',
     'Казахстан',
-    'Срок поставки по согласованию',
+    null::text,
     20,
     'Удобрения и средства защиты',
     'akmola_region',
     'llp_vat_agricultural_producer',
     'seller_site',
     'Склад поставщика',
+    null::text,
+    null::numeric,
     false
   union all
   select
@@ -86,13 +94,15 @@ seed_cards as (
     'за штуку',
     null::text,
     'Костанайская область',
-    'В наличии',
+    null::text,
     30,
     'Сельхозтехника',
     'kostanay_region',
     'llp_trader',
     'seller_site',
     'База продавца',
+    null::text,
+    null::numeric,
     false
   union all
   select
@@ -111,6 +121,8 @@ seed_cards as (
     null,
     null,
     null,
+    null::text,
+    null::numeric,
     true
   union all
   select
@@ -129,6 +141,8 @@ seed_cards as (
     null,
     null,
     null,
+    null::text,
+    null::numeric,
     true
   union all
   select
@@ -147,6 +161,8 @@ seed_cards as (
     null,
     null,
     null,
+    null::text,
+    null::numeric,
     false
 )
 insert into cards (
@@ -164,6 +180,8 @@ insert into cards (
   ownership_form,
   product_location,
   product_location_detail,
+  commodity_group,
+  volume_tonnes,
   service_all_kazakhstan,
   published_at,
   sort_order
@@ -183,6 +201,8 @@ select
   seed_cards.ownership_form,
   seed_cards.product_location,
   seed_cards.product_location_detail,
+  seed_cards.commodity_group,
+  seed_cards.volume_tonnes,
   seed_cards.service_all_kazakhstan,
   now(),
   seed_cards.sort_order
@@ -198,23 +218,26 @@ where not exists (
 );
 
 -- Повторный dev-seed обновляет уже существующие демонстрационные карточки,
--- чтобы они не остались legacy после применения миграции 0011.
+-- чтобы они не остались legacy после применения миграций 0011 и 0013.
 update cards as c
 set
   territory_code = seed.territory_code,
   ownership_form = seed.ownership_form,
   product_location = seed.product_location,
   product_location_detail = seed.product_location_detail,
+  commodity_group = seed.commodity_group,
+  volume_tonnes = seed.volume_tonnes,
+  availability = case when c.type = 'product' then null else c.availability end,
   service_all_kazakhstan = seed.service_all_kazakhstan
 from (
   values
-    ('product'::catalog_type, 'Семена пшеницы Астана-2', 'north_kazakhstan_region', 'peasant_farm', 'elevator', null::text, false),
-    ('product'::catalog_type, 'Комплексное удобрение NPK', 'akmola_region', 'llp_vat_agricultural_producer', 'seller_site', 'Склад поставщика', false),
-    ('product'::catalog_type, 'Б/у трактор 150 л.с.', 'kostanay_region', 'llp_trader', 'seller_site', 'База продавца', false),
-    ('service'::catalog_type, 'Консультация агронома', null::text, null::text, null::text, null::text, true),
-    ('service'::catalog_type, 'Перевозка зерна по Казахстану', null::text, null::text, null::text, null::text, true),
-    ('service'::catalog_type, 'Выездной ремонт сельхозтехники', null::text, null::text, null::text, null::text, false)
-) as seed(type, title, territory_code, ownership_form, product_location, product_location_detail, service_all_kazakhstan)
+    ('product'::catalog_type, 'Семена пшеницы Астана-2', 'north_kazakhstan_region', 'peasant_farm', 'elevator', null::text, 'cereals'::text, 120.500::numeric, false),
+    ('product'::catalog_type, 'Комплексное удобрение NPK', 'akmola_region', 'llp_vat_agricultural_producer', 'seller_site', 'Склад поставщика', null::text, null::numeric, false),
+    ('product'::catalog_type, 'Б/у трактор 150 л.с.', 'kostanay_region', 'llp_trader', 'seller_site', 'База продавца', null::text, null::numeric, false),
+    ('service'::catalog_type, 'Консультация агронома', null::text, null::text, null::text, null::text, null::text, null::numeric, true),
+    ('service'::catalog_type, 'Перевозка зерна по Казахстану', null::text, null::text, null::text, null::text, null::text, null::numeric, true),
+    ('service'::catalog_type, 'Выездной ремонт сельхозтехники', null::text, null::text, null::text, null::text, null::text, null::numeric, false)
+) as seed(type, title, territory_code, ownership_form, product_location, product_location_detail, commodity_group, volume_tonnes, service_all_kazakhstan)
 where c.type = seed.type
   and lower(btrim(c.title)) = lower(btrim(seed.title));
 

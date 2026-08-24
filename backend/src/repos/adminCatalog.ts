@@ -53,6 +53,10 @@ const CARD_CHECK_CONSTRAINTS = new Set([
   "cards_product_location_valid",
   "cards_published_price_complete",
   "cards_published_product_fields_complete",
+  "cards_commodity_group_valid",
+  "cards_volume_tonnes_valid",
+  "cards_commodity_fields_shape",
+  "cards_product_territory_region",
   "cards_title_not_blank",
   "cards_type_specific_fields",
   "cards_valid_price",
@@ -102,7 +106,9 @@ function normalizeCardInput(input: CreateCardInput): CreateCardInput {
     title: normalizeCatalogText(input.title),
     description: normalizeCatalogText(input.description),
     location: input.location ? normalizeCatalogText(input.location) : input.location,
-    availability: input.availability ? normalizeCatalogText(input.availability) : input.availability,
+    availability: input.type === "service" && input.availability
+      ? normalizeCatalogText(input.availability)
+      : input.type === "service" ? input.availability : undefined,
     productLocationDetail: input.productLocationDetail
       ? normalizeCatalogText(input.productLocationDetail)
       : input.productLocationDetail,
@@ -112,6 +118,14 @@ function normalizeCardInput(input: CreateCardInput): CreateCardInput {
       value: normalizeCatalogText(spec.value)
     }))
   };
+}
+
+function validateCategoryFields(input: CreateCardInput, isCommodity: boolean): void {
+  if (input.type !== "product") return;
+  const hasCommodityFields = input.commodityGroup != null || input.volumeTonnes != null;
+  if (!isCommodity && hasCommodityFields) {
+    throw new HttpError(400, "Выбранная категория не использует группу и объём товара");
+  }
 }
 
 /**
@@ -135,11 +149,13 @@ function cardUpdatePayload(input: CreateCardInput, expectedVersion: number): str
     ownershipForm: input.type === "product" ? input.ownershipForm ?? null : null,
     productLocation: input.type === "product" ? input.productLocation ?? null : null,
     productLocationDetail: input.type === "product" ? input.productLocationDetail ?? null : null,
+    commodityGroup: input.type === "product" ? input.commodityGroup ?? null : null,
+    volumeTonnes: input.type === "product" ? input.volumeTonnes ?? null : null,
     serviceAllKazakhstan: input.type === "service" && input.serviceAllKazakhstan,
     serviceTerritoryCodes: input.type === "service" && !input.serviceAllKazakhstan
       ? input.serviceTerritoryCodes
       : [],
-    availability: input.availability ?? null,
+    availability: input.type === "service" ? input.availability ?? null : null,
     sortOrder: input.sortOrder,
     images: input.images.map((image) => ({
       storagePath: image.storagePath,
@@ -202,13 +218,15 @@ export function cardMatchesCreateInput(
     && detail.priceAmount === expectedPriceAmount
     && detail.priceUnit === (input.priceUnit ?? null)
     && detail.priceReason === expectedPriceReason
-    && detail.availability === (input.availability ?? null)
+    && detail.availability === (input.type === "service" || detail.availability !== null ? input.availability ?? null : null)
     && (expectedLocation === undefined || detail.location === expectedLocation)
     && detail.sortOrder === input.sortOrder
     && (detail.territory?.code ?? null) === (input.type === "product" ? input.territoryCode ?? null : null)
     && detail.ownershipForm === (input.type === "product" ? input.ownershipForm ?? null : null)
     && detail.productLocation === (input.type === "product" ? input.productLocation ?? null : null)
     && detail.productLocationDetail === (input.type === "product" ? input.productLocationDetail ?? null : null)
+    && (detail.commodityGroup ?? null) === (input.type === "product" ? input.commodityGroup ?? null : null)
+    && (detail.volumeTonnes ?? null) === (input.type === "product" ? input.volumeTonnes ?? null : null)
     && detail.serviceAllKazakhstan === (input.type === "service" && input.serviceAllKazakhstan)
     && detail.serviceTerritories.length === expectedServiceTerritories.length
     && detail.serviceTerritories.every((territory, index) => territory.code === expectedServiceTerritories[index])
@@ -259,7 +277,7 @@ export async function listCategoriesAdmin(env: AppEnv, type: CatalogType): Promi
   const sql = getDb(env);
   const rows = await sql<AdminCategoryRow[]>`
     select
-      cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.created_at, cat.updated_at,
+      cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.is_commodity, cat.created_at, cat.updated_at,
       cat.required_specs,
       count(c.id)::int as card_count,
       count(c.id) filter (
@@ -280,9 +298,9 @@ export async function createCategory(env: AppEnv, input: CreateCategoryInput): P
   const name = normalizeCatalogText(input.name);
   try {
     const [row] = await sql<CategoryRow[]>`
-      insert into categories (type, name, sort_order, required_specs)
-      values (${input.type}, ${name}, ${input.sortOrder}, ${input.requiredSpecs.map(normalizeCatalogText)})
-      returning id, type, name, sort_order, is_active, required_specs, created_at, updated_at
+      insert into categories (type, name, sort_order, is_commodity, required_specs)
+      values (${input.type}, ${name}, ${input.sortOrder}, ${input.type === "product" && input.isCommodity}, ${input.requiredSpecs.map(normalizeCatalogText)})
+      returning id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
     `;
     return toCategory(row!);
   } catch (err) {
@@ -300,15 +318,34 @@ export async function updateCategory(
   input: UpdateCategoryInput
 ): Promise<Category> {
   const sql = getDb(env);
-  const columns: Record<string, string | number | string[]> = {};
+  if (input.isCommodity !== undefined) {
+    const [current] = await sql<{ type: CatalogType; is_commodity: boolean }[]>`
+      select type, is_commodity from categories where id = ${id}
+    `;
+    if (!current) throw new HttpError(404, "Категория не найдена");
+    if (current.type === "service" && input.isCommodity) {
+      throw new HttpError(400, "Группа продукции доступна только для товарной категории");
+    }
+    if (current.is_commodity !== input.isCommodity) {
+      const [active] = await sql<{ count: string }[]>`
+        select count(*) from cards
+        where category_id = ${id} and published_at is not null and archived_at is null
+      `;
+      if (Number(active?.count ?? 0) > 0) {
+        throw new HttpError(409, "Сначала скройте опубликованные карточки в категории, затем измените признак товарной категории");
+      }
+    }
+  }
+  const columns: Record<string, string | number | boolean | string[]> = {};
   if (input.name !== undefined) columns.name = normalizeCatalogText(input.name);
   if (input.sortOrder !== undefined) columns.sort_order = input.sortOrder;
   if (input.requiredSpecs !== undefined) columns.required_specs = input.requiredSpecs.map(normalizeCatalogText);
+  if (input.isCommodity !== undefined) columns.is_commodity = input.isCommodity;
 
   const keys = Object.keys(columns);
   if (keys.length === 0) {
     const [row] = await sql<CategoryRow[]>`
-      select id, type, name, sort_order, is_active, required_specs, created_at, updated_at
+      select id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
       from categories where id = ${id}
     `;
     if (!row) throw new HttpError(404, "Категория не найдена");
@@ -319,7 +356,7 @@ export async function updateCategory(
     const [row] = await sql<CategoryRow[]>`
       update categories set ${sql(columns, ...keys)}
       where id = ${id}
-      returning id, type, name, sort_order, is_active, required_specs, created_at, updated_at
+      returning id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
     `;
     if (!row) throw new HttpError(404, "Категория не найдена");
     return toCategory(row);
@@ -367,6 +404,7 @@ interface AdminCardListRow extends CardListRow {
   required_specs: string[];
   updated_at: Date;
   service_territory_count: number;
+  is_commodity: boolean;
 }
 
 function toAdminCardListItem(row: AdminCardListRow, env: AppEnv): AdminCardListItem {
@@ -380,6 +418,9 @@ function toAdminCardListItem(row: AdminCardListRow, env: AppEnv): AdminCardListI
     territoryCode: row.territory_code,
     ownershipForm: row.ownership_form,
     productLocation: row.product_location,
+    categoryIsCommodity: row.is_commodity,
+    commodityGroup: row.commodity_group,
+    volumeTonnes: row.volume_tonnes === null ? null : Number(row.volume_tonnes),
     serviceAllKazakhstan: row.service_all_kazakhstan,
     serviceTerritoryCount: row.service_territory_count,
     availability: row.availability,
@@ -410,12 +451,12 @@ export async function adminListCards(
   const rows = await sql<AdminCardListRow[]>`
     select
       c.id, c.type, c.category_id, c.title, c.description, c.price_type, c.price_amount,
-      c.price_unit, c.price_reason, c.location, c.availability,
+      c.price_unit, c.price_reason, c.location, c.availability, c.commodity_group, c.volume_tonnes,
       c.territory_code, territory.name as territory_name, territory.kind as territory_kind,
       territory.sort_order as territory_sort_order,
       c.ownership_form, c.product_location, c.service_all_kazakhstan,
       c.sort_order, c.published_at, c.archived_at, c.updated_at,
-      cat.required_specs,
+      cat.required_specs, cat.is_commodity,
       img.first_image_path, img.image_count,
       service.service_territories, service.service_territory_count,
       spec.first_spec_key, spec.first_spec_value, spec.spec_keys
@@ -456,7 +497,11 @@ export async function adminListCards(
   return paginateRows(items, query.limit, query.offset);
 }
 
-function toAdminCardDetailWithRequiredSpecs(detail: CardDetail, requiredSpecs: string[]): AdminCardDetail {
+function toAdminCardDetailWithRequiredSpecs(
+  detail: CardDetail,
+  requiredSpecs: string[],
+  categoryIsCommodity: boolean,
+): AdminCardDetail {
   const reviewIssues = getPublicationIssues({
     type: detail.type,
     description: detail.description,
@@ -467,6 +512,9 @@ function toAdminCardDetailWithRequiredSpecs(detail: CardDetail, requiredSpecs: s
     territoryCode: detail.territory?.code ?? null,
     ownershipForm: detail.ownershipForm,
     productLocation: detail.productLocation,
+    categoryIsCommodity,
+    commodityGroup: detail.commodityGroup,
+    volumeTonnes: detail.volumeTonnes,
     serviceAllKazakhstan: detail.serviceAllKazakhstan,
     serviceTerritoryCount: detail.serviceTerritories.length,
     availability: detail.availability,
@@ -487,10 +535,10 @@ function toAdminCardDetailWithRequiredSpecs(detail: CardDetail, requiredSpecs: s
 
 async function toAdminCardDetail(env: AppEnv, detail: CardDetail): Promise<AdminCardDetail> {
   const sql = getDb(env);
-  const [category] = await sql<{ required_specs: string[] }[]>`
-    select required_specs from categories where id = ${detail.categoryId}
+  const [category] = await sql<{ required_specs: string[]; is_commodity: boolean }[]>`
+    select required_specs, is_commodity from categories where id = ${detail.categoryId}
   `;
-  return toAdminCardDetailWithRequiredSpecs(detail, category?.required_specs ?? []);
+  return toAdminCardDetailWithRequiredSpecs(detail, category?.required_specs ?? [], category?.is_commodity ?? false);
 }
 
 export async function getAdminCardDetail(env: AppEnv, id: string): Promise<AdminCardDetail | undefined> {
@@ -528,24 +576,32 @@ export async function createCard(env: AppEnv, input: CreateCardInput): Promise<A
   let replayedCardId: string | undefined;
   try {
     const detail = await sql.begin(async (tx) => {
+      const [cardCategory] = await tx<{ is_commodity: boolean }[]>`
+        select is_commodity from categories
+        where id = ${normalizedInput.categoryId} and type = ${normalizedInput.type}
+      `;
+      if (!cardCategory) throw new HttpError(400, "Категория не подходит по типу карточки");
+      validateCategoryFields(normalizedInput, cardCategory.is_commodity);
       const [card] = await tx<{ id: string }[]>`
         insert into cards (
           id,
           type, category_id, title, description, price_type, price_amount,
           price_unit, price_reason, location, availability, sort_order,
           territory_code, ownership_form, product_location, product_location_detail,
-          service_all_kazakhstan
+          commodity_group, volume_tonnes, service_all_kazakhstan
         )
         values (
           ${cardId},
           ${normalizedInput.type}, ${normalizedInput.categoryId}, ${normalizedInput.title}, ${normalizedInput.description},
           ${normalizedInput.priceType}, ${normalizedInput.priceType === "on_request" ? null : normalizedInput.priceAmount ?? null},
           ${normalizedInput.priceUnit ?? null}, ${normalizedInput.priceType === "fixed" ? null : normalizedInput.priceReason ?? null},
-          ${legacyLocation}, ${normalizedInput.availability ?? null}, ${normalizedInput.sortOrder},
+          ${legacyLocation}, ${normalizedInput.type === "service" ? normalizedInput.availability ?? null : null}, ${normalizedInput.sortOrder},
           ${normalizedInput.type === "product" ? normalizedInput.territoryCode ?? null : null},
           ${normalizedInput.type === "product" ? normalizedInput.ownershipForm ?? null : null},
           ${normalizedInput.type === "product" ? normalizedInput.productLocation ?? null : null},
           ${normalizedInput.type === "product" ? normalizedInput.productLocationDetail ?? null : null},
+          ${normalizedInput.type === "product" ? normalizedInput.commodityGroup ?? null : null},
+          ${normalizedInput.type === "product" ? normalizedInput.volumeTonnes ?? null : null},
           ${normalizedInput.type === "service" && normalizedInput.serviceAllKazakhstan}
         )
         on conflict (id) do nothing
@@ -588,7 +644,7 @@ export async function createCard(env: AppEnv, input: CreateCardInput): Promise<A
       const [detailRow] = await tx<CardRow[]>`
         select
           c.id, c.type, c.category_id, c.title, c.description, c.price_type, c.price_amount,
-          c.price_unit, c.price_reason, c.location, c.availability,
+          c.price_unit, c.price_reason, c.location, c.availability, c.commodity_group, c.volume_tonnes,
           c.territory_code, territory.name as territory_name, territory.kind as territory_kind,
           territory.sort_order as territory_sort_order,
           c.ownership_form, c.product_location, c.product_location_detail, c.service_all_kazakhstan,
@@ -613,12 +669,13 @@ export async function createCard(env: AppEnv, input: CreateCardInput): Promise<A
         where cst.card_id = ${createdId}
         order by cst.sort_order
       `;
-      const [category] = await tx<{ required_specs: string[] }[]>`
-        select required_specs from categories where id = ${detailRow.category_id}
+      const [category] = await tx<{ required_specs: string[]; is_commodity: boolean }[]>`
+        select required_specs, is_commodity from categories where id = ${detailRow.category_id}
       `;
       return toAdminCardDetailWithRequiredSpecs(
         toCardDetail(detailRow, images, specs, env, serviceTerritories.map(toTerritory)),
-        category?.required_specs ?? []
+        category?.required_specs ?? [],
+        category?.is_commodity ?? false
       );
     });
     if (replayedCardId) {
@@ -697,10 +754,12 @@ export async function updateCard(
         throw new HttpError(409, "Карточка была изменена в другом окне. Обновите данные перед сохранением");
       }
 
-      const [category] = await tx<{ required_specs: string[] }[]>`
-        select required_specs from categories
+      const [category] = await tx<{ required_specs: string[]; is_commodity: boolean }[]>`
+        select required_specs, is_commodity from categories
         where id = ${normalizedInput.categoryId} and type = ${normalizedInput.type}
       `;
+      if (!category) throw new HttpError(400, "Категория не подходит по типу карточки");
+      validateCategoryFields(normalizedInput, category.is_commodity);
       if (existingCard.published_at !== null && existingCard.archived_at === null) {
         const issues = getPublicationIssues({
           type: normalizedInput.type,
@@ -712,9 +771,12 @@ export async function updateCard(
           territoryCode: normalizedInput.territoryCode ?? null,
           ownershipForm: normalizedInput.ownershipForm ?? null,
           productLocation: normalizedInput.productLocation ?? null,
+          categoryIsCommodity: category?.is_commodity ?? false,
+          commodityGroup: normalizedInput.commodityGroup ?? null,
+          volumeTonnes: normalizedInput.volumeTonnes ?? null,
           serviceAllKazakhstan: normalizedInput.serviceAllKazakhstan,
           serviceTerritoryCount: normalizedInput.serviceTerritoryCodes.length,
-          availability: normalizedInput.availability ?? null,
+          availability: normalizedInput.type === "service" ? normalizedInput.availability ?? null : null,
           imageCount: normalizedInput.images.length,
           specs: normalizedInput.specs,
           requiredSpecs: category?.required_specs ?? [],
@@ -739,17 +801,19 @@ export async function updateCard(
           price_unit = ${normalizedInput.priceUnit ?? null},
           price_reason = ${normalizedInput.priceType === "fixed" ? null : normalizedInput.priceReason ?? null},
           location = ${legacyLocation},
-          availability = ${normalizedInput.availability ?? null},
+          availability = ${normalizedInput.type === "service" ? normalizedInput.availability ?? null : null},
           sort_order = ${normalizedInput.sortOrder},
           territory_code = ${normalizedInput.type === "product" ? normalizedInput.territoryCode ?? null : null},
           ownership_form = ${normalizedInput.type === "product" ? normalizedInput.ownershipForm ?? null : null},
           product_location = ${normalizedInput.type === "product" ? normalizedInput.productLocation ?? null : null},
           product_location_detail = ${normalizedInput.type === "product" ? normalizedInput.productLocationDetail ?? null : null},
+          commodity_group = ${normalizedInput.type === "product" ? normalizedInput.commodityGroup ?? null : null},
+          volume_tonnes = ${normalizedInput.type === "product" ? normalizedInput.volumeTonnes ?? null : null},
           service_all_kazakhstan = ${normalizedInput.type === "service" && normalizedInput.serviceAllKazakhstan}
         where id = ${id} and version = ${input.expectedVersion}
         returning
           id, type, category_id, title, description, price_type, price_amount, price_unit,
-          price_reason, location, availability,
+          price_reason, location, availability, commodity_group, volume_tonnes,
           territory_code, (select name from territories where code = cards.territory_code) as territory_name,
           (select kind from territories where code = cards.territory_code) as territory_kind,
           (select sort_order from territories where code = cards.territory_code) as territory_sort_order,
@@ -797,7 +861,7 @@ export async function updateCard(
       const [detailRow] = await tx<CardRow[]>`
         select
           c.id, c.type, c.category_id, c.title, c.description, c.price_type, c.price_amount,
-          c.price_unit, c.price_reason, c.location, c.availability,
+          c.price_unit, c.price_reason, c.location, c.availability, c.commodity_group, c.volume_tonnes,
           c.territory_code, territory.name as territory_name, territory.kind as territory_kind,
           territory.sort_order as territory_sort_order,
           c.ownership_form, c.product_location, c.product_location_detail, c.service_all_kazakhstan,
@@ -833,7 +897,8 @@ export async function updateCard(
       return {
         detail: toAdminCardDetailWithRequiredSpecs(
           toCardDetail(detailRow, images, specs, env, serviceTerritories.map(toTerritory)),
-          category?.required_specs ?? []
+          category?.required_specs ?? [],
+          category?.is_commodity ?? false
         ),
         removedPaths
       };
@@ -878,7 +943,7 @@ export async function publishCard(env: AppEnv, id: string, expectedVersion: numb
     const [card] = await tx<CardRow[]>`
       select
         c.id, c.type, c.category_id, c.title, c.description, c.price_type, c.price_amount,
-        c.price_unit, c.price_reason, c.location, c.availability, c.sort_order,
+        c.price_unit, c.price_reason, c.location, c.availability, c.commodity_group, c.volume_tonnes, c.sort_order,
         c.territory_code, c.ownership_form, c.product_location, c.service_all_kazakhstan,
         c.version, c.published_at, c.archived_at, c.created_at, c.updated_at
       from cards c where c.id = ${id}
@@ -889,8 +954,8 @@ export async function publishCard(env: AppEnv, id: string, expectedVersion: numb
       throw new HttpError(409, "Карточка была изменена в другом окне. Обновите данные перед публикацией");
     }
 
-    const [category] = await tx<{ required_specs: string[] }[]>`
-      select required_specs from categories where id = ${card.category_id}
+    const [category] = await tx<{ required_specs: string[]; is_commodity: boolean }[]>`
+      select required_specs, is_commodity from categories where id = ${card.category_id}
     `;
     const images = await tx<{ count: string }[]>`
       select count(*) from card_images where card_id = ${id}
@@ -911,6 +976,9 @@ export async function publishCard(env: AppEnv, id: string, expectedVersion: numb
       territoryCode: card.territory_code,
       ownershipForm: card.ownership_form,
       productLocation: card.product_location,
+      categoryIsCommodity: category?.is_commodity ?? false,
+      commodityGroup: card.commodity_group,
+      volumeTonnes: card.volume_tonnes === null ? null : Number(card.volume_tonnes),
       serviceAllKazakhstan: card.service_all_kazakhstan,
       serviceTerritoryCount: Number(serviceTerritories[0]?.count ?? 0),
       availability: card.availability,

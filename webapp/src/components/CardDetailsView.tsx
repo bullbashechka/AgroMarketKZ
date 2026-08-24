@@ -1,4 +1,4 @@
-import { productLocationLabels, productOwnershipFormLabels, type CardDetail } from "@agromarket/contracts";
+import { commodityGroupLabels, productLocationLabels, productOwnershipFormLabels, type CardDetail } from "@agromarket/contracts";
 import { formatPrice } from "../lib/format";
 import { Gallery } from "./Gallery";
 
@@ -20,6 +20,8 @@ export function CardDetailsView({ card }: { card: CardDetail }) {
         {card.type === "product" && (
           <dl className="card-facts">
             {card.territory && <div><dt>Регион</dt><dd>{card.territory.name}</dd></div>}
+            {card.commodityGroup && <div><dt>Группа продукции</dt><dd>{commodityGroupLabels[card.commodityGroup]}</dd></div>}
+            {card.volumeTonnes !== null && <div><dt>Объём</dt><dd>{card.volumeTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т</dd></div>}
             {card.ownershipForm && <div><dt>Форма собственности</dt><dd>{productOwnershipFormLabels[card.ownershipForm]}</dd></div>}
             {card.productLocation && <div><dt>Местонахождение</dt><dd>{productLocationLabels[card.productLocation]}{card.productLocationDetail ? ` — ${card.productLocationDetail}` : ""}</dd></div>}
           </dl>
@@ -29,7 +31,7 @@ export function CardDetailsView({ card }: { card: CardDetail }) {
             <div><dt>Регион работы</dt><dd>{card.serviceAllKazakhstan ? "Весь Казахстан" : card.serviceTerritories.map((territory) => territory.name).join(", ") || "Не указан"}</dd></div>
           </dl>
         )}
-        {(legacyLocation || card.availability) && <p className="muted">{[legacyLocation, card.availability].filter(Boolean).join(" · ")}</p>}
+        {card.type === "service" && (legacyLocation || card.availability) && <p className="muted">{[legacyLocation, card.availability].filter(Boolean).join(" · ")}</p>}
         {card.specs.length > 0 && (
           <dl className="specs-list">
             {card.specs.map((spec) => <div key={spec.id}><dt>{spec.key}</dt><dd>{spec.value}</dd></div>)}

@@ -5,6 +5,7 @@ import {
   type ProductLocation,
   type ProductOwnershipForm,
   type TerritoryCode,
+  type CommodityGroup,
 } from "@agromarket/contracts";
 
 export interface LivePublicationInput {
@@ -22,6 +23,9 @@ export interface LivePublicationInput {
   territoryCode: TerritoryCode | null;
   ownershipForm: ProductOwnershipForm | null;
   productLocation: ProductLocation | null;
+  categoryIsCommodity?: boolean;
+  commodityGroup?: CommodityGroup | null;
+  volumeTonnes?: number | null;
   serviceAllKazakhstan: boolean;
   serviceTerritoryCount: number;
   availability: string | null;
@@ -54,6 +58,9 @@ export function getLivePublicationIssues(input: LivePublicationInput): string[] 
     territoryCode: input.territoryCode,
     ownershipForm: input.ownershipForm,
     productLocation: input.productLocation,
+    categoryIsCommodity: input.categoryIsCommodity,
+    commodityGroup: input.commodityGroup,
+    volumeTonnes: input.volumeTonnes,
     serviceAllKazakhstan: input.serviceAllKazakhstan,
     serviceTerritoryCount: input.serviceTerritoryCount,
     availability: input.availability,
