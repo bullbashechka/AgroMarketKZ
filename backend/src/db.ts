@@ -14,17 +14,33 @@ export const POSTGRES_POOL_OPTIONS = Object.freeze({
   prepare: false,
 }) satisfies postgres.Options<{}>;
 
+const CONNECTION_ERROR_CODES = new Set([
+  "CONNECTION_DESTROYED",
+  "CONNECTION_CLOSED",
+  "CONNECTION_ENDED",
+  "CONNECT_TIMEOUT",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+]);
+
 function createClient(env: AppEnv): Sql {
   return postgres(env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL, POSTGRES_POOL_OPTIONS);
 }
 
 /**
- * `PostgresError`/`HttpError` — осмысленные ошибки самого запроса/бизнес-логики, ретраить их
- * нельзя (например 409 из транзакции). Всё остальное, долетевшее сюда из postgres.js, на практике
- * означает обрыв сокета — на Workers это ожидаемо (см. `withReconnect`).
+ * Ошибки соединения определяем по кодам postgres.js и сокета. Произвольная ошибка приложения
+ * не должна считаться сетевой: иначе программный баг будет ретраиться и маскироваться под 500.
  */
 export function isConnectionError(err: unknown): boolean {
-  return !(err instanceof PostgresError) && !(err instanceof HttpError);
+  if (err instanceof PostgresError || err instanceof HttpError) return false;
+  if (typeof err !== "object" || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === "string" && CONNECTION_ERROR_CODES.has(code);
 }
 
 /**
@@ -128,4 +144,12 @@ export function getDb(env: AppEnv): Sql {
     },
     create: () => createClient(env)
   });
+}
+
+/** Завершает локальный singleton (используется только интеграционным harness и graceful shutdown). */
+export async function closeDb(): Promise<void> {
+  const current = client;
+  client = undefined;
+  reconnecting = undefined;
+  if (current) await current.end({ timeout: 0 });
 }

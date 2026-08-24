@@ -1,5 +1,5 @@
 import { expect, test } from "../fixtures/auth.fixture";
-import { api } from "../helpers/api";
+import { api, E2E_PREFIX } from "../helpers/api";
 
 test("гость просматривает каталог, а регистрация возобновляет добавление в избранное", async ({
   unregisteredUserPage: page,
@@ -19,7 +19,7 @@ test("гость просматривает каталог, а регистра�
   await page.getByTestId("favorite-toggle").click();
 
   await expect(page.getByTestId("register-name-input")).toBeVisible({ timeout: 15_000 });
-  await page.getByTestId("register-name-input").fill("Айдос Тестов");
+  await page.getByTestId("register-name-input").fill(`${E2E_PREFIX} Айдос Тестов`);
   await page.getByTestId("register-phone-input").fill("+77011234567");
   await page.getByTestId("register-submit").click();
 

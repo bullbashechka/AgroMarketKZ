@@ -23,6 +23,10 @@ Bucket `card-images` (see `database/supabase/storage.sql`): public bucket, `file
 
 Business data should be read and written through the backend API. Storage writes should also go through backend admin routes. The app stores object paths in `card_images.storage_path`, not public URLs.
 
+E2E-загрузки изолированы префиксом `e2e/<run-id>/` и удаляются test-only teardown вместе с
+unbound-объектами. Обычные production-загрузки используют `cards/<uuid>.<ext>` и попадают под
+ежедневную reconciliation-задачу ниже.
+
 Residual risk: the bucket validates the declared MIME type, not file magic bytes — acceptable for the current admin-only upload path.
 
 Objects under `cards/` that are no longer referenced by any `card_images.storage_path` (abandoned uploads, best-effort deletes that failed) are not removed eagerly. The backend Worker's daily cron reconciles them against `card_images` and deletes only exact, unreferenced, 7+ day old paths — see `backend/README.md` for the job's dry-run/delete-mode toggle and limits.

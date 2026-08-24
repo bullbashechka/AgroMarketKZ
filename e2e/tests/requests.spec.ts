@@ -1,6 +1,6 @@
 import { expect, test } from "../fixtures/auth.fixture";
 import type { Page } from "@playwright/test";
-import { api } from "../helpers/api";
+import { api, E2E_PREFIX } from "../helpers/api";
 
 interface CardListItem {
   id: string;
@@ -39,11 +39,11 @@ test.describe("Заявки — 3 источника", () => {
     unregisteredUserPage: page,
     adminToken,
   }) => {
-    const marker = `[e2e] первая заявка гостя ${Date.now()}`;
+    const marker = `${E2E_PREFIX} первая заявка гостя ${Date.now()}`;
     await page.goto("/products");
     await page.getByTestId("tab-request-cta").click();
     await fillProductListingFields(page);
-    await page.getByTestId("request-name-input").fill("E2E Гость");
+    await page.getByTestId("request-name-input").fill(`${E2E_PREFIX} Гость`);
     await page.getByTestId("request-phone-input").fill("+77012223340");
     await page.locator("textarea").fill(marker);
     await page.getByTestId("listing-submission-submit").click();
@@ -51,7 +51,7 @@ test.describe("Заявки — 3 источника", () => {
     await expect(page.getByText(/предложение отправлено/i)).toBeVisible({ timeout: 15_000 });
     await page.getByRole("button", { name: "Продолжить просмотр" }).click();
     await page.goto("/general");
-    await expect(page.getByRole("heading", { name: "Добро пожаловать, E2E Гость!" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: `Добро пожаловать, ${E2E_PREFIX} Гость!` })).toBeVisible({ timeout: 15_000 });
     await closeCreatedRequest(adminToken, marker);
   });
 
@@ -60,7 +60,7 @@ test.describe("Заявки — 3 источника", () => {
     const cardId = cards.items[0]?.id;
     test.skip(!cardId, "Нет карточек товаров для теста заявки");
 
-    const marker = `[e2e] заявка из карточки ${Date.now()}`;
+    const marker = `${E2E_PREFIX} заявка из карточки ${Date.now()}`;
     await page.goto(`/products/x/${cardId}`);
     await page.getByTestId("card-respond-button").click();
     await page.getByTestId("response-request").click();
@@ -75,7 +75,7 @@ test.describe("Заявки — 3 источника", () => {
   });
 
   test("с вкладки", async ({ freshUserPage: page, adminToken }) => {
-    const marker = `[e2e] заявка с вкладки ${Date.now()}`;
+    const marker = `${E2E_PREFIX} заявка с вкладки ${Date.now()}`;
     await page.goto("/products");
     await page.getByTestId("tab-request-cta").click();
     await fillProductListingFields(page);
@@ -90,7 +90,7 @@ test.describe("Заявки — 3 источника", () => {
   });
 
   test("из профиля", async ({ freshUserPage: page, adminToken }) => {
-    const marker = `[e2e] заявка из профиля ${Date.now()}`;
+    const marker = `${E2E_PREFIX} заявка из профиля ${Date.now()}`;
     await page.goto("/general");
     await page.getByTestId("tab-request-cta").click();
 
@@ -104,7 +104,7 @@ test.describe("Заявки — 3 источника", () => {
   });
 
   test("потерянный ответ и повторный submit создают одну заявку", async ({ freshUserPage: page, adminToken }) => {
-    const marker = `[e2e] idempotency ${Date.now()}`;
+    const marker = `${E2E_PREFIX} idempotency ${Date.now()}`;
     let intercepted = false;
     await page.route("**/requests", async (route) => {
       if (route.request().method() !== "POST" || intercepted) {

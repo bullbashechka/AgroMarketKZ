@@ -1,5 +1,17 @@
 import { API_URL } from "./env";
 
+class E2EApiError extends Error {
+  constructor(
+    public readonly method: string,
+    public readonly path: string,
+    public readonly status: number,
+    body: string,
+  ) {
+    super(`${method} ${path} failed: ${status} ${body}`);
+    this.name = "E2EApiError";
+  }
+}
+
 async function request<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method,
@@ -10,7 +22,7 @@ async function request<T>(method: string, path: string, token: string, body?: un
     body: body !== undefined ? JSON.stringify(body) : undefined
   });
   if (!res.ok) {
-    throw new Error(`${method} ${path} failed: ${res.status} ${await res.text()}`);
+    throw new E2EApiError(method, path, res.status, await res.text());
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -25,21 +37,7 @@ export const api = {
   delete: <T>(path: string, token: string, body?: unknown) => request<T>("DELETE", path, token, body)
 };
 
-export const E2E_PREFIX = "[e2e]";
-
-export interface AdminCategory {
-  id: string;
-  name: string;
-  type: "service" | "product";
-  cardCount: number;
-  activeCardCount: number;
-}
-
-export interface AdminCardListItem {
-  id: string;
-  title: string;
-  categoryId: string;
-}
+export const E2E_PREFIX = `[e2e:${process.env.E2E_RUN_ID ?? "unconfigured"}]`;
 
 export async function createTestCategory(token: string, type: "service" | "product") {
   return api.post<{ id: string; name: string }>("/admin/categories", token, {
@@ -47,10 +45,6 @@ export async function createTestCategory(token: string, type: "service" | "produ
     name: `${E2E_PREFIX} Категория ${Date.now()}`,
     sortOrder: 999
   });
-}
-
-export async function deleteTestCategory(token: string, id: string) {
-  await api.delete(`/admin/categories/${id}`, token).catch(() => {});
 }
 
 export async function createTestCard(
@@ -71,30 +65,4 @@ export async function createTestCard(
     specs: [],
     ...overrides
   });
-}
-
-export async function deleteTestCard(token: string, id: string) {
-  const card = await api.get<{ version: number }>(`/admin/cards/${id}`, token).catch(() => undefined);
-  if (!card) return;
-  await api.delete(`/admin/cards/${id}`, token, { expectedVersion: card.version }).catch(() => {});
-}
-
-export async function sweepE2eLeftovers(adminToken: string) {
-  for (const type of ["service", "product"] as const) {
-    const cards = await api.get<{ items: AdminCardListItem[] }>(
-      `/admin/cards?type=${type}&limit=100`,
-      adminToken
-    );
-    for (const card of cards.items ?? []) {
-      if (card.title.startsWith(E2E_PREFIX)) {
-        await deleteTestCard(adminToken, card.id);
-      }
-    }
-    const categories = await api.get<AdminCategory[]>(`/admin/categories?type=${type}`, adminToken);
-    for (const category of categories ?? []) {
-      if (category.name.startsWith(E2E_PREFIX) && category.cardCount === 0) {
-        await deleteTestCategory(adminToken, category.id);
-      }
-    }
-  }
 }

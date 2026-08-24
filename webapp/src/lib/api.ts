@@ -26,10 +26,25 @@ export class ApiError extends Error {
     public readonly status: number,
     message: string,
     public readonly retryAfterSeconds?: number,
+    public readonly code?: string,
+    public readonly requestId?: string,
+    public readonly retryable = false,
   ) {
     super(message);
     this.name = "ApiError";
   }
+}
+
+export function isAmbiguousMutationError(error: unknown): boolean {
+  return !(error instanceof ApiError)
+    || error.retryable
+    || error.status >= 500;
+}
+
+export function formatApiError(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) return fallback;
+  if (!error.requestId || error.status < 500) return error.message;
+  return `${error.message} (код обращения: ${error.requestId})`;
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -47,7 +62,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (response.status === 401) {
     // Токен недействителен/истёк — сбрасываем сессию (в браузере → к Login Widget).
     handleUnauthorized();
-    throw new ApiError(401, "Сессия истекла");
+    throw new ApiError(
+      401,
+      "Сессия истекла",
+      undefined,
+      "SESSION_EXPIRED",
+      response.headers.get("X-Request-ID") ?? undefined,
+    );
   }
 
   const payload: unknown = await response.json().catch(() => null);
@@ -59,6 +80,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       response.status,
       message,
       (payload as { retryAfterSeconds?: number } | null)?.retryAfterSeconds,
+      (payload as { code?: string } | null)?.code,
+      (payload as { requestId?: string } | null)?.requestId
+        ?? response.headers.get("X-Request-ID")
+        ?? undefined,
+      (payload as { retryable?: boolean } | null)?.retryable === true,
     );
   }
 

@@ -29,6 +29,8 @@ export interface AppEnv {
   SUPABASE_SERVICE_ROLE_KEY: string;
   /** "false" включает реальное удаление в storageCleanup; любое другое значение (в т.ч. отсутствие) — dry-run. */
   STORAGE_CLEANUP_DRY_RUN?: string;
+  /** Идентификатор изолированного E2E-прогона; включает только его test-cleanup endpoint. */
+  E2E_RUN_ID?: string;
   /** Кеш {tokenVersion, isRegistered} по userId, TTL 60с. Отсутствует локально на Bun — тогда findAuthUserCached деградирует к прямому SELECT. */
   AUTH_CACHE_KV?: KVNamespace;
   /** Отсутствуют при локальном запуске без Wrangler и тогда являются no-op. */
@@ -57,6 +59,7 @@ export interface AuthUser {
 export interface AppVariables {
   env: AppEnv;
   auth: AuthUser;
+  requestId: string;
 }
 
 /** Тип окружения Hono для всего backend (Bindings + Variables). */

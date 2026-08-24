@@ -15,6 +15,7 @@
     "dev:webapp": "bun run --cwd webapp dev",
     "db:migrate": "for file in database/migrations/*.sql; do echo \"Applying $file\"; psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$file\"; done",
     "db:seed:dev": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f database/seeds/dev.sql",
+    "test:integration": "bun run --cwd packages/contracts build && bun run backend/scripts/run-integration-tests.ts",
     "build": "bun run --cwd packages/contracts build && bun run --cwd backend build && bun run --cwd webapp build",
     "typecheck": "bun run --cwd packages/contracts build && bun run --cwd backend typecheck && bun run --cwd webapp typecheck",
     "load:test": "bun --env-file=.env e2e/scripts/loadTest.ts",

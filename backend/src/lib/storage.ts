@@ -23,8 +23,20 @@ export function extFromContentType(contentType: UploadContentType): string {
   return EXTENSION_BY_CONTENT_TYPE[contentType];
 }
 
+const SAFE_E2E_RUN_ID = /^[A-Za-z0-9-]{1,32}$/;
+
 /** Путь к новому фото карточки в бакете (загрузка предшествует созданию карточки). */
-export function buildCardImagePath(contentType: UploadContentType, id = crypto.randomUUID()): string {
+export function buildCardImagePath(
+  contentType: UploadContentType,
+  id = crypto.randomUUID(),
+  e2eRunId?: string,
+): string {
+  if (e2eRunId !== undefined) {
+    if (!SAFE_E2E_RUN_ID.test(e2eRunId)) {
+      throw new Error("E2E_RUN_ID must contain only 1-32 ASCII letters, digits, or hyphens");
+    }
+    return `e2e/${e2eRunId}/${id}.${extFromContentType(contentType)}`;
+  }
   return `cards/${id}.${extFromContentType(contentType)}`;
 }
 
@@ -114,17 +126,24 @@ export interface StorageObjectSummary {
   createdAt: Date;
 }
 
-/**
- * Постранично перечисляет объекты бакета под префиксом `cards/` (для storageCleanup).
- * Supabase возвращает `name` относительно `prefix` — здесь он приводится к полному storage_path.
- * Записи без валидного `created_at` (папки-плейсхолдеры) отбрасываются.
- */
-export async function listCardImageObjects(
+function storageObjectUrl(env: AppEnv, storagePath: string): string {
+  const base = env.SUPABASE_URL.replace(/\/+$/, "");
+  const path = storagePath
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `${base}/storage/v1/object/${encodeURIComponent(env.SUPABASE_STORAGE_BUCKET)}/${path}`;
+}
+
+/** Постранично перечисляет объекты Storage под произвольным безопасным префиксом. */
+export async function listStorageObjects(
   env: AppEnv,
-  options: { limit: number; offset: number }
+  prefix: string,
+  options: { limit: number; offset: number },
 ): Promise<StorageObjectSummary[]> {
   const base = env.SUPABASE_URL.replace(/\/+$/, "");
-  const res = await fetch(`${base}/storage/v1/object/list/${env.SUPABASE_STORAGE_BUCKET}`, {
+  const normalizedPrefix = prefix.replace(/^\/+/, "");
+  const res = await fetch(`${base}/storage/v1/object/list/${encodeURIComponent(env.SUPABASE_STORAGE_BUCKET)}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -132,7 +151,7 @@ export async function listCardImageObjects(
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      prefix: CARD_IMAGES_PREFIX,
+      prefix: normalizedPrefix,
       limit: options.limit,
       offset: options.offset,
       sortBy: { column: "created_at", order: "asc" }
@@ -145,14 +164,53 @@ export async function listCardImageObjects(
   return items
     .filter((item) => item.created_at !== null)
     .map((item) => ({
-      storagePath: `${CARD_IMAGES_PREFIX}${item.name}`,
+      storagePath: `${normalizedPrefix}${item.name.replace(/^\/+/, "")}`,
       createdAt: new Date(item.created_at as string)
     }));
+}
+
+/**
+ * Постранично перечисляет объекты бакета под префиксом `cards/` (для storageCleanup).
+ * Supabase возвращает `name` относительно `prefix` — здесь он приводится к полному storage_path.
+ * Записи без валидного `created_at` (папки-плейсхолдеры) отбрасываются.
+ */
+export async function listCardImageObjects(
+  env: AppEnv,
+  options: { limit: number; offset: number }
+): Promise<StorageObjectSummary[]> {
+  return listStorageObjects(env, CARD_IMAGES_PREFIX, options);
 }
 
 export interface StrictDeleteResult {
   deleted: string[];
   failed: string[];
+}
+
+export interface StrictDeleteOptions {
+  /**
+   * Test-only recovery for a lost DELETE response. A path is marked deleted only
+   * after a follow-up HEAD confirms that Storage no longer has the object.
+   */
+  reconcileMissing?: boolean;
+}
+
+async function reconcileMissingStoragePaths(env: AppEnv, paths: string[]): Promise<string[]> {
+  const missing: string[] = [];
+  for (const path of paths) {
+    try {
+      const response = await fetch(storageObjectUrl(env, path), {
+        method: "HEAD",
+        headers: {
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+        },
+      });
+      if (response.status === 404) missing.push(path);
+    } catch {
+      // An unavailable HEAD cannot prove absence, so the path remains failed.
+    }
+  }
+  return missing;
 }
 
 /**
@@ -162,10 +220,12 @@ export interface StrictDeleteResult {
  */
 export async function deleteStorageObjectsStrict(
   env: AppEnv,
-  storagePaths: string[]
+  storagePaths: string[],
+  options: StrictDeleteOptions = {},
 ): Promise<StrictDeleteResult> {
   if (storagePaths.length === 0) return { deleted: [], failed: [] };
   const base = env.SUPABASE_URL.replace(/\/+$/, "");
+  const uniquePaths = [...new Set(storagePaths)];
   try {
     const res = await fetch(`${base}/storage/v1/object/${env.SUPABASE_STORAGE_BUCKET}`, {
       method: "DELETE",
@@ -174,20 +234,40 @@ export async function deleteStorageObjectsStrict(
         apikey: env.SUPABASE_SERVICE_ROLE_KEY,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ prefixes: storagePaths })
+      body: JSON.stringify({ prefixes: uniquePaths })
     });
     if (!res.ok) {
       console.error("deleteStorageObjectsStrict: Supabase Storage вернул ошибку", res.status);
-      return { deleted: [], failed: storagePaths };
+      const reconciled = options.reconcileMissing
+        ? await reconcileMissingStoragePaths(env, uniquePaths)
+        : [];
+      const reconciledSet = new Set(reconciled);
+      return {
+        deleted: reconciled,
+        failed: uniquePaths.filter((path) => !reconciledSet.has(path)),
+      };
     }
     const removed = (await res.json()) as { name: string }[];
     const removedPaths = new Set(removed.map((item) => item.name));
+    const deleted = uniquePaths.filter((path) => removedPaths.has(path));
+    const unresolved = uniquePaths.filter((path) => !removedPaths.has(path));
+    const reconciled = options.reconcileMissing
+      ? await reconcileMissingStoragePaths(env, unresolved)
+      : [];
+    const deletedSet = new Set([...deleted, ...reconciled]);
     return {
-      deleted: storagePaths.filter((path) => removedPaths.has(path)),
-      failed: storagePaths.filter((path) => !removedPaths.has(path))
+      deleted: uniquePaths.filter((path) => deletedSet.has(path)),
+      failed: uniquePaths.filter((path) => !deletedSet.has(path))
     };
   } catch (err) {
     console.error("deleteStorageObjectsStrict: не удалось удалить объекты", err);
-    return { deleted: [], failed: storagePaths };
+    const reconciled = options.reconcileMissing
+      ? await reconcileMissingStoragePaths(env, uniquePaths)
+      : [];
+    const reconciledSet = new Set(reconciled);
+    return {
+      deleted: reconciled,
+      failed: uniquePaths.filter((path) => !reconciledSet.has(path)),
+    };
   }
 }

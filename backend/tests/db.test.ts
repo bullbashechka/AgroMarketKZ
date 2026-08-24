@@ -33,11 +33,10 @@ describe("isConnectionError", () => {
     expect(isConnectionError(pgError)).toBe(false);
   });
 
-  test("любая другая ошибка (обрыв сокета и т.п.) считается сетевой и ретраится", () => {
-    expect(isConnectionError(new Error("read ECONNRESET"))).toBe(true);
-    expect(isConnectionError(Object.assign(new Error("closed"), { code: "CONNECTION_CLOSED" }))).toBe(
-      true,
-    );
+  test("известные сетевые коды считаются сетевыми, а произвольный Error — нет", () => {
+    expect(isConnectionError(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }))).toBe(true);
+    expect(isConnectionError(Object.assign(new Error("closed"), { code: "CONNECTION_CLOSED" }))).toBe(true);
+    expect(isConnectionError(new Error("ошибка приложения"))).toBe(false);
   });
 });
 
@@ -49,13 +48,17 @@ function makeFakeClient(queryOutcomes: Array<"ok" | "fail">, beginOutcomes: Arra
   const target = ((..._args: unknown[]) => {
     const outcome = queryOutcomes[queryCalls] ?? "ok";
     queryCalls++;
-    return outcome === "fail" ? Promise.reject(new Error("read ECONNRESET")) : Promise.resolve("ok");
+    return outcome === "fail"
+      ? Promise.reject(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }))
+      : Promise.resolve("ok");
   }) as unknown as Sql;
   Object.assign(target, {
     begin: async (cb: (tx: Sql) => unknown) => {
       const outcome = beginOutcomes[beginCalls] ?? "ok";
       beginCalls++;
-      if (outcome === "fail") throw new Error("read ECONNRESET");
+      if (outcome === "fail") {
+        throw Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+      }
       return cb(target);
     },
     end: async () => {

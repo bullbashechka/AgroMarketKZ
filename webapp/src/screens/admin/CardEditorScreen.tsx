@@ -10,6 +10,7 @@ import {
   type AdminCardDetail,
   type CardDetail,
   type CatalogType,
+  type CreateCardInput,
   type PriceType,
   type ProductLocation,
   type ProductOwnershipForm,
@@ -27,9 +28,11 @@ import { BottomSheet } from "../../components/BottomSheet";
 import { CardDetailsView } from "../../components/CardDetailsView";
 import { Screen } from "../../components/Screen";
 import { SkeletonList } from "../../components/Skeleton";
-import { ApiError, apiDelete, apiPost, apiPut } from "../../lib/api";
+import { ApiError, apiDelete, apiGet, apiPost, apiPut, formatApiError, isAmbiguousMutationError } from "../../lib/api";
+import { cardMatchesInput, PublishAfterSaveError } from "../../lib/cardMutation";
 import { clearCardDraft, loadCardDraft, saveCardDraft, type CardDraft } from "../../lib/cardDraft";
 import { zodFieldErrorsByPath } from "../../lib/formErrors";
+import { getLivePublicationIssues } from "../../lib/publicationChecklist";
 import { adminCardQueryOptions, adminCategoriesQueryOptions, territoriesQueryOptions } from "../../lib/queries";
 import type { AdminTypeSearch } from "../../lib/searchParams";
 import { hapticNotify } from "../../lib/telegram";
@@ -47,6 +50,8 @@ const priceTypeOptions: { value: PriceType; label: string }[] = [
   { value: "on_request", label: priceTypeLabels.on_request }
 ];
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export function CardEditorScreen() {
   const { cardId } = useParams({ strict: false }) as { cardId?: string };
   return cardId ? <CardEditorEdit cardId={cardId} /> : <CardEditorCreate />;
@@ -54,12 +59,21 @@ export function CardEditorScreen() {
 
 function CardEditorEdit({ cardId }: { cardId: string }) {
   const { data, isPending, isError, refetch } = useQuery(adminCardQueryOptions(cardId));
+  const [recoveryError, setRecoveryError] = useState<string | undefined>();
 
   return (
     <Screen back title="Карточка" fallbackTo="/admin/cards">
       {isPending && <SkeletonList />}
       {isError && <ErrorState onRetry={refetch} />}
-      {data && <CardEditorForm key={data.version} mode="edit" initial={data} />}
+      {data && (
+        <CardEditorForm
+          key={data.version}
+          mode="edit"
+          initial={data}
+          recoveryError={recoveryError}
+          onRecoveryError={setRecoveryError}
+        />
+      )}
     </Screen>
   );
 }
@@ -114,9 +128,18 @@ interface CardEditorFormProps {
   initial?: AdminCardDetail;
   initialType?: CatalogType;
   draft?: CardDraft;
+  recoveryError?: string;
+  onRecoveryError?: (message: string | undefined) => void;
 }
 
-function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormProps) {
+function CardEditorForm({
+  mode,
+  initial,
+  initialType,
+  draft,
+  recoveryError,
+  onRecoveryError,
+}: CardEditorFormProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -147,6 +170,17 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
   const [previewOpen, setPreviewOpen] = useState(false);
   const [saveAction, setSaveAction] = useState<"draft" | "publish" | null>(null);
   const [typeChange, setTypeChange] = useState<CatalogType | null>(null);
+  const [createClientRequestId] = useState<string | undefined>(() => {
+    if (mode !== "create") return undefined;
+    return draft?.clientRequestId && UUID_PATTERN.test(draft.clientRequestId)
+      ? draft.clientRequestId
+      : crypto.randomUUID();
+  });
+  const [updateMutationId] = useState<string | undefined>(() => mode === "edit" ? crypto.randomUUID() : undefined);
+
+  useEffect(() => {
+    if (recoveryError) setErrors((current) => ({ ...current, form: recoveryError }));
+  }, [recoveryError]);
 
   const initialImages: DraftImage[] =
     initial?.images.map((img) => ({ storagePath: img.storagePath, publicUrl: img.url })) ?? draft?.images ?? [];
@@ -178,16 +212,127 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
     if (cardId) qc.invalidateQueries({ queryKey: ["card", cardId] });
   }
 
-  /** После сетевой ошибки перечитываем карточку: сервер мог уже применить мутацию. */
+  function finishSavedCard(card: AdminCardDetail) {
+    cacheSavedCard(card);
+    if (mode === "create") clearCardDraft();
+    hapticNotify("success");
+    navigate({ href: mode === "create" ? `/admin/cards/${card.id}` : "/admin/cards" });
+  }
+
+  function cacheSavedCard(card: AdminCardDetail) {
+    qc.setQueryData(adminCardQueryOptions(card.id).queryKey, card);
+    invalidateCatalogQueries(card.id);
+  }
+
+  async function refreshSavedCard(card: AdminCardDetail): Promise<AdminCardDetail> {
+    cacheSavedCard(card);
+    try {
+      const current = await apiGet<AdminCardDetail>(`/admin/cards/${card.id}`);
+      cacheSavedCard(current);
+      return current;
+    } catch {
+      return card;
+    }
+  }
+
+  /** После сетевой ошибки перечитываем карточку напрямую, минуя staleTime React Query. */
   async function reconcileCardMutation(cardId: string): Promise<"exists" | "deleted" | "unknown"> {
     try {
-      await qc.fetchQuery(adminCardQueryOptions(cardId));
+      const card = await apiGet<AdminCardDetail>(`/admin/cards/${cardId}`);
+      qc.setQueryData(adminCardQueryOptions(cardId).queryKey, card);
       invalidateCatalogQueries(cardId);
       return "exists";
     } catch (error) {
       invalidateCatalogQueries(cardId);
       if (error instanceof ApiError && error.status === 404) return "deleted";
       return "unknown";
+    }
+  }
+
+  /** Проверяет неоднозначный PUT/POST и при необходимости повторяет только публикацию. */
+  async function reconcileSaveMutation(
+    cardId: string,
+    input: CreateCardInput,
+    publish: boolean,
+    error: unknown,
+  ): Promise<boolean> {
+    if (!isAmbiguousMutationError(error) || !initial || !input.mutationId) return false;
+    let current: AdminCardDetail;
+    try {
+      current = await apiGet<AdminCardDetail>(
+        `/admin/cards/${cardId}?mutationId=${encodeURIComponent(input.mutationId)}`,
+      );
+    } catch {
+      return false;
+    }
+    qc.setQueryData(adminCardQueryOptions(cardId).queryKey, current);
+    invalidateCatalogQueries(cardId);
+    if (!cardMatchesInput(current, input, initial.version)) return false;
+
+    if (!publish || current.publicationStatus === "published") {
+      finishSavedCard(current);
+      return true;
+    }
+
+    try {
+      const published = await apiPost<AdminCardDetail>(`/admin/cards/${cardId}/publish`, {
+        expectedVersion: current.version,
+      });
+      finishSavedCard(published);
+      return true;
+    } catch {
+      try {
+        const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${cardId}`);
+        if (afterPublish.publicationStatus === "published") {
+          finishSavedCard(afterPublish);
+          return true;
+        }
+      } catch {
+        // Показываем исходную ошибку, если проверка после publish тоже недоступна.
+      }
+      return false;
+    }
+  }
+
+  /** Replay-safe reconciliation for a create request whose response may have been lost. */
+  async function reconcileCreateMutation(
+    input: CreateCardInput,
+    publish: boolean,
+    error: unknown,
+  ): Promise<boolean> {
+    if (mode !== "create" || !createClientRequestId || !isAmbiguousMutationError(error)) return false;
+    let current: AdminCardDetail;
+    try {
+      current = await apiGet<AdminCardDetail>(`/admin/cards/${createClientRequestId}`);
+    } catch {
+      return false;
+    }
+    qc.setQueryData(adminCardQueryOptions(current.id).queryKey, current);
+    invalidateCatalogQueries(current.id);
+    if (!cardMatchesInput(current, input, 0)) return false;
+
+    if (!publish || current.publicationStatus === "published") {
+      finishSavedCard(current);
+      return true;
+    }
+
+    try {
+      const published = await apiPost<AdminCardDetail>(`/admin/cards/${current.id}/publish`, {
+        expectedVersion: current.version,
+      });
+      finishSavedCard(published);
+      return true;
+    } catch {
+      try {
+        const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${current.id}`);
+        if (afterPublish.publicationStatus === "published") {
+          finishSavedCard(afterPublish);
+          return true;
+        }
+      } catch {
+        // Показываем исходную ошибку, если проверка после publish тоже недоступна.
+      }
+      return false;
     }
   }
 
@@ -206,21 +351,10 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
       try {
         return await apiPost<AdminCardDetail>(`/admin/cards/${saved.id}/publish`, { expectedVersion: saved.version });
       } catch (error) {
-        // PUT уже мог закоммититься, а publish — также успеть выполниться до потери
-        // ответа. Перечитываем серверную версию, чтобы повтор не застрял на 409.
-        qc.setQueryData(adminCardQueryOptions(saved.id).queryKey, saved);
-        await qc.invalidateQueries({ queryKey: adminCardQueryOptions(saved.id).queryKey, exact: true });
-        invalidateCatalogQueries(saved.id);
-        throw error;
+        throw new PublishAfterSaveError(saved, error);
       }
     },
-    onSuccess: (card) => {
-      qc.setQueryData(adminCardQueryOptions(card.id).queryKey, card);
-      invalidateCatalogQueries(card.id);
-      if (mode === "create") clearCardDraft();
-      hapticNotify("success");
-      navigate({ href: mode === "create" ? `/admin/cards/${card.id}` : "/admin/cards" });
-    },
+    onSuccess: finishSavedCard,
     onSettled: () => setSaveAction(null),
   });
 
@@ -232,7 +366,7 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
       invalidateCatalogQueries(card.id);
     },
     onError: (error) => {
-      setErrors({ form: error instanceof ApiError ? error.message : "Не удалось скрыть карточку" });
+      setErrors({ form: formatApiError(error, "Не удалось скрыть карточку") });
       void reconcileCardMutation(initial!.id).then((result) => {
         if (result === "deleted") navigate({ href: "/admin/cards" });
       });
@@ -249,7 +383,7 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
     },
     onError: (error) => {
       setDeleteOpen(false);
-      setErrors({ form: error instanceof ApiError ? error.message : "Не удалось удалить карточку" });
+      setErrors({ form: formatApiError(error, "Не удалось удалить карточку") });
       void reconcileCardMutation(initial!.id).then((result) => {
         if (result === "deleted") {
           qc.removeQueries({ queryKey: ["admin-card", initial!.id] });
@@ -261,6 +395,7 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
 
   // Черновик — только для create, только когда есть что сохранять (пустая форма не пишется).
   const draftSnapshot = JSON.stringify({
+    clientRequestId: createClientRequestId,
     type,
     categoryId,
     title,
@@ -321,6 +456,8 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
       ? specs.filter((spec) => spec.key.trim() && spec.value.trim())
       : specs;
     return {
+      clientRequestId: mode === "create" ? createClientRequestId : undefined,
+      mutationId: mode === "edit" ? updateMutationId : undefined,
       type,
       categoryId,
       title,
@@ -345,8 +482,38 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
     };
   }
 
+  const livePayload = buildPayload();
+  const livePublicationIssues = getLivePublicationIssues({
+    title,
+    categoryId,
+    categoryState: categoriesQuery.isPending || categoriesQuery.isFetching
+      ? "loading"
+      : categoriesQuery.isError
+        ? "error"
+        : "ready",
+    categoryFound: selectedCategory !== undefined,
+    requiredSpecs: selectedCategory?.requiredSpecs ?? [],
+    type: livePayload.type,
+    description: livePayload.description,
+    priceType: livePayload.priceType,
+    priceAmount: livePayload.priceAmount,
+    priceUnit: livePayload.priceUnit || null,
+    priceReason: livePayload.priceReason || null,
+    territoryCode: livePayload.territoryCode,
+    ownershipForm: livePayload.ownershipForm,
+    productLocation: livePayload.productLocation,
+    serviceAllKazakhstan: livePayload.serviceAllKazakhstan,
+    serviceTerritoryCount: livePayload.serviceAllKazakhstan ? 1 : livePayload.serviceTerritoryCodes.length,
+    availability: livePayload.availability || null,
+    imageCount: livePayload.images.length,
+    imagePending: imageUploads.images.some((image) => image.status === "compressing" || image.status === "uploading"),
+    imageError: imageUploads.hasErrors,
+    specs: livePayload.specs,
+  });
+
   async function handleAction(action: "draft" | "publish") {
     setErrors({});
+    onRecoveryError?.(undefined);
     // Незавершённая строка характеристики не должна мешать сохранить серверный черновик.
     // При публикации полный набор по-прежнему валидируется ниже и на сервере.
     const payload = buildPayload(action === "draft");
@@ -365,6 +532,10 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
         setErrors({ images: "Исправьте ошибку загрузки фото перед публикацией" });
         return;
       }
+      if (livePublicationIssues.length > 0) {
+        setErrors({ form: `Сначала исправьте: ${livePublicationIssues.join("; ")}` });
+        return;
+      }
       const missingRequired = (selectedCategory?.requiredSpecs ?? []).filter((requiredKey) => {
         const normalized = requiredKey.trim().toLocaleLowerCase("ru");
         return !specs.some((spec) => spec.key.trim().toLocaleLowerCase("ru") === normalized && spec.value.trim());
@@ -379,8 +550,40 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
       setSaveAction(action);
       await saveMutation.mutateAsync({ input: parsed.data, publish: action === "publish" });
     } catch (error) {
-      if (mode === "edit" && initial) await reconcileCardMutation(initial.id);
-      setErrors({ form: error instanceof ApiError ? error.message : "Не удалось сохранить карточку" });
+      if (error instanceof PublishAfterSaveError) {
+        const current = await refreshSavedCard(error.saved);
+        if (isAmbiguousMutationError(error.publishError)) {
+          if (await reconcileCreateMutation(parsed.data, true, error.publishError)) return;
+          if (mode === "edit" && initial && await reconcileSaveMutation(initial.id, parsed.data, true, error.publishError)) {
+            return;
+          }
+        }
+        if (mode === "create") {
+          if (current.publicationStatus === "published") {
+            finishSavedCard(current);
+            return;
+          }
+          // POST уже создал черновик, но publish вернул детерминированную ошибку.
+          // Оставляем форму и draft на месте, чтобы пользователь исправил причину и повторил publish.
+          const message = formatApiError(error.publishError, "Не удалось опубликовать карточку");
+          setErrors({ form: message });
+          onRecoveryError?.(message);
+          return;
+        }
+        const message = formatApiError(error.publishError, "Не удалось опубликовать карточку");
+        setErrors({ form: message });
+        onRecoveryError?.(message);
+        return;
+      }
+      if (await reconcileCreateMutation(parsed.data, action === "publish", error)) {
+        return;
+      }
+      if (mode === "edit" && initial && await reconcileSaveMutation(initial.id, parsed.data, action === "publish", error)) {
+        return;
+      }
+      const message = formatApiError(error, "Не удалось сохранить карточку");
+      setErrors({ form: message });
+      onRecoveryError?.(message);
     }
   }
 
@@ -390,7 +593,8 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
   }
 
   const canSave = imageUploads.settled && !saveMutation.isPending;
-  const previewPayload = buildPayload();
+  const canPublish = canSave && livePublicationIssues.length === 0;
+  const previewPayload = livePayload;
   const previewCard: CardDetail = {
     id: initial?.id ?? "00000000-0000-4000-8000-000000000001",
     type,
@@ -630,10 +834,12 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
         requiredKeys={selectedCategory?.requiredSpecs}
       />
 
-      {initial?.needsReview && initial.reviewIssues.length > 0 && (
+      {livePublicationIssues.length > 0 && (
         <div className="card notice-card">
           <p className="eyebrow">Нужно дополнить</p>
-          <ul>{initial.reviewIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+          <ul data-testid="card-editor-publication-issues">
+            {livePublicationIssues.map((issue) => <li key={issue}>{issue}</li>)}
+          </ul>
         </div>
       )}
 
@@ -656,7 +862,7 @@ function CardEditorForm({ mode, initial, initialType, draft }: CardEditorFormPro
           type="button"
           className="button button-primary"
           data-testid="card-editor-publish"
-          disabled={!canSave}
+          disabled={!canPublish}
           onClick={() => handleAction("publish")}
         >
           {saveMutation.isPending && saveAction === "publish"
