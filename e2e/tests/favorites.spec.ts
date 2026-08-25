@@ -6,12 +6,12 @@ interface CardListItem {
 }
 
 test.describe("Избранное", () => {
-  test("добавление и удаление карточки из избранного", async ({ userPage: page, userToken }) => {
-    const cards = await api.get<{ items: CardListItem[] }>("/catalog/cards?type=product&limit=1", userToken);
+  test("добавление и удаление карточки из избранного", async ({ userPage: page, userSession }) => {
+    const cards = await api.get<{ items: CardListItem[] }>("/catalog/cards?type=product&limit=1", userSession);
     const cardId = cards.items[0]?.id;
     test.skip(!cardId, "В каталоге нет карточек товаров для теста избранного");
 
-    await api.delete(`/favorites/${cardId}`, userToken).catch(() => {});
+    await api.delete(`/favorites/${cardId}`, userSession).catch(() => {});
 
     await page.goto(`/products/x/${cardId}`);
     const favoriteButton = page.getByTestId("favorite-toggle");
@@ -24,7 +24,7 @@ test.describe("Избранное", () => {
     // Мутация оптимистична — ждём, пока запрос реально дойдёт до бэкенда, иначе полная
     // навигация на следующий экран может оборвать ещё не завершённый fetch.
     await expect(async () => {
-      const favs = await api.get<CardListItem[]>("/favorites", userToken);
+      const favs = await api.get<CardListItem[]>("/favorites", userSession);
       expect(favs.some((f) => f.id === cardId)).toBe(true);
     }).toPass({ timeout: 10_000 });
 
@@ -36,6 +36,6 @@ test.describe("Избранное", () => {
     await page.getByTestId("favorite-toggle").click();
     await expect(page.getByTestId("favorite-toggle")).toHaveAttribute("aria-pressed", "false");
 
-    await api.delete(`/favorites/${cardId}`, userToken).catch(() => {});
+    await api.delete(`/favorites/${cardId}`, userSession).catch(() => {});
   });
 });

@@ -12,6 +12,7 @@ import { getEnv, type HonoEnv } from "../../env";
 import { runInBackground } from "../../lib/background";
 import { HttpError } from "../../lib/errors";
 import { deleteStorageObjects } from "../../lib/storage";
+import { findReferencedStoragePaths } from "../../repos/cardImages";
 import {
   adminListCards,
   archiveCard,
@@ -64,7 +65,7 @@ adminCardsRoutes.get("/:id", async (c) => {
 adminCardsRoutes.post("/", async (c) => {
   const env = getEnv(c);
   const input = createCardInput.parse(await c.req.json());
-  const card = await createCard(env, input);
+  const card = await createCard(env, input, { actorUserId: c.get("auth").userId });
   return c.json(adminCardDetailSchema.parse(card), 201);
 });
 
@@ -73,9 +74,12 @@ adminCardsRoutes.put("/:id", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
   const input = updateCardInput.parse(await c.req.json());
-  const { detail, removedPaths } = await updateCard(env, id, input);
+  const { detail, removedPaths } = await updateCard(env, id, input, { actorUserId: c.get("auth").userId });
   if (removedPaths.length > 0) {
-    runInBackground(c, deleteStorageObjects(env, removedPaths));
+    runInBackground(c, (async () => {
+      const referenced = await findReferencedStoragePaths(env, removedPaths);
+      await deleteStorageObjects(env, removedPaths.filter((path) => !referenced.has(path)));
+    })());
   }
   return c.json(adminCardDetailSchema.parse(detail));
 });
@@ -87,7 +91,10 @@ adminCardsRoutes.delete("/:id", async (c) => {
   const { expectedVersion } = cardVersionInput.parse(await c.req.json());
   const removedPaths = await deleteCard(env, id, expectedVersion);
   if (removedPaths.length > 0) {
-    runInBackground(c, deleteStorageObjects(env, removedPaths));
+    runInBackground(c, (async () => {
+      const referenced = await findReferencedStoragePaths(env, removedPaths);
+      await deleteStorageObjects(env, removedPaths.filter((path) => !referenced.has(path)));
+    })());
   }
   return c.body(null, 204);
 });

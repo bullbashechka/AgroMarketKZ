@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createApp } from "../src/app";
 import type { AppEnv } from "../src/env";
-import { issueToken } from "../src/lib/jwt";
 import { createRequireAuth } from "../src/middleware/auth";
 import { authenticatedRouteGroup } from "../src/middleware/rateLimit";
 
 const USER_ID = "45d5fe54-f20b-4fe4-9e22-cad4f7751a47";
 const TELEGRAM_ID = 777;
-const JWT_SECRET = "rate-limit-test-secret";
 
 type LimitResult = { success: boolean };
 
@@ -29,22 +27,24 @@ type RateLimitTestEnv = Partial<AppEnv> & {
   AUTH_IDENTITY_RATE_LIMITER?: RateLimitMock;
 };
 
-async function authorizationHeader(): Promise<Record<string, string>> {
-  const token = await issueToken({ JWT_SECRET } as AppEnv, USER_ID, TELEGRAM_ID, 0);
-  return { Authorization: `Bearer ${token}` };
+function sessionCookie(): Record<string, string> {
+  return { Cookie: "agromarket_session=test-session-token" };
 }
 
 function createRateLimitApp(env: RateLimitTestEnv) {
   return createApp({
     env: {
-      JWT_SECRET,
       ADMIN_ALLOWLIST: String(TELEGRAM_ID),
       ...env,
     } as Partial<AppEnv>,
   });
 }
 
-const requireAuth = createRequireAuth(async () => ({ tokenVersion: 0, isRegistered: true }));
+const requireAuth = createRequireAuth(async (_env, token) => token === "test-session-token" ? ({
+  userId: USER_ID,
+  telegramId: TELEGRAM_ID,
+  isRegistered: true,
+}) : undefined);
 
 describe("Cloudflare authenticated rate limiting", () => {
   test("GET передаёт read binding только userId и rejection останавливает handler", async () => {
@@ -61,7 +61,7 @@ describe("Cloudflare authenticated rate limiting", () => {
     });
 
     const response = await app.request("/__security/read/dynamic-1?sort=desc", {
-      headers: await authorizationHeader(),
+      headers: sessionCookie(),
     });
 
     expect(readLimiter.calls).toEqual([{ key: USER_ID }]);
@@ -89,7 +89,7 @@ describe("Cloudflare authenticated rate limiting", () => {
 
     const response = await app.request("/__security/head", {
       method: "HEAD",
-      headers: await authorizationHeader(),
+      headers: sessionCookie(),
     });
 
     expect(response.status).toBe(429);
@@ -104,11 +104,11 @@ describe("Cloudflare authenticated rate limiting", () => {
 
     await app.request("/__security/items/dynamic-1?source=one", {
       method: "POST",
-      headers: await authorizationHeader(),
+      headers: sessionCookie(),
     });
     await app.request("/__security/items/dynamic-2?source=two", {
       method: "POST",
-      headers: await authorizationHeader(),
+      headers: sessionCookie(),
     });
 
     expect(mutationLimiter.calls).toEqual([
@@ -124,7 +124,7 @@ describe("Cloudflare authenticated rate limiting", () => {
 
     const response = await app.request("/__security/admin/card-dynamic-id?draft=true", {
       method: "POST",
-      headers: await authorizationHeader(),
+      headers: sessionCookie(),
     });
 
     expect(response.status).toBe(429);
@@ -140,7 +140,7 @@ describe("Cloudflare authenticated rate limiting", () => {
     });
 
     const response = await app.request("/__security/no-binding", {
-      headers: await authorizationHeader(),
+      headers: sessionCookie(),
     });
 
     expect(response.status).toBe(200);

@@ -10,7 +10,6 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { ApiError, apiGet, apiPost, apiPut, setUnauthorizedHandler } from "./api";
 import { resetAutoRetries } from "./rateLimitRetry";
 import { getInitData, isTelegramContext } from "./telegram";
-import { getToken, setToken } from "./token";
 
 const PROFILE_KEY = ["profile"] as const;
 
@@ -20,30 +19,22 @@ class NeedsLoginError extends Error {}
 async function loginWithInitData(): Promise<void> {
   const initData = getInitData();
   if (!initData) throw new NeedsLoginError();
-  const { token } = await apiPost<AuthResponse>("/auth/telegram", { initData });
-  setToken(token);
+  await apiPost<AuthResponse>("/auth/telegram", { initData });
 }
 
 /**
- * Bootstrap сессии: есть токен → грузим профиль; нет — в Telegram молча логинимся по initData,
- * в браузере отдаём NeedsLoginError (там нужен Login Widget). На 401 в Telegram — повторный вход.
+ * Bootstrap сессии: запрашиваем профиль по HttpOnly cookie; в Telegram 401 восстанавливает
+ * сессию из свежего initData, в браузере показывает Login Widget.
  */
-async function bootstrapProfile(): Promise<Profile> {
-  if (!getToken()) {
-    if (isTelegramContext()) {
-      await loginWithInitData();
-    } else {
-      throw new NeedsLoginError();
-    }
-  }
-
+async function bootstrapProfile(onSessionBoundary: () => void): Promise<Profile> {
   try {
-    return await apiGet<Profile>("/profile");
+    return await apiGet<Profile>("/profile", { notifyUnauthorized: false });
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
+      onSessionBoundary();
       if (isTelegramContext()) {
         await loginWithInitData();
-        return await apiGet<Profile>("/profile");
+        return await apiGet<Profile>("/profile", { notifyUnauthorized: false });
       }
       throw new NeedsLoginError();
     }
@@ -79,16 +70,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setUnauthorizedHandler(async () => {
       // A 401 is a session boundary, not a normal stale-query event. Clear
-      // every cached query so contact/admin data cannot remain visible after
-      // an expired or revoked token.
-      qc.clear();
+      // every non-profile query, then let the profile query own re-authentication.
+      qc.removeQueries({
+        predicate: (query) => query.queryKey[0] !== PROFILE_KEY[0],
+      });
+      await qc.invalidateQueries({ queryKey: PROFILE_KEY, exact: true });
     });
     return () => setUnauthorizedHandler(undefined);
   }, [qc]);
 
   const profileQuery = useQuery({
     queryKey: PROFILE_KEY,
-    queryFn: bootstrapProfile,
+    queryFn: () => bootstrapProfile(() => {
+      qc.removeQueries({
+        predicate: (query) => query.queryKey[0] !== PROFILE_KEY[0],
+      });
+    }),
     retry: false,
     staleTime: Infinity,
     refetchOnWindowFocus: false
@@ -100,8 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginMutation = useMutation({
     mutationFn: (data: WidgetLoginInput) => apiPost<AuthResponse>("/auth/widget/exchange", data),
-    onSuccess: ({ token, profile }) => {
-      setToken(token);
+    onSuccess: ({ profile }) => {
       qc.setQueryData(PROFILE_KEY, profile);
     }
   });
@@ -117,12 +113,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   let status: AuthStatus;
-  if (profileQuery.data) {
+  if (profileQuery.error instanceof NeedsLoginError) {
+    status = "needsLogin";
+  } else if (profileQuery.data) {
     status = "ready";
   } else if (profileQuery.isLoading) {
     status = "loading";
-  } else if (profileQuery.error instanceof NeedsLoginError) {
-    status = "needsLogin";
   } else if (profileQuery.error instanceof ApiError && profileQuery.error.status === 429) {
     status = "rateLimited";
   } else if (profileQuery.isError) {

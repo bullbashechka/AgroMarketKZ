@@ -1,6 +1,6 @@
-import { clearToken, getToken } from "./token";
-
-const apiUrl = (import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/$/, "");
+// Production and preview traffic always traverses the same-origin Pages proxy.
+// The Vite dev server mirrors that path, so browser code never needs a Worker origin.
+const apiUrl = "/api";
 let unauthorizedHandler: (() => Promise<void> | void) | undefined;
 let unauthorizedRecovery: Promise<void> | undefined;
 
@@ -10,7 +10,6 @@ export function setUnauthorizedHandler(handler: (() => Promise<void> | void) | u
 }
 
 function handleUnauthorized(): void {
-  clearToken();
   if (!unauthorizedHandler || unauthorizedRecovery) return;
   const handler = unauthorizedHandler;
   unauthorizedRecovery = Promise.resolve()
@@ -47,21 +46,25 @@ export function formatApiError(error: unknown, fallback: string): string {
   return `${error.message} (код обращения: ${error.requestId})`;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const token = getToken();
+interface RequestOptions {
+  /** Profile bootstrap owns its 401 transition and must not invalidate itself. */
+  notifyUnauthorized?: boolean;
+}
+
+async function request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const response = await fetch(`${apiUrl}${path}`, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body)
+    body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: "include",
   });
 
   if (response.status === 401) {
     // Токен недействителен/истёк — сбрасываем сессию (в браузере → к Login Widget).
-    handleUnauthorized();
+    if (options.notifyUnauthorized !== false) handleUnauthorized();
     throw new ApiError(
       401,
       "Сессия истекла",
@@ -91,7 +94,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return payload as T;
 }
 
-export const apiGet = <T>(path: string) => request<T>("GET", path);
+export const apiGet = <T>(path: string, options?: RequestOptions) => request<T>("GET", path, undefined, options);
 export const apiPost = <T>(path: string, body?: unknown) => request<T>("POST", path, body);
 export const apiPut = <T>(path: string, body?: unknown) => request<T>("PUT", path, body);
 export const apiPatch = <T>(path: string, body?: unknown) => request<T>("PATCH", path, body);

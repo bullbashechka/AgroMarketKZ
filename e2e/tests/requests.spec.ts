@@ -10,15 +10,15 @@ interface AdminRequestItem {
   comment: string | null;
 }
 
-async function closeCreatedRequest(adminToken: string, marker: string) {
+async function closeCreatedRequest(adminSession: string, marker: string) {
   for (const status of ["new", "in_progress", "closed"] as const) {
     const res = await api.get<{ items: AdminRequestItem[] }>(
       `/admin/requests?status=${status}&limit=50`,
-      adminToken
+      adminSession
     );
     const found = res.items?.find((r) => r.comment === marker);
     if (found) {
-      await api.patch(`/admin/requests/${found.id}/status`, adminToken, { status: "closed" });
+      await api.patch(`/admin/requests/${found.id}/status`, adminSession, { status: "closed" });
       return;
     }
   }
@@ -37,7 +37,7 @@ async function fillProductListingFields(page: Page) {
 test.describe("Заявки — 3 источника", () => {
   test("первая заявка гостя атомарно сохраняет профиль и заявку", async ({
     unregisteredUserPage: page,
-    adminToken,
+    adminSession,
   }) => {
     const marker = `${E2E_PREFIX} первая заявка гостя ${Date.now()}`;
     await page.goto("/products");
@@ -52,11 +52,11 @@ test.describe("Заявки — 3 источника", () => {
     await page.getByRole("button", { name: "Продолжить просмотр" }).click();
     await page.goto("/general");
     await expect(page.getByRole("heading", { name: `Добро пожаловать, ${E2E_PREFIX} Гость!` })).toBeVisible({ timeout: 15_000 });
-    await closeCreatedRequest(adminToken, marker);
+    await closeCreatedRequest(adminSession, marker);
   });
 
-  test("из карточки", async ({ freshUserPage: page, adminToken }) => {
-    const cards = await api.get<{ items: CardListItem[] }>("/catalog/cards?type=product&limit=1", adminToken);
+  test("из карточки", async ({ freshUserPage: page, adminSession }) => {
+    const cards = await api.get<{ items: CardListItem[] }>("/catalog/cards?type=product&limit=1", adminSession);
     const cardId = cards.items[0]?.id;
     test.skip(!cardId, "Нет карточек товаров для теста заявки");
 
@@ -71,10 +71,10 @@ test.describe("Заявки — 3 источника", () => {
 
     await expect(page.getByText(/заявка принята/i)).toBeVisible({ timeout: 15_000 });
 
-    await closeCreatedRequest(adminToken, marker);
+    await closeCreatedRequest(adminSession, marker);
   });
 
-  test("с вкладки", async ({ freshUserPage: page, adminToken }) => {
+  test("с вкладки", async ({ freshUserPage: page, adminSession }) => {
     const marker = `${E2E_PREFIX} заявка с вкладки ${Date.now()}`;
     await page.goto("/products");
     await page.getByTestId("tab-request-cta").click();
@@ -86,10 +86,10 @@ test.describe("Заявки — 3 источника", () => {
 
     await expect(page.getByText(/предложение отправлено/i)).toBeVisible({ timeout: 15_000 });
 
-    await closeCreatedRequest(adminToken, marker);
+    await closeCreatedRequest(adminSession, marker);
   });
 
-  test("из профиля", async ({ freshUserPage: page, adminToken }) => {
+  test("из профиля", async ({ freshUserPage: page, adminSession }) => {
     const marker = `${E2E_PREFIX} заявка из профиля ${Date.now()}`;
     await page.goto("/general");
     await page.getByTestId("tab-request-cta").click();
@@ -100,10 +100,10 @@ test.describe("Заявки — 3 источника", () => {
 
     await expect(page.getByText(/заявка принята/i)).toBeVisible({ timeout: 15_000 });
 
-    await closeCreatedRequest(adminToken, marker);
+    await closeCreatedRequest(adminSession, marker);
   });
 
-  test("потерянный ответ и повторный submit создают одну заявку", async ({ freshUserPage: page, adminToken }) => {
+  test("потерянный ответ и повторный submit создают одну заявку", async ({ freshUserPage: page, adminSession }) => {
     const marker = `${E2E_PREFIX} idempotency ${Date.now()}`;
     let intercepted = false;
     await page.route("**/requests", async (route) => {
@@ -129,11 +129,11 @@ test.describe("Заявки — 3 источника", () => {
     for (const status of ["new", "in_progress", "closed"] as const) {
       const response = await api.get<{ items: AdminRequestItem[] }>(
         `/admin/requests?status=${status}&limit=50`,
-        adminToken,
+        adminSession,
       );
       matches += response.items.filter((request) => request.comment === marker).length;
     }
     expect(matches).toBe(1);
-    await closeCreatedRequest(adminToken, marker);
+    await closeCreatedRequest(adminSession, marker);
   });
 });

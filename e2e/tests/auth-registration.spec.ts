@@ -3,7 +3,7 @@ import { api, E2E_PREFIX } from "../helpers/api";
 
 test("гость просматривает каталог, а регистрация возобновляет добавление в избранное", async ({
   unregisteredUserPage: page,
-  adminToken,
+  adminSession,
 }) => {
   await page.goto("/products");
   await expect(page.getByTestId("tab-products")).toBeVisible({ timeout: 15_000 });
@@ -11,7 +11,7 @@ test("гость просматривает каталог, а регистра�
 
   const cards = await api.get<{ items: Array<{ id: string; categoryId: string }> }>(
     "/catalog/cards?type=product&limit=1",
-    adminToken,
+    adminSession,
   );
   const card = cards.items[0];
   test.skip(!card, "Нет опубликованных карточек товаров");

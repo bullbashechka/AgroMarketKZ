@@ -14,7 +14,6 @@ bun run build
 
 | Переменная | Назначение |
 |-----------|-----------|
-| `VITE_API_URL` | базовый URL backend |
 | `VITE_TELEGRAM_BOT_USERNAME` | username бота (без `@`) для Login Widget в браузере |
 | `SUPABASE_URL` | не `VITE_`-переменная: скрипт сборки читает её для CSP, в клиентский бандл она не попадает |
 
@@ -22,9 +21,14 @@ bun run build
 
 ## Security headers / CSP
 
-После `vite build` команда `bun run build` запускает `scripts/generate-headers.ts`. Скрипт создаёт `dist/_headers` для Cloudflare Pages с CSP и остальными security-заголовками. Он добавляет точные origin API и Supabase в `connect-src` и `img-src`, поэтому production-сборке нужны `VITE_API_URL` и `SUPABASE_URL`. В режиме локального туннеля с Vite proxy эти значения могут быть пустыми, но production-сборку с ними запускать нельзя.
+После `vite build` команда `bun run build` запускает `scripts/generate-headers.ts`. Скрипт создаёт
+`dist/_headers` для Cloudflare Pages с CSP и остальными security-заголовками. API всегда проходит
+через same-origin `/api`, поэтому production-сборке нужен только `SUPABASE_URL` для точного
+`connect-src`/`img-src` signed-загрузок.
 
-CSP по умолчанию использует `Content-Security-Policy-Report-Only`. Включайте enforcing-режим через `CSP_ENFORCE=1` только после проверки в Telegram, Login Widget, PhotoSwipe и прямой загрузки изображений. `X-Frame-Options` не добавляется, поскольку Telegram Web не сможет открыть Mini App.
+CSP enforcing включён по умолчанию. `CSP_REPORT_ONLY=1` допускается только временно для
+controlled debugging. `X-Frame-Options` не добавляется, поскольку Telegram Web не сможет
+открыть Mini App.
 
 ## Устройство приложения
 
@@ -36,7 +40,7 @@ src/
   components/admin/        # элементы админ-панели
   lib/
     auth.tsx               # bootstrap сессии, вход, регистрация и профиль
-    api.ts                 # fetch-обёртка, Bearer JWT и ApiError
+    api.ts                 # same-origin fetch с HttpOnly cookie и ApiError
     registrationIntent.tsx # продолжение действия после регистрации
     shareContact.ts        # Telegram requestContact и серверная проверка подписи
     startParam.ts          # переход к заявке из startapp deep link
@@ -48,8 +52,10 @@ src/
 
 ## Вход и регистрация
 
-1. В Telegram приложение отправляет `initData` на `POST /auth/telegram` и сохраняет JWT в `localStorage`.
-2. В браузере `LoginScreen` показывает Telegram Login Widget. Виджет использует redirect `data-auth-url`; CSP не разрешает его устаревший JS-колбэк.
+1. В Telegram приложение отправляет `initData` на `POST /auth/telegram`; backend создаёт opaque
+   сессию и выставляет `Secure; HttpOnly; SameSite=Lax` cookie. Токены в `localStorage` не хранятся.
+2. В браузере `LoginScreen` показывает Telegram Login Widget и обменивает одноразовый proof на
+   такую же HttpOnly-сессию через `/auth/widget/exchange`.
 3. После подтверждения Telegram-личности каталог доступен без телефона. Регистрация открывается перед избранным, личными разделами и прямой связью.
 4. Первая заявка принимает имя и телефон, создаёт профиль в той же операции и возвращает пользователя к успешной отправке. В Telegram можно заполнить и подтвердить телефон через `requestContact`; ручной ввод остаётся запасным вариантом.
 

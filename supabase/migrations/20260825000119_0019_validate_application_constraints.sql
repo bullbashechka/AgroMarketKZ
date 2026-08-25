@@ -1,0 +1,1 @@
+../../database/migrations/0019_validate_application_constraints.sql

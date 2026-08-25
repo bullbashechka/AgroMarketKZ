@@ -292,7 +292,19 @@ function CardEditorForm({
       );
     } catch (error) {
       if (error instanceof ApiError && error.code === "CARD_UPDATE_MUTATION_NOT_FOUND") return "not_found";
-      if (error instanceof ApiError && error.code === "CARD_CHANGED_AFTER_REPLAY") return "changed";
+      if (error instanceof ApiError && error.code === "CARD_CHANGED_AFTER_REPLAY") {
+        if (!publish) return "changed";
+        try {
+          const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${cardId}`);
+          if (afterPublish.publicationStatus === "published") {
+            finishSavedCard(afterPublish);
+            return "committed";
+          }
+          return "changed";
+        } catch {
+          return "unknown";
+        }
+      }
       return "unknown";
     }
     if (!publish || current.publicationStatus === "published") {

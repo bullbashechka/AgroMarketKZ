@@ -1,6 +1,9 @@
 name = "agromarketkz-backend"
 main = "src/worker.ts"
 compatibility_date = "2026-06-28"
+# Dashboard-managed plain-text variables are operational state, not deploy
+# input. Preserve them when Wrangler uploads this declarative configuration.
+keep_vars = true
 # postgres.js использует TCP-сокеты через Node-совместимость на Workers.
 compatibility_flags = ["nodejs_compat"]
 
@@ -21,6 +24,8 @@ head_sampling_rate = 1
 crons = ["0 3 * * *", "*/5 * * * *"]
 
 [vars]
+# Enables the fail-closed production environment checks in src/env.ts.
+APP_ENV = "production"
 # Production Pages origin (домен детерминирован CLOUDFLARE_PROJECT_NAME=agromarketkz-webapp).
 # Локально переопределяется через backend/.dev.vars (не в git).
 WEBAPP_ORIGIN = "https://agromarketkz-webapp.pages.dev"
@@ -39,8 +44,8 @@ AUTH_CACHE_MODE = "disabled"
 CLOUDFLARE_ACCOUNT_ID = "0b481a63e36d7f8a4b5058544213d90e"
 
 # Секреты на проде задаются через `wrangler secret put` (Этап 10), НЕ в [vars]:
-#   JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, ADMIN_ALLOWLIST,
-#   DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CF_ANALYTICS_API_TOKEN
+#   PAGES_PROXY_SECRET, ADMIN_OWNER_TELEGRAM_ID, TELEGRAM_BOT_TOKEN,
+#   TELEGRAM_WEBHOOK_SECRET, ADMIN_ALLOWLIST, SUPABASE_SERVICE_ROLE_KEY, CF_ANALYTICS_API_TOKEN
 
 # Счётчик исходов запросов для алертинга (см. lib/alerts.ts, app.ts). Датасет создаётся
 # автоматически при первой записи — отдельного `wrangler` резервирования не требует.
@@ -105,6 +110,18 @@ max_batch_size = 10
 max_batch_timeout = 5
 max_retries = 5
 dead_letter_queue = "agromarketkz-notifications-dlq-prod"
+max_concurrency = 5
+
+[[queues.producers]]
+binding = "TELEGRAM_UPDATE_QUEUE"
+queue = "agromarketkz-telegram-updates-prod"
+
+[[queues.consumers]]
+queue = "agromarketkz-telegram-updates-prod"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 20
+dead_letter_queue = "agromarketkz-telegram-updates-dlq-prod"
 max_concurrency = 5
 
 # Enable only after creating the private bucket and a 90-day Bucket Lock rule:

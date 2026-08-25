@@ -45,7 +45,7 @@ bun run dev
 
 ## Тестирование в Telegram (туннель)
 
-Mini App открывается на телефоне в Telegram — `localhost` оттуда недоступен. Нужен **один** туннель на webapp (порт 5173); backend наружу не выставляем — Vite dev-сервер сам проксирует API-запросы (`/auth`, `/profile`, `/catalog`, `/settings`, `/favorites`, `/requests`, `/feedback`, `/admin`, `/health`) на `localhost:3000` (см. `server.proxy` в [`webapp/vite.config.ts`](./webapp/vite.config.ts)). Благодаря этому запрос к API для браузера остаётся same-origin — второй туннель и правки `CORS`/`WEBAPP_ORIGIN` не нужны.
+Mini App открывается на телефоне в Telegram — `localhost` оттуда недоступен. Нужен **один** туннель на webapp (порт 5173); backend наружу не выставляем — Vite dev-сервер сам проксирует единый префикс `/api/*` на `localhost:3000` (см. `server.proxy` в [`webapp/vite.config.ts`](./webapp/vite.config.ts)). Благодаря этому запрос к API для браузера остаётся same-origin — второй туннель и правки `CORS`/`WEBAPP_ORIGIN` не нужны.
 
 Второй туннель на backend заводить **не надо**: бесплатный ngrok даёт только один одновременный публичный эндпоинт на аккаунт — второй туннель либо не поднимется, либо будет конфликтовать с первым на одном домене.
 
@@ -56,7 +56,8 @@ Mini App открывается на телефоне в Telegram — `localhost
 ngrok http 5173
 ```
 
-В `.env` при таком (proxy) варианте `VITE_API_URL` должен быть **пустым** (`VITE_API_URL=`) — тогда `fetch` идёт по относительному пути и попадает в прокси. После правки `.env` или `vite.config.ts` webapp dev-сервер нужно перезапустить (переменные и прокси применяются только при старте).
+Клиент всегда обращается к относительному `/api`, поэтому `VITE_API_URL` не нужен. После правки
+`vite.config.ts` webapp dev-сервер нужно перезапустить: proxy применяется только при старте.
 
 URL туннеля вставляется в BotFather → бот → Bot Settings → Menu Button. На бесплатном ngrok URL может быть закреплён за аккаунтом (не меняется между запусками) — но если всё же сменился, обновить там же.
 
@@ -75,11 +76,13 @@ brew install cloudflared    # один раз, если ещё не устано
 cloudflared tunnel --url http://localhost:5173
 ```
 
-В логе появится случайный URL вида `https://<три-случайных-слова>.trycloudflare.com` — его и вставляем в BotFather → бот → Bot Settings → Menu Button. В отличие от ngrok, при каждом перезапуске `cloudflared` домен **меняется** — обновлять Menu Button нужно каждый раз заново. `VITE_API_URL` при этом варианте так же должен быть пустым (`VITE_API_URL=`).
+В логе появится случайный URL вида `https://<три-случайных-слова>.trycloudflare.com` — его и вставляем в BotFather → бот → Bot Settings → Menu Button. В отличие от ngrok, при каждом перезапуске `cloudflared` домен **меняется** — обновлять Menu Button нужно каждый раз заново.
 
 Если нужен стабильный (не меняющийся) домен — это именованный туннель с привязкой к своему домену в Cloudflare (`cloudflared tunnel create ...` + `cloudflared tunnel route dns ...`), что требует зоны в Cloudflare; для локальной разработки обычно достаточно quick tunnel.
 
-Если в самом Mini App при открытии видно `Load failed` / «Повторить» — это провал сетевого запроса на этапе логина (`POST /auth/telegram`), почти всегда из-за того, что `VITE_API_URL` указывает на недоступный с телефона адрес (например, оставшийся `http://localhost:3000`) или webapp dev-сервер не перезапущен после правки `.env`/`vite.config.ts`.
+Если в Mini App видно `Load failed` / «Повторить», сначала откройте `<webapp-url>/api/health`:
+он должен вернуть JSON backend. HTML приложения на `/api/*` означает, что локальный Vite proxy
+не запущен либо production Pages deployment не включил `webapp/functions`.
 
 ## Telegram-бот и вебхук (Этап 8)
 
@@ -125,13 +128,12 @@ Menu Button + `/newapp` URL в BotFather). В выводе скрипта `getWe
 | Переменная | Где | Назначение |
 |-----------|-----|-----------|
 | `DATABASE_URL` | backend | строка подключения PostgreSQL |
-| `JWT_SECRET` | backend | подпись JWT сессий |
+| `PAGES_PROXY_SECRET` | backend + Pages Function | 32+ символов, разрешает только same-origin proxy к Worker |
 | `TELEGRAM_BOT_TOKEN` | backend | валидация `initData`, Login Widget, отправка уведомлений |
 | `TELEGRAM_WEBHOOK_SECRET` | backend | секрет вебхука бота (проверка `X-Telegram-Bot-Api-Secret-Token`) |
 | `TELEGRAM_BOT_USERNAME` | backend | username бота без @ — deep-link-кнопки в уведомлениях |
 | `TELEGRAM_MINIAPP_SHORTNAME` | backend | short name Mini App из `/newapp` — вторая часть deep-link |
 | `ADMIN_ALLOWLIST` | backend | числовые Telegram id админов (через запятую) |
-| `VITE_API_URL` | webapp | базовый URL backend |
 | `VITE_TELEGRAM_BOT_USERNAME` | webapp | username бота для Login Widget в браузере |
 
 Локально (Bun) переменные читаются из `.env`; на Cloudflare Workers — из `wrangler.toml [vars]` и секретов (`wrangler secret put`).
@@ -185,20 +187,30 @@ Storage удаляется до SQL-зачистки: при временном 
 
 ## Доработка каталога: территории и предложения
 
-Миграция [`0011_territories_and_listing_data.sql`](./database/migrations/0011_territories_and_listing_data.sql) добавляет справочник из 20 территорий, структурированную географию карточек и предложений с вкладок. Она не выполнялась автоматически: в production не запускайте корневой `bun run db:migrate`, потому что он повторяет весь каталог без журнала применённых файлов. Сначала проверьте полный прогон `0001`→latest в безопасной БД, затем примените конкретный SQL-файл через Supabase SQL Editor или `apply_migration`. Миграция переносит однозначные legacy-локации в новые поля и отношения, а неоднозначные значения оставляет без догадок; старые опубликованные карточки с нерешённой географией или недостающими параметрами нужно вручную заполнить перед следующим сохранением или повторной публикацией. Перед production-релизом проверьте такие карточки отдельно, чтобы региональный фильтр не скрывал непроверенные объявления.
+Миграции `0011`–`0019` применены в production и зарегистрированы в нативной истории Supabase.
+Production обновляется только через linked Supabase CLI: сначала
+`bun run db:migrate:supabase:dry-run`, затем отдельной согласованной операцией
+`bun run db:migrate:supabase`. Корневой `bun run db:migrate` против production запрещён:
+это старый runner, который не использует нативный журнал Supabase. Подробный порядок и проверки
+описаны в [DEPLOYMENT.md](./DEPLOYMENT.md).
 
-Миграция [`0012_card_update_mutations.sql`](./database/migrations/0012_card_update_mutations.sql) добавляет
-серверные receipts для идемпотентного PUT карточки и восстановления после потери ответа. Перед
-деплоем backend её нужно применить точечно к production БД через SQL Editor/`apply_migration`,
-проверить таблицу, RLS и отсутствие grants для `anon`/`authenticated`, и только затем выкатывать
-backend: без неё PUT намеренно не считается успешным.
+Миграция [`0011_territories_and_listing_data.sql`](./database/migrations/0011_territories_and_listing_data.sql)
+добавляет справочник из 20 территорий и структурированную географию карточек и предложений.
+Неоднозначные legacy-локации она намеренно оставляет без догадок; такие карточки нужно вручную
+заполнить перед следующим сохранением или повторной публикацией.
+
+Миграция [`0012_card_update_mutations.sql`](./database/migrations/0012_card_update_mutations.sql)
+добавляет серверные receipts для идемпотентного PUT карточки и восстановления после потери
+ответа. Она уже применена в production; перед будущими релизами достаточно сверять нативную
+историю Supabase и закрытые grants/RLS по runbook.
 
 Миграция [`0013_product_catalog_filters.sql`](./database/migrations/0013_product_catalog_filters.sql)
 добавляет товарные группы, объём в тоннах, признак товарной категории и фильтры каталога. Она
-скрывает активные товары до ручного backfill и очищает `availability` у всех товаров, сохраняя
-карточки, заявки и избранное. Применяйте её в production только точечно через Supabase SQL
-Editor/`apply_migration`; после применения проверьте, что у товаров нет `availability` и видимых
-товаров, затем заполните поля и опубликуйте их вручную. В текущей доработке production SQL и
-деплой не выполнялись.
+уже применена в production. Старые товары, скрытые до заполнения новых обязательных полей,
+нужно проверять, заполнять и публиковать как контентную операцию — повторно выполнять SQL нельзя.
+
+Миграции `0015`–`0019` добавляют opaque HttpOnly-сессии, audit trail, durable Telegram updates,
+upload claims, notification outbox и database hardening. Они применены через Supabase CLI;
+runtime Worker подключается отдельной ролью `agromarket_runtime`, а не ролью миграций.
 
 Текущий план запуска и оставшиеся задачи описаны в [TASKS.md](./TASKS.md).

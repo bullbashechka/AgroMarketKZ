@@ -296,12 +296,14 @@ JWT и предзарегистрированным профилем, `freshUser
 
 ## Этап 10. Деплой (Cloudflare + Supabase Pro)
 
-- [ ] Развернуть `backend` в Cloudflare Workers.
-- [ ] Развернуть `webapp` в Cloudflare Pages.
-- [ ] Supabase Pro PostgreSQL, прогон миграций.
-- [ ] Supabase Storage для фото (bucket, политики доступа, публичный доступ к изображениям).
-- [ ] Продовые переменные окружения и секреты.
-- [ ] Настроить Mini App в BotFather на прод-домен, проверить запуск в Telegram.
+- [x] Развернуть `backend` в Cloudflare Workers; backend управляется вручную через Wrangler,
+  Worker Git Build отключён.
+- [x] Развернуть `webapp` в Cloudflare Pages; production Pages Function `/api/*` проверена.
+- [x] Применить production PostgreSQL migrations через linked Supabase CLI до `0019`.
+- [ ] Подтвердить тариф Supabase Pro, PITR минимум 7 дней и отдельный restore drill.
+- [x] Настроить Supabase Storage `card-images`, ограничения и backend-only write path.
+- [x] Задать production variables/secrets Worker и Pages без хранения deploy-token в репозитории.
+- [ ] Повторно проверить `/start` и открытие Mini App в реальном Telegram после rollout 2026-08-25.
 
 ---
 
@@ -324,7 +326,23 @@ JWT и предзарегистрированным профилем, `freshUser
 - [x] Обновить dev-seed и продуктовую документацию.
 - [x] Проверки: `bun run typecheck`, `bun test backend packages/contracts webapp`, `bun run test:integration` (изолированный локальный PostgreSQL).
 
-Перед production rollout применить только `0013_product_catalog_filters.sql` через Supabase SQL Editor/`apply_migration`, проверить список скрытых товаров и вручную заполнить/перепроверить товарные категории перед публикацией. Production DB и деплой в рамках этой доработки не выполнялись.
+`0013_product_catalog_filters.sql` применена в production и зарегистрирована в нативной истории
+Supabase. SQL повторно не выполнять. Остаётся контентная проверка скрытых старых товаров и ручное
+заполнение/перепубликация товарных категорий.
+
+## Release hardening — 2026-08-25
+
+- [x] Применить `0015`–`0019` через linked Supabase CLI; Local = Remote до
+  `20260825000119`, Security/Performance Advisors без `WARN`/`ERROR`.
+- [x] Создать `agromarket_runtime` без superuser/DDL, с `BYPASSRLS` и точечными grants;
+  переключить Hyperdrive credentials на эту роль.
+- [x] Восстановить production Pages Function proxy: `/api/health` возвращает JSON backend,
+  а не SPA `index.html`.
+- [x] Создать четыре Queue-ресурса, включая `agromarketkz-telegram-updates-dlq-prod`.
+- [x] Завершить Worker rollout `5% → 25% → 100%`, после 100% синхронизировать consumers и
+  cron triggers.
+- [ ] Реальный Telegram smoke владельцем: `/start`, кнопка «Открыть», каталог и раздел
+  «Управление»; подтвердить очистку `last_error_message` в `getWebhookInfo`.
 
 # Предрелизная безопасность (Этапы 12–18)
 

@@ -1,9 +1,12 @@
 import { createApp } from "./app";
+import type { AppEnv } from "./env";
 
 const app = createApp({
   env: {
+    APP_ENV: Bun.env.APP_ENV as AppEnv["APP_ENV"],
     WEBAPP_ORIGIN: Bun.env.WEBAPP_ORIGIN,
-    JWT_SECRET: Bun.env.JWT_SECRET,
+    PAGES_PROXY_SECRET: Bun.env.PAGES_PROXY_SECRET,
+    ADMIN_OWNER_TELEGRAM_ID: Bun.env.ADMIN_OWNER_TELEGRAM_ID,
     TELEGRAM_BOT_TOKEN: Bun.env.TELEGRAM_BOT_TOKEN,
     TELEGRAM_WEBHOOK_SECRET: Bun.env.TELEGRAM_WEBHOOK_SECRET,
     TELEGRAM_BOT_USERNAME: Bun.env.TELEGRAM_BOT_USERNAME,

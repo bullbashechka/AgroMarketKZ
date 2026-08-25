@@ -6,8 +6,8 @@ interface CardListItem {
 }
 
 test.describe("Отклик — контакты", () => {
-  test("шторка отклика показывает контакты и открывает внешние ссылки", async ({ userPage: page, userToken }) => {
-    const cards = await api.get<{ items: CardListItem[] }>("/catalog/cards?type=product&limit=1", userToken);
+  test("шторка отклика показывает контакты и открывает внешние ссылки", async ({ userPage: page, userSession }) => {
+    const cards = await api.get<{ items: CardListItem[] }>("/catalog/cards?type=product&limit=1", userSession);
     const cardId = cards.items[0]?.id;
     test.skip(!cardId, "В каталоге нет карточек товаров для теста отклика");
 

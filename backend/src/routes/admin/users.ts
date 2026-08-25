@@ -3,7 +3,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { getEnv, type HonoEnv } from "../../env";
 import { HttpError } from "../../lib/errors";
-import { listRegisteredUsers, revokeUserSessions } from "../../repos/users";
+import { listRegisteredUsers } from "../../repos/users";
+import { revokeAllUserSessions } from "../../repos/sessions";
 
 export const adminUsersRoutes = new Hono<HonoEnv>();
 
@@ -15,10 +16,9 @@ adminUsersRoutes.get("/", async (c) => {
   return c.json(adminUserListResponse.parse(result));
 });
 
-/** Отзывает все выданные JWT пользователя через инкремент его версии сессии. */
+/** Немедленно отзывает все opaque-сессии пользователя в PostgreSQL. */
 adminUsersRoutes.post("/:id/revoke-sessions", async (c) => {
   const userId = z.string().uuid().parse(c.req.param("id"));
-  const revoked = await revokeUserSessions(getEnv(c), userId);
-  if (!revoked) throw new HttpError(404, "Пользователь не найден");
+  await revokeAllUserSessions(getEnv(c), userId);
   return c.body(null, 204);
 });

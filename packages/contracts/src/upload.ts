@@ -18,7 +18,16 @@ export type CreateUploadUrlInput = z.infer<typeof createUploadUrlInput>;
 export const uploadUrlResponse = z.object({
   storagePath: z.string(),
   uploadUrl: z.string(),
-  token: z.string()
+  token: z.string(),
+  expiresInSeconds: z.number().int().positive(),
 });
 
 export type UploadUrlResponse = z.infer<typeof uploadUrlResponse>;
+
+/** Подтверждает серверу, что байты по выданному пути действительно являются заявленным изображением. */
+export const completeUploadInput = z.object({
+  storagePath: z.string(),
+  contentType: uploadContentTypeSchema,
+});
+
+export type CompleteUploadInput = z.infer<typeof completeUploadInput>;

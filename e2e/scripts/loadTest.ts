@@ -267,10 +267,10 @@ export function buildUser(index: number, runId: string): TgUserPayload {
   };
 }
 
-function authenticatedHeaders(token: string): Readonly<Record<string, string>> {
+function authenticatedHeaders(sessionCookie: string): Readonly<Record<string, string>> {
   return {
     accept: "application/json",
-    authorization: `Bearer ${token}`,
+    cookie: sessionCookie,
   };
 }
 
@@ -278,8 +278,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function buildReadJourney(token: string, type: CatalogType): ReadJourney {
-  const headers = authenticatedHeaders(token);
+export function buildReadJourney(sessionCookie: string, type: CatalogType): ReadJourney {
+  const headers = authenticatedHeaders(sessionCookie);
   const requests: readonly LoadRequest[] = [
     {
       route: "/profile",
@@ -471,7 +471,7 @@ interface ExecutedRequest {
 
 interface AuthenticatedUser {
   index: number;
-  token: string;
+  sessionCookie: string;
 }
 
 interface RateLimitProbeResult {
@@ -570,7 +570,7 @@ function jsonRequest(
   path: string,
   body: unknown,
   expectedKind: ExpectedResponseKind,
-  token?: string,
+  sessionCookie?: string,
 ): LoadRequest {
   return {
     route,
@@ -579,7 +579,7 @@ function jsonRequest(
     headers: {
       accept: "application/json",
       "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(sessionCookie ? { cookie: sessionCookie } : {}),
     },
     body: JSON.stringify(body),
     expectedKind,
@@ -629,12 +629,14 @@ async function authenticateUser(
   if (result.sample.classification !== "normal_success") return null;
 
   const parsed = parseResponseJson(result);
-  if (!parsed.ok || !isRecord(parsed.value) || typeof parsed.value.token !== "string" || !parsed.value.token) {
+  const setCookie = result.response?.headers.get("set-cookie");
+  const sessionCookie = setCookie?.split(";", 1)[0];
+  if (!parsed.ok || !isRecord(parsed.value) || !sessionCookie?.includes("=")) {
     markProtocolError(result);
     return null;
   }
 
-  return { index: userIndex, token: parsed.value.token };
+  return { index: userIndex, sessionCookie };
 }
 
 async function mapBounded<T, Result>(
@@ -723,7 +725,7 @@ async function executeMutationFlow(
   const requestPayload = buildRequestPayload(config.runId, user.index);
   await executeHttp(
     config.apiOrigin,
-    jsonRequest("/requests", "/requests", requestPayload, "normal", user.token),
+    jsonRequest("/requests", "/requests", requestPayload, "normal", user.sessionCookie),
     samples,
   );
   await executeHttp(
@@ -736,7 +738,7 @@ async function executeMutationFlow(
         contactPhone: requestPayload.contactPhone,
       },
       "normal",
-      user.token,
+      user.sessionCookie,
     ),
     samples,
   );
@@ -753,7 +755,7 @@ async function executeMutationFlow(
   await Promise.all([
     executeHttp(
       config.apiOrigin,
-      jsonRequest("/requests", "/requests", concurrentRequestPayload, "normal", user.token),
+      jsonRequest("/requests", "/requests", concurrentRequestPayload, "normal", user.sessionCookie),
       samples,
     ),
     executeHttp(
@@ -763,7 +765,7 @@ async function executeMutationFlow(
         "/feedback",
         buildFeedbackPayload(config.runId, user.index),
         "normal",
-        user.token,
+        user.sessionCookie,
       ),
       samples,
     ),
@@ -776,7 +778,7 @@ async function executeReadJourney(
   type: CatalogType,
   samples: LoadSample[],
 ): Promise<void> {
-  const journey = buildReadJourney(user.token, type);
+  const journey = buildReadJourney(user.sessionCookie, type);
   let cardsResult: ExecutedRequest | null = null;
 
   for (const request of journey.requests) {
@@ -862,12 +864,12 @@ async function runOversizedProbe(config: LoadConfig, samples: LoadSample[]): Pro
   return result.sample.classification === "expected_413";
 }
 
-function rateProbeRequest(token: string): LoadRequest {
+function rateProbeRequest(sessionCookie: string): LoadRequest {
   return {
     route: "/profile",
     method: "GET",
     path: "/profile",
-    headers: authenticatedHeaders(token),
+    headers: authenticatedHeaders(sessionCookie),
     expectedKind: "rate_limit_probe",
   };
 }
@@ -911,7 +913,7 @@ async function runRateLimitProbe(
     async (attempt, requestDeadlineAtMs) => {
       const result = await executeHttp(
         config.apiOrigin,
-        rateProbeRequest(probeUser.token),
+        rateProbeRequest(probeUser.sessionCookie),
         samples,
         requestDeadlineAtMs,
       );

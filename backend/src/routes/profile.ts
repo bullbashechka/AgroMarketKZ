@@ -1,4 +1,5 @@
 import {
+  deleteAccountInput,
   profileSchema,
   registerInput,
   updateProfileInput,
@@ -11,6 +12,8 @@ import { HttpError } from "../lib/errors";
 import { tryValidateContactPhoneForUser, validateContactPhoneForUser } from "../lib/contact";
 import { requireAuth } from "../middleware/auth";
 import { findByTelegramId, register, toProfile, updateContacts } from "../repos/users";
+import { deleteAccount } from "../repos/privacy";
+import { clearSessionCookie } from "../lib/session";
 
 export const profileRoutes = new Hono<HonoEnv>();
 
@@ -58,4 +61,12 @@ profileRoutes.put("/", async (c) => {
   const data = updateProfileInput.parse(await c.req.json());
   const row = await updateContacts(env, userId, data);
   return c.json(profileSchema.parse(toProfile(row, env)));
+});
+
+/** Самообслуживаемое удаление: PII обезличивается, все сессии отзываются. */
+profileRoutes.delete("/", async (c) => {
+  deleteAccountInput.parse(await c.req.json());
+  await deleteAccount(getEnv(c), c.get("auth").userId);
+  clearSessionCookie(c);
+  return c.body(null, 204);
 });

@@ -24,10 +24,16 @@ export const widgetLoginInput = z.object({
 
 export type WidgetLoginInput = z.infer<typeof widgetLoginInput>;
 
-/** Единый ответ обоих логинов: JWT + профиль пользователя. */
+/** Единый ответ обоих логинов: cookie ставит сервер, клиент получает только профиль. */
 export const authResponse = z.object({
-  token: z.string(),
   profile: profileSchema
 });
 
 export type AuthResponse = z.infer<typeof authResponse>;
+
+/** Явное подтверждение необратимого удаления учётной записи. */
+export const deleteAccountInput = z.object({
+  confirmed: z.literal(true)
+});
+
+export type DeleteAccountInput = z.infer<typeof deleteAccountInput>;

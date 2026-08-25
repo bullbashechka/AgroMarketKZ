@@ -10,7 +10,9 @@ import {
   updateCard,
   updateCategory,
 } from "../src/repos/adminCatalog";
+import { appendAdminAuditEvent } from "../src/repos/adminAudit";
 import { cleanupE2eRun } from "../src/repos/e2eCleanup";
+import { acceptTelegramUpdate } from "../src/repos/telegramUpdates";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIntegration = databaseUrl ? describe : describe.skip;
@@ -38,6 +40,9 @@ describeIntegration("admin catalog persistence", () => {
   const sql = postgres(env.DATABASE_URL, { prepare: false, max: 1 });
   const realFetch = globalThis.fetch;
   let categoryId: string;
+  const auditUserId = crypto.randomUUID();
+  const auditTelegramId = 8_000_000_001;
+  const telegramUpdateId = 8_000_000_002;
 
   beforeEach(() => {
     globalThis.fetch = (async (input, init) => {
@@ -54,11 +59,18 @@ describeIntegration("admin catalog persistence", () => {
       insert into categories (id, type, name, sort_order, is_commodity, required_specs)
       values (${categoryId}, 'product', ${`[integration] ${categoryId}`}, 0, true, ${["Год выпуска"]})
     `;
+    await sql`
+      insert into users (id, telegram_id, telegram_first_name)
+      values (${auditUserId}, ${auditTelegramId}, '[integration] audit actor')
+    `;
   });
 
   afterAll(async () => {
     globalThis.fetch = realFetch;
     await closeDb();
+    await sql`delete from app_private.telegram_updates where update_id = ${telegramUpdateId}`;
+    await sql`delete from app_private.admin_audit_events where actor_user_id = ${auditUserId}`;
+    await sql`delete from users where id = ${auditUserId}`;
     await sql`delete from cards where category_id = ${categoryId}`;
     await sql`delete from categories where id = ${categoryId}`;
     await sql.end({ timeout: 0 });
@@ -116,18 +128,57 @@ describeIntegration("admin catalog persistence", () => {
       serviceTerritoryCodes: [],
       availability: null,
       sortOrder: 0,
-      images: [{ storagePath: "cards/integration-image.jpg", sortOrder: 0 }],
+      images: [{ storagePath: "cards/11111111-1111-4111-8111-111111111111.jpg", sortOrder: 0 }],
       specs: [{ key: "Год выпуска", value: "2026", sortOrder: 0 }],
       expectedVersion: created.version,
     });
 
     expect(updated.detail.reviewIssues).toEqual([]);
-    expect(updated.detail.images.map((image) => image.storagePath)).toEqual(["cards/integration-image.jpg"]);
+    expect(updated.detail.images.map((image) => image.storagePath)).toEqual(["cards/11111111-1111-4111-8111-111111111111.jpg"]);
     expect(updated.detail.version).toBe(created.version + 1);
 
     const published = await publishCard(env, created.id, updated.detail.version);
     expect(published.publicationStatus).toBe("published");
     expect(published.reviewIssues).toEqual([]);
+  });
+
+  test("сохраняет audit metadata как JSON object", async () => {
+    const requestId = crypto.randomUUID();
+    await appendAdminAuditEvent(env, {
+      actor: {
+        userId: auditUserId,
+        telegramId: auditTelegramId,
+        isRegistered: false,
+      },
+      requestId,
+      action: "post:categories",
+      targetType: "categories",
+      metadata: { status: 201 },
+    });
+
+    const [row] = await sql<{ metadata: Record<string, unknown> }[]>`
+      select metadata
+      from app_private.admin_audit_events
+      where request_id = ${requestId}
+    `;
+    expect(row?.metadata).toEqual({ status: 201 });
+  });
+
+  test("сохраняет Telegram action как JSON object", async () => {
+    expect(await acceptTelegramUpdate(env, telegramUpdateId, {
+      type: "greet",
+      chatId: auditTelegramId,
+    })).toBe(true);
+
+    const [row] = await sql<{ action: Record<string, unknown> }[]>`
+      select action
+      from app_private.telegram_updates
+      where update_id = ${telegramUpdateId}
+    `;
+    expect(row?.action).toEqual({
+      type: "greet",
+      chatId: auditTelegramId,
+    });
   });
 
   test("constraint duplicate image возвращается как понятная ошибка", async () => {
@@ -172,8 +223,8 @@ describeIntegration("admin catalog persistence", () => {
       availability: null,
       sortOrder: 0,
       images: [
-        { storagePath: "cards/duplicate.jpg", sortOrder: 0 },
-        { storagePath: "cards/duplicate.jpg", sortOrder: 1 },
+        { storagePath: "cards/22222222-2222-4222-8222-222222222222.jpg", sortOrder: 0 },
+        { storagePath: "cards/22222222-2222-4222-8222-222222222222.jpg", sortOrder: 1 },
       ],
       specs: [],
       expectedVersion: card.version,
@@ -360,17 +411,23 @@ describeIntegration("admin catalog persistence", () => {
       const recovery = getAdminCardDetailForMutation(env, card.id, mutationId).finally(() => {
         recoverySettled = true;
       });
-      const recoveryRejected = expect(recovery).rejects.toMatchObject({
-        status: 409,
-        details: { code: "CARD_CHANGED_AFTER_REPLAY" },
-      });
+      const recoveryOutcome = recovery.then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (error: unknown) => ({ status: "rejected" as const, error }),
+      );
 
       await Bun.sleep(50);
       expect(recoverySettled).toBe(false);
       release.resolve();
       await concurrentUpdate;
 
-      await recoveryRejected;
+      expect(await recoveryOutcome).toMatchObject({
+        status: "rejected",
+        error: {
+          status: 409,
+          details: { code: "CARD_CHANGED_AFTER_REPLAY" },
+        },
+      });
       expect((await getAdminCardDetail(env, card.id))?.version).toBe(saved.detail.version + 1);
     } finally {
       release.resolve();
@@ -466,13 +523,19 @@ describeIntegration("admin catalog persistence", () => {
       const publication = publishCard(env, card.id, card.version).finally(() => {
         publicationSettled = true;
       });
-      const publicationRejected = expect(publication).rejects.toMatchObject({ status: 400 });
+      const publicationOutcome = publication.then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (error: unknown) => ({ status: "rejected" as const, error }),
+      );
       await Bun.sleep(50);
       expect(publicationSettled).toBe(false);
 
       release.resolve();
       await categoryChange;
-      await publicationRejected;
+      expect(await publicationOutcome).toMatchObject({
+        status: "rejected",
+        error: { status: 400 },
+      });
       expect((await getAdminCardDetail(env, card.id))?.publicationStatus).toBe("draft");
     } finally {
       release.resolve();
@@ -522,6 +585,35 @@ describeIntegration("admin catalog persistence", () => {
       expect(await sql`select id from users where id = ${neighboringUserId}`).toHaveLength(1);
     } finally {
       await sql`delete from users where id in (${ownUserId}, ${neighboringUserId})`;
+    }
+  });
+
+  test("E2E cleanup removes audit events for users in the current run", async () => {
+    const runId = `audited-${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
+    const userId = crypto.randomUUID();
+    const telegramId = 800_000_000_321;
+    await sql`
+      insert into users (id, telegram_id, telegram_first_name)
+      values (${userId}, ${telegramId}, ${`[e2e:${runId}] Audited admin`})
+    `;
+    await sql`
+      insert into app_private.admin_audit_events (
+        actor_user_id, actor_telegram_id, request_id, action, target_type, metadata
+      )
+      values (
+        ${userId}, ${telegramId}, ${crypto.randomUUID()}, 'category.create', 'category', '{}'
+      )
+    `;
+
+    try {
+      await cleanupE2eRun({ ...env, E2E_RUN_ID: runId });
+      expect(await sql`select id from users where id = ${userId}`).toHaveLength(0);
+      expect(
+        await sql`select id from app_private.admin_audit_events where actor_user_id = ${userId}`,
+      ).toHaveLength(0);
+    } finally {
+      await sql`delete from app_private.admin_audit_events where actor_user_id = ${userId}`;
+      await sql`delete from users where id = ${userId}`;
     }
   });
 

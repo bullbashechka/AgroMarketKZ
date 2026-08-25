@@ -25,12 +25,12 @@ const cleanupEnv = {
 export default async function globalTeardown() {
   const failures: unknown[] = [];
   try {
-    const { token: userToken } = await loginAsTelegramUser(
+    const { cookie: userSession } = await loginAsTelegramUser(
       API_URL,
       TELEGRAM_BOT_TOKEN,
       TEST_USER,
     );
-    await api.post("/profile/register", userToken, {
+    await api.post("/profile/register", userSession, {
       contactName: `${E2E_PREFIX} Тестовый пользователь`,
       contactPhone: "+77010000001",
     });

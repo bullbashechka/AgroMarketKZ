@@ -176,10 +176,10 @@ describe("load-test identities and payloads", () => {
 
 describe("buildReadJourney", () => {
   test("builds exact authenticated profile, categories, and cards requests", () => {
-    const journey = buildReadJourney("jwt-token", "product");
+    const journey = buildReadJourney("agromarket_session=session-value", "product");
     const headers = {
       accept: "application/json",
-      authorization: "Bearer jwt-token",
+      cookie: "agromarket_session=session-value",
     };
 
     expect(journey.requests).toEqual([
@@ -208,7 +208,7 @@ describe("buildReadJourney", () => {
   });
 
   test("builds card detail only after parsing a non-empty list response", () => {
-    const journey = buildReadJourney("jwt-token", "service");
+    const journey = buildReadJourney("agromarket_session=session-value", "service");
     const id = "11111111-1111-4111-8111-111111111111";
 
     expect(journey.buildCardDetail({ items: [] })).toBeNull();
@@ -218,7 +218,7 @@ describe("buildReadJourney", () => {
       path: `/catalog/cards/${id}`,
       headers: {
         accept: "application/json",
-        authorization: "Bearer jwt-token",
+        cookie: "agromarket_session=session-value",
       },
       expectedKind: "normal",
     });
@@ -383,8 +383,8 @@ describe("probes and response classification", () => {
 });
 
 describe("summarize", () => {
-  test("computes totals and nearest-rank route percentiles without retaining bodies or tokens", () => {
-    const samples: Array<LoadSample & { rawBody?: string; token?: string }> = [
+  test("computes totals and nearest-rank route percentiles without retaining bodies or session cookies", () => {
+    const samples: Array<LoadSample & { rawBody?: string; sessionCookie?: string }> = [
       { route: "/profile", durationMs: 10, status: 200, classification: "normal_success" },
       { route: "/profile", durationMs: 20, status: 200, classification: "normal_success" },
       { route: "/profile", durationMs: 30, status: 429, classification: "expected_429" },
@@ -411,7 +411,7 @@ describe("summarize", () => {
         status: null,
         classification: null,
         errorKind: "transport",
-        token: "jwt-secret",
+        sessionCookie: "agromarket_session=session-secret",
       },
       {
         route: "/catalog/cards",
@@ -464,8 +464,8 @@ describe("summarize", () => {
 
     const serialized = JSON.stringify(summary);
     expect(serialized).not.toContain("super-secret-body");
-    expect(serialized).not.toContain("jwt-secret");
+    expect(serialized).not.toContain("session-secret");
     expect(serialized).not.toContain("rawBody");
-    expect(serialized).not.toContain("token");
+    expect(serialized).not.toContain("sessionCookie");
   });
 });

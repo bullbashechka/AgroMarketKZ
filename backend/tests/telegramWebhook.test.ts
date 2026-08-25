@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createApp } from "../src/app";
 import type { AppEnv } from "../src/env";
+import { applyWebhookAction } from "../src/lib/telegramActions";
 import { classifyUpdate } from "../src/lib/telegramWebhook";
 
 const ADMIN_ID = 111;
@@ -145,9 +146,8 @@ describe("POST /telegram/webhook (секрет)", () => {
       return new Response("{}", { status: 200 });
     }) as typeof fetch;
 
-    const res = await post({ message: { chat: { id: 777, type: "private" }, text: "/start" } }, "test-secret");
+    await applyWebhookAction(env as AppEnv, { type: "greet", chatId: 777 });
 
-    expect(res.status).toBe(200);
     expect(requestedUrl).toBe("https://api.telegram.org/bottest-token/sendPhoto");
     expect(body).toEqual({
       chat_id: "777",

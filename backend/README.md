@@ -11,7 +11,7 @@ bun run typecheck
 bun test
 ```
 
-Переменные окружения локально читаются из корневого `.env` (`Bun.env`), на Workers — из `c.env` (см. `wrangler.toml` и `wrangler secret put`). Требуются: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_ALLOWLIST`, `WEBAPP_ORIGIN`. `DATABASE_URL` и origin credentials Hyperdrive должны принадлежать отдельной runtime-роли без superuser/DDL-привилегий; миграции используют отдельный `MIGRATION_DATABASE_URL`.
+Переменные окружения локально читаются из корневого `.env` (`Bun.env`), на Workers — из `c.env` (см. `wrangler.toml` и `wrangler secret put`). Для production требуются `PAGES_PROXY_SECRET`, `ADMIN_OWNER_TELEGRAM_ID`, `TELEGRAM_BOT_TOKEN`, `ADMIN_ALLOWLIST`, `WEBAPP_ORIGIN` и Hyperdrive; прямой `DATABASE_URL` не является production fallback. `DATABASE_URL` и origin credentials Hyperdrive должны принадлежать отдельной runtime-роли без superuser/DDL-привилегий; миграции используют отдельный `MIGRATION_DATABASE_URL`.
 
 CORS разрешает только точный `WEBAPP_ORIGIN` (сравнение origin запроса, без wildcard и без localhost-fallback в коде): production-значение в `wrangler.toml` — `https://agromarketkz-webapp.pages.dev` (домен детерминирован именем Cloudflare Pages проекта). Локально `wrangler dev` переопределяет его через `backend/.dev.vars` (не в git), обычный `bun run dev` — через корневой `.env`.
 

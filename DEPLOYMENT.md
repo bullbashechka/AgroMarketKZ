@@ -5,18 +5,28 @@
 - **Backend (Cloudflare Workers):** `https://agromarketkz-backend.bullbashechka.workers.dev`
 - **Webapp (Cloudflare Pages):** `https://agromarketkz-webapp.pages.dev`
 - **Telegram-вебхук** переключён на прод-backend.
-- Прод-секреты (`JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_ALLOWLIST`, `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) заданы через `wrangler secret put`.
+- **Production release 25.08.2026:** Worker version
+  `2494cd6d-407a-4296-b1f9-ecb993330a1f` обслуживает 100% трафика. Это secret-only successor
+  проверенной code version `368b9d52-845e-4636-b9ab-8f7c5618dae7`, созданный удалением
+  неиспользуемого прямого `DATABASE_URL` после зелёных 15-минутных волн 5% и 25%.
+  Pages production deployment:
+  `5149c53c-feb3-45a2-9cfa-df6156d92c5e`.
+- **Production DB:** native Supabase migration history Local = Remote до `20260825000119`;
+  runtime идёт через Hyperdrive от роли `agromarket_runtime` без superuser/DDL и с `BYPASSRLS`.
+- Прод-секреты (`PAGES_PROXY_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_ALLOWLIST`, `ADMIN_OWNER_TELEGRAM_ID`, `SUPABASE_SERVICE_ROLE_KEY`) задаются через `wrangler secret put`; Worker не должен иметь прямой production `DATABASE_URL` при включённом Hyperdrive.
 - Backend использует Hyperdrive `agromarketkz-backend-prod` (Supavisor session mode `:5432`, SQL cache disabled, origin limit 5), KV `agromarketkz-auth-cache-prod` и explicit Placement `aws:ap-northeast-1` рядом с production Supabase.
-- Следующая версия release-hardening подготовлена в этой ветке: Hono 4.13.4, одноразовый Widget
-  proof exchange, durable notification outbox/Queue consumer и строгий auth-cache mode. Эти
-  изменения считаются непоставленными до миграции 0014 и подтверждённого canary.
+- Release-hardening поставлен: opaque HttpOnly-сессии, same-origin Pages proxy, durable Telegram
+  webhook/Queue, upload claims и строгий auth-cache mode. Четыре Queue-ресурса существуют;
+  consumers подключены только к `agromarketkz-notifications-prod` и
+  `agromarketkz-telegram-updates-prod`, обе DLQ не имеют consumers.
 - Persisted Worker logs включены. Для release-hardening email alerts на 5xx, DB connection errors,
   Queue backlog и DLQ нужно активировать в Workers Observability до canary; текущая live-версия их
   ещё не имеет, `CF_ANALYTICS_API_TOKEN` пока не создаётся.
 - **GitHub Actions не используется** — CI/CD полностью на стороне Cloudflare. `.github/workflows/ci.yml` удалён.
-- **Webapp (Cloudflare Pages) деплоится автоматически**: проект `agromarketkz-webapp` привязан к репозиторию через Git-интеграцию Cloudflare Pages (не GitHub Actions) — любой пуш в любую ветку собирает preview-деплой, пуш в `main` собирает production. `VITE_API_URL`, `SUPABASE_URL`, `CSP_ENFORCE` заданы в `deployment_configs` проекта (Cloudflare dashboard → Pages → agromarketkz-webapp → Settings → Environment variables), а не через env репозитория.
-- **Backend (Cloudflare Workers) деплоится только вручную** — Git-интеграции у Workers-проекта нет, см. «Деплой backend» ниже.
-- Тестов/тайпчека на пуш больше нет — гонять руками (см. «Проверки перед деплоем»).
+- **Webapp (Cloudflare Pages) деплоится автоматически**: проект `agromarketkz-webapp` привязан к репозиторию через Git-интеграцию Cloudflare Pages (не GitHub Actions) — любой пуш в любую ветку собирает preview-деплой, пуш в `main` собирает production. В Production environment заданы `BACKEND_ORIGIN`, `PAGES_PROXY_SECRET` и `SUPABASE_URL`; `VITE_API_URL` больше не нужен, потому что браузер обращается только к same-origin `/api`. Старый `CSP_ENFORCE` код не читает, его можно удалить из Dashboard.
+- Pages Function `functions/api/[[path]].js` требует secret `BACKEND_ORIGIN` (Worker origin) и тот же `PAGES_PROXY_SECRET`, что Worker. Она добавляет proxy proof и отвергает cross-origin mutation до Worker; без обоих secret production release блокируется.
+- **Backend (Cloudflare Workers) деплоится только вручную** — Git-интеграция Worker должна быть отключена в Dashboard: `agromarketkz-backend` → Settings → Build → Disconnect. Это не относится к Pages-проекту и не отключает его auto-deploy.
+- Preview Pages остаются автоматическими. Production merge разрешён только после ручного `bun run release:verify` на изолированных E2E ресурсах (см. «Проверки перед деплоем»).
 
 ## Осталось сделать вручную (BotFather)
 
@@ -32,15 +42,30 @@ bun run typecheck                 # типы во всех воркспейса�
 bun run security:deps             # high/critical dependency advisories = 0
 cd backend && bun test && cd ..   # юнит-тесты backend
 bun run --cwd webapp test         # чистая логика webapp
-bun run build                     # прод-сборка (нужны VITE_API_URL и SUPABASE_URL в env)
+bun run build                     # прод-сборка (для webapp нужен SUPABASE_URL в env)
 ```
+
+Полный блокирующий gate:
+
+```bash
+bun run release:verify
+```
+
+Он требует frozen install, typecheck, unit/integration, dependency audit, build и E2E. High/critical reachable advisory, любой неуспешный шаг или E2E вне изолированных ресурсов блокируют production merge. Исключение допускается только с отдельной записью о reachability и сроком устранения.
 
 Перед каждым релизом дополнительно:
 
+- В Worker Settings → Build нет Git repository и нет build/deploy command. Если подключение появилось, нажать **Disconnect** до любых migration/deploy действий. Pages Git-интеграция при этом остаётся включённой.
+- В Worker Variables and Secrets есть `APP_ENV=production`; в Pages Production есть равные по значению `PAGES_PROXY_SECRET` и `BACKEND_ORIGIN=https://agromarketkz-backend.bullbashechka.workers.dev`.
+- В Queues существуют `agromarketkz-notifications-prod`, `agromarketkz-notifications-dlq-prod`,
+  `agromarketkz-telegram-updates-prod` и `agromarketkz-telegram-updates-dlq-prod`. Обычный
+  `wrangler deploy` синхронизирует consumers из `wrangler.toml`; `versions upload` / `versions deploy`
+  этого не делает. При gradual rollout service-level consumers сверять отдельно после 100%:
+  consumer должен быть только у двух основных очередей, а не у DLQ.
 - Supabase Security и Performance Advisors — ноль `ERROR`/`WARN`; тринадцать
   `INFO rls_enabled_no_policy` для закрытых backend-only таблиц ожидаемы после применения 0012.
-- После 0014 проверить `app_private.schema_migrations`, `widget_auth_proofs` и
-  `notification_outbox`; Queue backlog/DLQ должны быть нулевыми на canary и после каждой волны.
+- После 0015–0019 проверить `app_private.schema_migrations`, `user_sessions`, `telegram_updates`,
+  `card_image_upload_claims` и `notification_outbox`; Queue backlog/DLQ должны быть нулевыми на canary и после каждой волны.
 - В Workers Observability создать email alerts на `5xx > 1%` (минимум 20 ответов/5 минут),
   DB connection errors `>0`, Queue backlog `>100` и DLQ `>0`. Проверить получение тестового
   webhook/уведомления до включения следующей волны.
@@ -88,7 +113,7 @@ DB connection errors = 0, outbox sent/delivered = 100%, DLQ = 0.
 
 ## Rollout release-hardening
 
-1. Заморозить административные записи, применить 0014 через migration runner, выдать
+1. Заморозить административные записи, применить 0015–0019 через Supabase CLI, выдать
    `agromarket_runtime` grants для `app_private`, обновить Hyperdrive credentials и затем
    read-only проверить RLS, grants, ledger и `notification_outbox`.
 2. Развернуть Worker и выполнить 0% smoke: `/health`, Mini App auth, Widget exchange, каталог,
@@ -101,6 +126,13 @@ DB connection errors = 0, outbox sent/delivered = 100%, DLQ = 0.
 
 Если всё применимое зелёное — деплой.
 
+Rollout 25.08.2026 завершён: 5% — 180/180 health и 180/180 Pages API, p95 `519/487 мс`;
+25% — 180/180 и 180/180, p95 `498/525 мс`. Error-tail новой version был пуст. Один health
+request на 25% занял 2,483 с, но p95 остался ниже 1 с и повторного окна деградации не было.
+Pages пришлось восстановить до завершения backend canary: предыдущий deployment возвращал SPA
+HTML на `/api/*`, потому что Functions bundle отсутствовал. После deployment из `webapp/`
+`/api/health` стабильно возвращает backend JSON.
+
 ## Деплой backend
 
 Перед первым деплоем release-hardening создать инфраструктуру (команды требуют отдельного
@@ -110,9 +142,8 @@ Cloudflare API token с ограниченным scope; автоматическ
 cd backend
 ./node_modules/.bin/wrangler queues create agromarketkz-notifications-prod
 ./node_modules/.bin/wrangler queues create agromarketkz-notifications-dlq-prod
-./node_modules/.bin/wrangler queues consumer add agromarketkz-notifications-prod agromarketkz-backend \
-  --dead-letter-queue agromarketkz-notifications-dlq-prod --message-retries 5 \
-  --batch-size 10 --batch-timeout 5 --max-concurrency 5
+./node_modules/.bin/wrangler queues create agromarketkz-telegram-updates-prod
+./node_modules/.bin/wrangler queues create agromarketkz-telegram-updates-dlq-prod
 ./node_modules/.bin/wrangler r2 bucket create agromarketkz-storage-backup-prod
 ./node_modules/.bin/wrangler r2 bucket lock add agromarketkz-storage-backup-prod \
   backup-retention snapshots/ --retention-days 90
@@ -122,33 +153,45 @@ cd backend
 проверить, что bucket не имеет public `r2.dev` или custom-domain доступа. Bucket Lock должен
 быть immutable; backup-код пишет versioned keys и не перезаписывает snapshots.
 
+Один раз сохранить короткоживущий deploy-токен в macOS Keychain через **Keychain Access** →
+**login** → **Passwords** → **Add Password**: Name `agromarketkz-cloudflare-deploy`, Account —
+ваш macOS user, Password — token. В `.dev.vars` его не хранить.
+
+Дальше deploy Worker выполняется одной командой:
+
 ```bash
-cd backend
-export CLOUDFLARE_API_TOKEN=$(grep '^CLOUDFLARE_API_TOKEN=' .dev.vars | cut -d= -f2-)
-./node_modules/.bin/wrangler deploy
+bun run --cwd backend deploy:production
 ```
+
+Команда сначала ищет token в Keychain и передаёт его Wrangler только в памяти. Если token ещё
+не сохранён, она использует текущую Wrangler OAuth-сессию; после её истечения один раз выполните
+`cd backend && ./node_modules/.bin/wrangler login`. `wrangler.toml` содержит все production
+bindings, Queue consumers и `keep_vars = true`, поэтому deploy не удаляет dashboard-managed
+plain-text variables.
 
 ## Деплой webapp
 
 Обычно не нужен — Cloudflare Pages сам собирает и деплоит webapp на каждый пуш (см. «Текущий статус» выше). Руками — только если нужно задеплоить локальные незапушенные изменения или обойти сборку Pages:
 
 ```bash
-VITE_API_URL="https://agromarketkz-backend.bullbashechka.workers.dev" \
 SUPABASE_URL="https://qxyieyzfdcosmmckyocm.supabase.co" \
-CSP_ENFORCE=1 \
 bun run --cwd webapp build
 
-cd backend
-export CLOUDFLARE_API_TOKEN=$(grep '^CLOUDFLARE_API_TOKEN=' .dev.vars | cut -d= -f2-)
-./node_modules/.bin/wrangler pages deploy ../webapp/dist --project-name=agromarketkz-webapp
+cd webapp
+../backend/node_modules/.bin/wrangler pages deploy dist \
+  --project-name agromarketkz-webapp --branch main --commit-dirty=true
 ```
+
+Команду deploy запускайте из `webapp/`: только так Wrangler автоматически включает
+`webapp/functions` в Pages Functions bundle. После deployment `/api/health` должен возвращать
+JSON backend, а не `index.html`; HTML на `/api/*` означает, что proxy function не попала в сборку.
 
 ## Обновление секретов
 
 ```bash
 cd backend
-export CLOUDFLARE_API_TOKEN=$(grep '^CLOUDFLARE_API_TOKEN=' .dev.vars | cut -d= -f2-)
-echo -n "новое-значение" | ./node_modules/.bin/wrangler secret put ИМЯ_СЕКРЕТА
+CLOUDFLARE_API_TOKEN="$(security find-generic-password -s agromarketkz-cloudflare-deploy -w)" \
+  ./node_modules/.bin/wrangler secret put ИМЯ_СЕКРЕТА
 ```
 
 Если Wrangler сообщает, что latest version не развернута, команда ничего не изменила.
@@ -159,15 +202,29 @@ echo -n "новое-значение" | ./node_modules/.bin/wrangler secret put 
 
 ## Миграции БД
 
-Корневой `bun run db:migrate` теперь запускает безопасный runner: отдельный
-`MIGRATION_DATABASE_URL`, advisory lock, checksum ledger в `app_private.schema_migrations` и
-явное `MIGRATION_CONFIRM=APPLY` для production. Для текущей production-схемы первый запуск:
+Production-миграции выполняются через Supabase CLI linked project. Канонический SQL лежит в
+`database/migrations`, а `supabase/migrations` содержит fetched remote history и symlink-файлы
+на `0011+`. Исторический `app_private.schema_migrations` сверяется read-only, но старый runner
+против production больше не запускается.
+
+Однократный переход: после совпадения SHA-256 для `0001–0014` отметить уже существующие
+`0011–0014` в нативной истории Supabase без повторного SQL:
 
 ```bash
-MIGRATION_DATABASE_URL="<отдельный production URL>" \
-TARGET_ENV=production MIGRATION_BASELINE_VERSION=0013 MIGRATION_CONFIRM=APPLY \
-bun run db:migrate
+supabase migration repair --linked --status applied \
+  20260825000111 20260825000112 20260825000113 20260825000114
 ```
+
+После этого dry-run обязан показать только `20260825000115`–`20260825000119`; затем отдельной
+production-операцией применить их:
+
+```bash
+bun run db:migrate:supabase:dry-run
+bun run db:migrate:supabase
+```
+
+`supabase migration list --linked` после применения должен показывать Local = Remote для всех
+версий до `20260825000119`. Если dry-run показывает другой набор, release блокируется.
 
 ### Runtime DB role (обязательный blocker до canary)
 
@@ -187,9 +244,16 @@ revoke create on schema public, app_private from public;
 grant usage on schema public, app_private to agromarket_runtime;
 grant select, insert, update, delete on all tables in schema public to agromarket_runtime;
 grant select, insert, update, delete on table
-  app_private.widget_auth_proofs, app_private.notification_outbox to agromarket_runtime;
+  app_private.widget_auth_proofs,
+  app_private.user_sessions,
+  app_private.admin_audit_events,
+  app_private.telegram_updates,
+  app_private.card_image_upload_claims,
+  app_private.notification_outbox
+to agromarket_runtime;
 grant usage, select on all sequences in schema public to agromarket_runtime;
-grant execute on function public.gen_random_uuid() to agromarket_runtime;
+grant execute on function pg_catalog.gen_random_uuid() to agromarket_runtime;
+grant execute on function extensions.gen_random_uuid() to agromarket_runtime;
 grant execute on function public.set_updated_at() to agromarket_runtime;
 
 -- Повторить для фактической роли-владельца таблиц (проверить через pg_class.relowner).
@@ -201,10 +265,10 @@ alter default privileges for role <SCHEMA_OWNER_ROLE> in schema public
 -- ledger schema_migrations runtime-роли не нужен.
 ```
 
-После применения 0014 выдать этой роли grants для созданных `app_private` таблиц. Затем обновить
-origin credentials у production Hyperdrive `2a6a43b891504d61af053a17ca5aa598`
-на эту роль и заменить Worker secret `DATABASE_URL` на такой же URL (Hyperdrive имеет приоритет
-над `DATABASE_URL`; смена только Worker secret не меняет активное production-подключение).
+После применения 0014–0019 выдать этой роли grants для созданных `app_private` таблиц. Затем
+обновить origin credentials у production Hyperdrive `2a6a43b891504d61af053a17ca5aa598`
+на эту роль. После успешного Hyperdrive smoke удалить legacy Worker secret `DATABASE_URL`:
+production runtime не использует прямой fallback, а migration URL в Worker передавать нельзя.
 Пароль нельзя печатать в логах. Затем проверить read-only подключением:
 
 ```sql
@@ -223,9 +287,9 @@ select has_table_privilege('agromarket_runtime', 'public.users', 'select') as ca
 Перед baseline обязательны read-only проверки RLS/grants ниже. На staging сначала выполняется
 полный прогон `0001`→latest; повторный запуск уже применённых файлов не выполняется.
 
-Перед включением recovery для редактирования карточек сначала точечно применить
-`0012_card_update_mutations.sql` через Supabase SQL Editor или `apply_migration`, а затем
-выполнить финальную проверку RLS для всех прикладных таблиц:
+Для нового окружения `0012_card_update_mutations.sql` применяется только в общей ordered
+последовательности через Supabase CLI. В текущем production она уже зарегистрирована; повторно
+SQL не выполнять. После миграций выполнить финальную проверку RLS для всех прикладных таблиц:
 
 ```sql
 select c.relname, c.relrowsecurity
@@ -291,8 +355,8 @@ order by c.type, c.title;
 Миграция [`0013_product_catalog_filters.sql`](./database/migrations/0013_product_catalog_filters.sql)
 добавляет признак товарной категории, группу продукции, объём в тоннах и фильтры товарного каталога.
 Она намеренно скрывает все активные товары и очищает их устаревшее поле `availability`, но не удаляет
-карточки, заявки или избранное. Перед production-применением выполните файл точечно через SQL Editor/
-`apply_migration`, затем проверьте:
+карточки, заявки или избранное. В текущем production она уже применена; SQL повторно не выполнять.
+Для нового окружения после ordered Supabase CLI migration проверить:
 
 ```sql
 select count(*) as active_products_with_old_availability
@@ -367,9 +431,8 @@ order by indexrelname;
 - PITR 7 дней и restore drill обязательны до canary; смена региона БД остаётся отдельным
   решением и в этот релиз не входит.
 
-## Токены
+## Токены и локальные secret-файлы
 
-- `backend/.dev.vars` (гитигнорен) хранит два Cloudflare API-токена:
-  - `CLOUDFLARE_API_TOKEN` — с TTL, создавался для ручных операций в конкретной сессии (деплой backend, правка настроек Pages-проекта).
-  - `CI_CLOUDFLARE_API_TOKEN` — бессрочный; GitHub Actions не используется, токен сейчас нигде не подключён — держится про запас.
-  - Оба — права только `Workers Scripts: Edit` + `Cloudflare Pages: Edit`, аккаунт `saidashev.kirill2004@gmail.com`.
+- Неиспользуемый `CI_CLOUDFLARE_API_TOKEN` подлежит отзыву вручную до release. Deploy token создаётся короткоживущим, с минимальными правами на один account/project, и не хранится в `.dev.vars`.
+- После ручной ротации выставить для `.env`, `.env.e2e` и `backend/.dev.vars` права `0600`; хранить значения в Keychain или secret manager, не в документации и не в git.
+- До canary вручную задать `PAGES_PROXY_SECRET` и `ADMIN_OWNER_TELEGRAM_ID`; Pages Function и Worker получают одинаковый proxy secret. Не печатать их при проверках.

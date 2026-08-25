@@ -1,38 +1,31 @@
 import { createMiddleware } from "hono/factory";
 import { getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
-import { verifyToken } from "../lib/jwt";
-import { findAuthUserCached } from "../repos/users";
+import { sessionTokenFromRequest, setSessionCookie } from "../lib/session";
+import { findSessionAuthUser } from "../repos/sessions";
 import { enforceAuthenticatedRateLimit } from "./rateLimit";
 
-type AuthUserLookup = typeof findAuthUserCached;
+type AuthUserLookup = typeof findSessionAuthUser;
 
-/** Создаёт middleware авторизации; lookup выделен для изолированной проверки границ JWT и БД. */
-export function createRequireAuth(authUserLookup: AuthUserLookup = findAuthUserCached) {
+/** Создаёт middleware авторизации; session lookup всегда читает strongly-consistent PostgreSQL. */
+export function createRequireAuth(authUserLookup: AuthUserLookup = findSessionAuthUser) {
   return createMiddleware<HonoEnv>(async (c, next) => {
-    const header = c.req.header("Authorization");
-    const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
+    const token = sessionTokenFromRequest(c);
     if (!token) {
       throw new HttpError(401, "Требуется авторизация");
     }
 
-    let claims: Awaited<ReturnType<typeof verifyToken>>;
-    try {
-      claims = await verifyToken(getEnv(c), token);
-    } catch {
-      throw new HttpError(401, "Недействительный или истёкший токен");
+    const user = await authUserLookup(getEnv(c), token);
+    if (!user) {
+      throw new HttpError(401, "Недействительная или истёкшая сессия");
     }
-
-    const user = await authUserLookup(getEnv(c), claims.userId, claims.telegramId);
-    if (!user || user.tokenVersion !== claims.tokenVersion) {
-      throw new HttpError(401, "Недействительный или истёкший токен");
-    }
-    c.set("auth", { userId: claims.userId, telegramId: claims.telegramId, isRegistered: user.isRegistered });
+    if (user.rotatedToken) setSessionCookie(c, user.rotatedToken);
+    c.set("auth", { userId: user.userId, telegramId: user.telegramId, isRegistered: user.isRegistered });
 
     await enforceAuthenticatedRateLimit(c);
     await next();
   });
 }
 
-/** Требует валидный JWT в `Authorization: Bearer`; кладёт пользователя в контекст. */
+/** Требует валидную HttpOnly-сессию; кладёт пользователя в контекст. */
 export const requireAuth = createRequireAuth();

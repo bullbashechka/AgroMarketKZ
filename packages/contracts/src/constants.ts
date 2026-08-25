@@ -19,6 +19,8 @@ export const SEARCH_MAX = 120;
 
 // Прочие поля
 export const STORAGE_PATH_MAX = 500;
+export const CARD_IMAGE_PATH_PATTERN =
+  /^(?:cards\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)|e2e\/[A-Za-z0-9-]{1,32}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp))$/;
 export const ALT_TEXT_MAX = 200;
 export const TELEGRAM_CONTACT_MAX = 100;
 export const ADMIN_CHAT_ID_MAX = 64;

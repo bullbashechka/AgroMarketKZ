@@ -10,7 +10,7 @@ import { VOLUME_MAX, VOLUME_MIN } from "../src/constants";
 import { volumeTonnesSchema } from "../src/commodity";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
-const oneImage = [{ storagePath: "cards/a.jpg" }];
+const oneImage = [{ storagePath: `cards/${UUID}.jpg` }];
 
 const baseCard = {
   type: "product" as const,

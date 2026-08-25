@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { z } from "zod";
 
 /** Минимальный structural-контракт нативного Cloudflare Rate Limiting binding. */
 export interface RateLimitBinding {
@@ -21,8 +22,12 @@ export interface R2BucketBinding {
  * локально на Bun — пробрасываются в `createApp({ env })` из `Bun.env`.
  */
 export interface AppEnv {
+  APP_ENV?: "development" | "staging" | "production";
   WEBAPP_ORIGIN: string;
-  JWT_SECRET: string;
+  /** Shared only by Pages Function and Worker; blocks direct production browser traffic. */
+  PAGES_PROXY_SECRET?: string;
+  /** Единственный Telegram id, который подтверждает смену notification chat. */
+  ADMIN_OWNER_TELEGRAM_ID?: string;
   TELEGRAM_BOT_TOKEN: string;
   /** Секрет вебхука (secret_token из setWebhook); без него вебхук отвечает 401. */
   TELEGRAM_WEBHOOK_SECRET?: string;
@@ -31,7 +36,7 @@ export interface AppEnv {
   /** Shortname Mini App из /newapp BotFather — вторая часть t.me deep-link. */
   TELEGRAM_MINIAPP_SHORTNAME?: string;
   ADMIN_ALLOWLIST: string;
-  DATABASE_URL: string;
+  DATABASE_URL?: string;
   /** Hyperdrive поверх Supavisor session-mode (порт 5432), caching отключён. Локально на Bun отсутствует — createClient падает обратно на DATABASE_URL. */
   HYPERDRIVE?: Hyperdrive;
   SUPABASE_URL: string;
@@ -60,6 +65,8 @@ export interface AppEnv {
   CF_ANALYTICS_API_TOKEN?: string;
   /** Очередь гарантированной доставки Telegram-уведомлений. */
   NOTIFICATION_QUEUE?: QueueBinding<{ outboxId: string }>;
+  /** Очередь update id после его атомарного сохранения из Telegram webhook. */
+  TELEGRAM_UPDATE_QUEUE?: QueueBinding<{ updateId: number }>;
   /** Приватный R2 bucket для независимых резервных копий Storage. */
   STORAGE_BACKUP?: R2BucketBinding;
 }
@@ -93,7 +100,34 @@ export function resolveEnv(
   bindings: Partial<AppEnv> | undefined,
   override: Partial<AppEnv> | undefined
 ): AppEnv {
-  return { ...(bindings ?? {}), ...(override ?? {}) } as AppEnv;
+  const env = { ...(bindings ?? {}), ...(override ?? {}) } as AppEnv;
+  if (env.APP_ENV !== "production") return env;
+
+  const scalar = z.object({
+    APP_ENV: z.literal("production"),
+    WEBAPP_ORIGIN: z.url(),
+    PAGES_PROXY_SECRET: z.string().min(32),
+    ADMIN_ALLOWLIST: z.string().min(1),
+    ADMIN_OWNER_TELEGRAM_ID: z.string().regex(/^\d+$/),
+    TELEGRAM_BOT_TOKEN: z.string().min(20),
+    TELEGRAM_WEBHOOK_SECRET: z.string().min(20),
+    SUPABASE_URL: z.url(),
+    SUPABASE_STORAGE_BUCKET: z.string().min(1),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
+  }).parse(env);
+  if (!env.HYPERDRIVE?.connectionString) {
+    throw new Error("Production требует обязательный Hyperdrive binding");
+  }
+  if (!env.API_READ_RATE_LIMITER || !env.API_MUTATION_RATE_LIMITER || !env.AUTH_RATE_LIMITER || !env.AUTH_IDENTITY_RATE_LIMITER) {
+    throw new Error("Production требует все rate-limit bindings");
+  }
+  if (!env.NOTIFICATION_QUEUE) {
+    throw new Error("Production требует NOTIFICATION_QUEUE");
+  }
+  if (!env.TELEGRAM_UPDATE_QUEUE) {
+    throw new Error("Production требует TELEGRAM_UPDATE_QUEUE");
+  }
+  return { ...env, ...scalar };
 }
 
 /** Достаёт разрешённое окружение из контекста (его кладёт middleware в `createApp`). */

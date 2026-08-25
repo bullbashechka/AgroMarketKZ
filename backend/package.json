@@ -9,6 +9,7 @@
     "dev:worker": "wrangler dev",
     "build": "bun build ./src/index.ts --target bun --outdir ./dist && wrangler deploy --dry-run --outdir ./dist-worker",
     "deploy": "wrangler deploy",
+    "deploy:production": "bun scripts/deployProduction.ts",
     "migrate": "bun scripts/migrate.ts",
     "seed:dev": "bun scripts/seedDev.ts",
     "types:worker": "wrangler types worker-configuration.d.ts --env-interface WorkerEnv --include-runtime=false --strict-vars",
