@@ -1,18 +1,59 @@
 import { createApp } from "./app";
 import { resolveEnv, type AppEnv } from "./env";
 import { runDbHealthAlertCheck } from "./lib/alerts";
+import {
+  processNotificationOutbox,
+  reconcileNotificationOutbox,
+  type NotificationQueueMessage,
+} from "./lib/notificationOutbox";
 import { runStorageCleanup } from "./lib/storageCleanup";
+import { runStorageBackup } from "./lib/storageBackup";
+import { purgeExpiredWidgetAuthProofs } from "./repos/authProofs";
 
 const app = createApp();
 
 export default {
   fetch: app.fetch,
-  async scheduled(event, env: Partial<AppEnv>, ctx) {
+  async scheduled(event, env: WorkerEnv, ctx) {
     const resolved = resolveEnv(env, undefined);
     if (event.cron === "*/5 * * * *") {
-      ctx.waitUntil(runDbHealthAlertCheck(resolved));
+      ctx.waitUntil(Promise.all([
+        runDbHealthAlertCheck(resolved),
+        purgeExpiredWidgetAuthProofs(resolved),
+        reconcileNotificationOutbox(resolved),
+      ]).catch((error) => {
+        console.error("scheduled maintenance failed", error);
+      }));
     } else {
-      ctx.waitUntil(runStorageCleanup(resolved));
+      ctx.waitUntil(Promise.all([
+        runStorageCleanup(resolved),
+        runStorageBackup(resolved),
+      ]).catch((error) => {
+        console.error("scheduled storage maintenance failed", error);
+      }));
+    }
+  },
+  async queue(batch, env) {
+    const resolved = resolveEnv(env, undefined);
+    for (const message of batch.messages) {
+      try {
+        if (!message.body || typeof message.body.outboxId !== "string") {
+          console.error("notification queue message has invalid shape", { messageId: message.id });
+          message.retry({ delaySeconds: 60 });
+          continue;
+        }
+        const delivered = await processNotificationOutbox(resolved, message.body.outboxId);
+        if (delivered) {
+          message.ack();
+        } else {
+          // The durable outbox remains pending; Queue retries and eventually
+          // moves the event to the configured DLQ for operator inspection.
+          message.retry({ delaySeconds: 60 });
+        }
+      } catch (error) {
+        console.error("notification queue processing failed", { messageId: message.id, error });
+        message.retry({ delaySeconds: 60 });
+      }
     }
   }
-} satisfies ExportedHandler<Partial<AppEnv>>;
+} satisfies ExportedHandler<WorkerEnv, NotificationQueueMessage>;

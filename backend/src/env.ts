@@ -5,6 +5,16 @@ export interface RateLimitBinding {
   limit(options: { key: string }): Promise<{ success: boolean }>;
 }
 
+/** Минимальный structural-контракт Cloudflare Queue producer binding. */
+export interface QueueBinding<T> {
+  send(message: T): Promise<unknown>;
+}
+
+/** Минимальный structural-контракт R2 bucket binding для независимых backup-объектов. */
+export interface R2BucketBinding {
+  put(key: string, value: ReadableStream | ArrayBuffer | ArrayBufferView | string, options?: unknown): Promise<unknown>;
+}
+
 /**
  * Полный набор переменных окружения backend.
  * На Cloudflare Workers приходят как `c.env` (bindings/secrets),
@@ -33,6 +43,8 @@ export interface AppEnv {
   E2E_RUN_ID?: string;
   /** Кеш {tokenVersion, isRegistered} по userId, TTL 60с. Отсутствует локально на Bun — тогда findAuthUserCached деградирует к прямому SELECT. */
   AUTH_CACHE_KV?: KVNamespace;
+  /** `disabled` (рекомендуется для строгого отзыва) отключает чтение auth-кеша; `read-through` включает его явно. */
+  AUTH_CACHE_MODE?: "disabled" | "read-through";
   /** Отсутствуют при локальном запуске без Wrangler и тогда являются no-op. */
   API_READ_RATE_LIMITER?: RateLimitBinding;
   API_MUTATION_RATE_LIMITER?: RateLimitBinding;
@@ -46,6 +58,10 @@ export interface AppEnv {
   CLOUDFLARE_ACCOUNT_ID?: string;
   /** Токен с правами только Account Analytics: Read — отдельный от деплойного CLOUDFLARE_API_TOKEN. */
   CF_ANALYTICS_API_TOKEN?: string;
+  /** Очередь гарантированной доставки Telegram-уведомлений. */
+  NOTIFICATION_QUEUE?: QueueBinding<{ outboxId: string }>;
+  /** Приватный R2 bucket для независимых резервных копий Storage. */
+  STORAGE_BACKUP?: R2BucketBinding;
 }
 
 /** Аутентифицированный пользователь, кладётся `requireAuth` в контекст. */
@@ -64,7 +80,7 @@ export interface AppVariables {
 
 /** Тип окружения Hono для всего backend (Bindings + Variables). */
 export type HonoEnv = {
-  Bindings: Partial<AppEnv>;
+  Bindings: Partial<WorkerEnv>;
   Variables: AppVariables;
 };
 

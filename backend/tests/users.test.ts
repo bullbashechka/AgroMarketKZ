@@ -70,6 +70,20 @@ beforeEach(() => {
 });
 
 describe("findAuthUserCached", () => {
+  test("AUTH_CACHE_MODE=disabled bypasses a stale KV entry", async () => {
+    const kv = new KVMock({ [CACHE_KEY]: { tokenVersion: 3, isRegistered: true } });
+    activeSql = createFakeSql({ select: [{ token_version: 4, registered_at: null }] });
+
+    const result = await findAuthUserCached(
+      { AUTH_CACHE_KV: kv, AUTH_CACHE_MODE: "disabled" } as AppEnv,
+      USER_ID,
+      TELEGRAM_ID,
+    );
+
+    expect(result).toEqual({ tokenVersion: 4, isRegistered: false });
+    expect(activeSql.calls.length).toBe(1);
+  });
+
   test("отдаёт значение из KV, не трогая БД", async () => {
     const kv = new KVMock({ [CACHE_KEY]: { tokenVersion: 3, isRegistered: true } });
     activeSql = createFakeSql({

@@ -7,7 +7,12 @@
 - **Telegram-вебхук** переключён на прод-backend.
 - Прод-секреты (`JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_ALLOWLIST`, `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) заданы через `wrangler secret put`.
 - Backend использует Hyperdrive `agromarketkz-backend-prod` (Supavisor session mode `:5432`, SQL cache disabled, origin limit 5), KV `agromarketkz-auth-cache-prod` и explicit Placement `aws:ap-northeast-1` рядом с production Supabase.
-- Persisted Worker logs включены. По решению владельца автоматические алерты Analytics Engine пока не активируются: secret `CF_ANALYTICS_API_TOKEN` не создаётся, ручная диагностика остаётся доступна через сохранённые Worker logs.
+- Следующая версия release-hardening подготовлена в этой ветке: Hono 4.13.4, одноразовый Widget
+  proof exchange, durable notification outbox/Queue consumer и строгий auth-cache mode. Эти
+  изменения считаются непоставленными до миграции 0014 и подтверждённого canary.
+- Persisted Worker logs включены. Для release-hardening email alerts на 5xx, DB connection errors,
+  Queue backlog и DLQ нужно активировать в Workers Observability до canary; текущая live-версия их
+  ещё не имеет, `CF_ANALYTICS_API_TOKEN` пока не создаётся.
 - **GitHub Actions не используется** — CI/CD полностью на стороне Cloudflare. `.github/workflows/ci.yml` удалён.
 - **Webapp (Cloudflare Pages) деплоится автоматически**: проект `agromarketkz-webapp` привязан к репозиторию через Git-интеграцию Cloudflare Pages (не GitHub Actions) — любой пуш в любую ветку собирает preview-деплой, пуш в `main` собирает production. `VITE_API_URL`, `SUPABASE_URL`, `CSP_ENFORCE` заданы в `deployment_configs` проекта (Cloudflare dashboard → Pages → agromarketkz-webapp → Settings → Environment variables), а не через env репозитория.
 - **Backend (Cloudflare Workers) деплоится только вручную** — Git-интеграции у Workers-проекта нет, см. «Деплой backend» ниже.
@@ -24,6 +29,7 @@
 
 ```bash
 bun run typecheck                 # типы во всех воркспейсах
+bun run security:deps             # high/critical dependency advisories = 0
 cd backend && bun test && cd ..   # юнит-тесты backend
 bun run --cwd webapp test         # чистая логика webapp
 bun run build                     # прод-сборка (нужны VITE_API_URL и SUPABASE_URL в env)
@@ -33,6 +39,11 @@ bun run build                     # прод-сборка (нужны VITE_API_U
 
 - Supabase Security и Performance Advisors — ноль `ERROR`/`WARN`; тринадцать
   `INFO rls_enabled_no_policy` для закрытых backend-only таблиц ожидаемы после применения 0012.
+- После 0014 проверить `app_private.schema_migrations`, `widget_auth_proofs` и
+  `notification_outbox`; Queue backlog/DLQ должны быть нулевыми на canary и после каждой волны.
+- В Workers Observability создать email alerts на `5xx > 1%` (минимум 20 ответов/5 минут),
+  DB connection errors `>0`, Queue backlog `>100` и DLQ `>0`. Проверить получение тестового
+  webhook/уведомления до включения следующей волны.
 - Проверить production `ADMIN_ALLOWLIST`: владелец `1295392762` и оператор видят раздел
   «Управление», посторонний аккаунт получает `403`; в `wrangler tail` нет предупреждений
   про синтетические id.
@@ -64,15 +75,52 @@ Hyperdrive, auth-cache KV и Tokyo Placement. Synthetic smoke `auth → profile 
 отсутствующая. Наблюдавшиеся warm timings из Алматы после выкладки: профиль `474–501 мс`,
 категории `393–530 мс`, карточки `403–463 мс`.
 
-По решению владельца отдельный staging не создаётся, а максимальный load-test на 2000
-синтетических пользователей не проводится. Запускать его против production запрещено: auth
-journey создаёт пользователей, а mutation mode — заявки и обратную связь. Нагрузочная ёмкость
-до 24k поэтому не подтверждена p50/p95/p99-тестом и остаётся принятым остаточным риском;
-production smoke-test подтверждает только работоспособность оптимизированного горячего пути.
+Перед 5% canary нужен production-like staging (или отдельный Supabase project) и
+`LOAD_TEST_USERS=2000`, `LOAD_TEST_CONCURRENCY=200`, `LOAD_TEST_DURATION_SECONDS=1200`.
+Запускать mutation/load auth против production запрещено: auth journey создаёт пользователей,
+а mutation mode — заявки и feedback. GO-порог: p95 чтения < 1s, p99 < 2s, `5xx = 0`,
+DB connection errors = 0, outbox sent/delivered = 100%, DLQ = 0.
+
+До canary в Supabase Dashboard включить PITR минимум на 7 дней и выполнить restore drill в
+отдельный project/clone. Supabase daily DB backup не включает Storage objects; для них нужен
+приватный R2 bucket с 90-дневным immutable Bucket Lock и успешный `storageBackup` manifest с
+`complete=true` (не только наличие файла manifest).
+
+## Rollout release-hardening
+
+1. Заморозить административные записи, применить 0014 через migration runner, выдать
+   `agromarket_runtime` grants для `app_private`, обновить Hyperdrive credentials и затем
+   read-only проверить RLS, grants, ledger и `notification_outbox`.
+2. Развернуть Worker и выполнить 0% smoke: `/health`, Mini App auth, Widget exchange, каталог,
+   заявка, feedback, админский список и одно Telegram-событие.
+3. Включить gradual deployment `5% → 25% → 100%`; на каждой волне ждать минимум 15 минут и
+   проверять `5xx`, DB connection errors, p95/p99, Queue backlog, DLQ и outbox `sent`.
+4. Немедленный rollback на предыдущую Worker version при любом из условий: `5xx > 1%` при
+   20+ ответах/5 минут, DB connection error `>0`, Queue DLQ `>0`, потеря уведомления или
+   p95 чтения >1 секунды два окна подряд. Pages переключать после зелёного backend canary.
 
 Если всё применимое зелёное — деплой.
 
 ## Деплой backend
+
+Перед первым деплоем release-hardening создать инфраструктуру (команды требуют отдельного
+Cloudflare API token с ограниченным scope; автоматически они не запускаются):
+
+```bash
+cd backend
+./node_modules/.bin/wrangler queues create agromarketkz-notifications-prod
+./node_modules/.bin/wrangler queues create agromarketkz-notifications-dlq-prod
+./node_modules/.bin/wrangler queues consumer add agromarketkz-notifications-prod agromarketkz-backend \
+  --dead-letter-queue agromarketkz-notifications-dlq-prod --message-retries 5 \
+  --batch-size 10 --batch-timeout 5 --max-concurrency 5
+./node_modules/.bin/wrangler r2 bucket create agromarketkz-storage-backup-prod
+./node_modules/.bin/wrangler r2 bucket lock add agromarketkz-storage-backup-prod \
+  backup-retention snapshots/ --retention-days 90
+```
+
+После создания R2 bucket снять комментарий с `[[r2_buckets]]` в `backend/wrangler.toml` и
+проверить, что bucket не имеет public `r2.dev` или custom-domain доступа. Bucket Lock должен
+быть immutable; backup-код пишет versioned keys и не перезаписывает snapshots.
 
 ```bash
 cd backend
@@ -111,11 +159,69 @@ echo -n "новое-значение" | ./node_modules/.bin/wrangler secret put 
 
 ## Миграции БД
 
-Корневой `bun run db:migrate` не ведёт журнал применённых файлов и каждый раз повторяет весь
-каталог. На production его не запускать: повторный `0008_telegram_contact_canonical.sql`
-может обнулить вручную исправленный Telegram-контакт. Новую миграцию сначала проверять полным
-прогоном `0001`→latest на отдельной безопасной БД, затем применять к production точечно через
-Supabase SQL Editor или `apply_migration`.
+Корневой `bun run db:migrate` теперь запускает безопасный runner: отдельный
+`MIGRATION_DATABASE_URL`, advisory lock, checksum ledger в `app_private.schema_migrations` и
+явное `MIGRATION_CONFIRM=APPLY` для production. Для текущей production-схемы первый запуск:
+
+```bash
+MIGRATION_DATABASE_URL="<отдельный production URL>" \
+TARGET_ENV=production MIGRATION_BASELINE_VERSION=0013 MIGRATION_CONFIRM=APPLY \
+bun run db:migrate
+```
+
+### Runtime DB role (обязательный blocker до canary)
+
+`DATABASE_URL`/Hyperdrive должны использовать отдельную login-роль приложения, а не
+`postgres`, `supabase_admin` или роль, которой выполняются миграции. Приложение намеренно
+работает с backend-only таблицами без пользовательских RLS policies, поэтому роль получает
+`BYPASSRLS`, но остаётся без superuser/DDL-возможностей; миграционный URL хранится отдельно и
+в Worker не передаётся:
+
+```sql
+-- Выполнить один раз административным подключением, с новым случайным паролем.
+create role agromarket_runtime login password '<GENERATED-RANDOM-PASSWORD>'
+  nosuperuser nocreatedb nocreaterole noinherit bypassrls;
+
+grant connect on database postgres to agromarket_runtime;
+revoke create on schema public, app_private from public;
+grant usage on schema public, app_private to agromarket_runtime;
+grant select, insert, update, delete on all tables in schema public to agromarket_runtime;
+grant select, insert, update, delete on table
+  app_private.widget_auth_proofs, app_private.notification_outbox to agromarket_runtime;
+grant usage, select on all sequences in schema public to agromarket_runtime;
+grant execute on function public.gen_random_uuid() to agromarket_runtime;
+grant execute on function public.set_updated_at() to agromarket_runtime;
+
+-- Повторить для фактической роли-владельца таблиц (проверить через pg_class.relowner).
+alter default privileges for role <SCHEMA_OWNER_ROLE> in schema public
+  grant select, insert, update, delete on tables to agromarket_runtime;
+alter default privileges for role <SCHEMA_OWNER_ROLE> in schema public
+  grant usage, select on sequences to agromarket_runtime;
+-- Для новых app_private таблиц выдавать точечный grant в самой миграции;
+-- ledger schema_migrations runtime-роли не нужен.
+```
+
+После применения 0014 выдать этой роли grants для созданных `app_private` таблиц. Затем обновить
+origin credentials у production Hyperdrive `2a6a43b891504d61af053a17ca5aa598`
+на эту роль и заменить Worker secret `DATABASE_URL` на такой же URL (Hyperdrive имеет приоритет
+над `DATABASE_URL`; смена только Worker secret не меняет активное production-подключение).
+Пароль нельзя печатать в логах. Затем проверить read-only подключением:
+
+```sql
+select rolname, rolsuper, rolcreaterole, rolcreatedb, rolbypassrls
+from pg_roles where rolname = 'agromarket_runtime';
+
+select has_table_privilege('agromarket_runtime', 'public.users', 'select') as can_read_users,
+       has_table_privilege('agromarket_runtime', 'app_private.notification_outbox', 'insert')
+         as can_write_outbox;
+```
+
+Ожидается `rolsuper=false`, `rolcreaterole=false`, `rolcreatedb=false`, `rolbypassrls=true` и
+`true/true` для двух проверок. Если проект не позволяет создать такую роль, canary блокируется:
+оставлять `postgres` в Worker нельзя.
+
+Перед baseline обязательны read-only проверки RLS/grants ниже. На staging сначала выполняется
+полный прогон `0001`→latest; повторный запуск уже применённых файлов не выполняется.
 
 Перед включением recovery для редактирования карточек сначала точечно применить
 `0012_card_update_mutations.sql` через Supabase SQL Editor или `apply_migration`, а затем
@@ -139,15 +245,17 @@ from information_schema.role_table_grants
 where table_schema = 'public'
   and grantee in ('anon', 'authenticated');
 
-select d.defaclrole::regrole, d.defaclobjtype, e.grantee::regrole, e.privilege_type
+select d.defaclrole::regrole, d.defaclobjtype,
+       case when e.grantee = 0 then 'PUBLIC' else e.grantee::regrole::text end as grantee,
+       e.privilege_type
 from pg_default_acl d
 cross join lateral aclexplode(d.defaclacl) e
 where d.defaclnamespace = 'public'::regnamespace
-  and e.grantee in ('anon'::regrole, 'authenticated'::regrole);
+  and (e.grantee in ('anon'::regrole, 'authenticated'::regrole) or e.grantee = 0);
 ```
 
 Ожидается `relrowsecurity = true` у всех тринадцати таблиц, ноль table grants и ноль строк
-default ACL для `anon` / `authenticated`. Hosted Supabase может запретить роли `postgres`
+default ACL для `anon` / `authenticated` / `PUBLIC`. Hosted Supabase может запретить роли `postgres`
 менять defaults владельца `supabase_admin`; тогда миграция выдаёт `WARNING`, а в Dashboard →
 Project Settings → Data API нужно отключить автоматическую публикацию новых таблиц и повторить
 последний запрос. Затем повторно запустить Security Advisor: тринадцать INFO допустимы, новых
@@ -235,7 +343,8 @@ order by indexrelname;
 Выполняйте шаги с замороженными административными записями. Production SQL и deploy в этой
 доработке не выполнялись.
 
-1. Точечно применить `0012_card_update_mutations.sql`, проверить RLS/grants запросами выше.
+1. Заморозить административные записи, создать и проверить `agromarket_runtime`, применить
+   `0012_card_update_mutations.sql`, проверить RLS/grants запросами выше.
 2. Точечно применить `0013_product_catalog_filters.sql`, проверить новые колонки, ограничения,
    индексы и нулевые значения `active_products_with_old_availability` и
    `visible_products_after_migration`.
@@ -255,7 +364,8 @@ order by indexrelname;
 - После релиза покупать upgrade при доле `5xx > 1%` либо ошибках пула в логах.
 - Апгрейд выполнять только в паузе между волнами рассылки: рестарт БД даёт примерно две
   минуты недоступности. До триггера остаёмся на Micro.
-- PITR и смена региона БД не входят в этап 12 и рассматриваются после релиза.
+- PITR 7 дней и restore drill обязательны до canary; смена региона БД остаётся отдельным
+  решением и в этот релиз не входит.
 
 ## Токены
 

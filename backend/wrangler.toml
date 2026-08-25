@@ -33,6 +33,7 @@ TELEGRAM_BOT_USERNAME = "agromarketkzbot"
 # Первый прод-запуск — только dry-run (см. backend/README.md). Переключить на "false" только
 # после ручной проверки кандидатов по логам (`wrangler tail`) и отдельного deploy.
 STORAGE_CLEANUP_DRY_RUN = "true"
+AUTH_CACHE_MODE = "disabled"
 # Для алертов (lib/alerts.ts) — id аккаунта, не секрет. CF_ANALYTICS_API_TOKEN отдельным
 # секретом (права только Account Analytics: Read).
 CLOUDFLARE_ACCOUNT_ID = "0b481a63e36d7f8a4b5058544213d90e"
@@ -90,3 +91,23 @@ id = "2a6a43b891504d61af053a17ca5aa598"
 [[kv_namespaces]]
 binding = "AUTH_CACHE_KV"
 id = "7c37c39ccbf748f196e4f182982b2aa4"
+
+# Notification delivery is durable in app_private.notification_outbox and
+# retried by Queue. Create the producer/consumer queues before the first
+# production deploy; failed messages land in the DLQ for manual replay.
+[[queues.producers]]
+binding = "NOTIFICATION_QUEUE"
+queue = "agromarketkz-notifications-prod"
+
+[[queues.consumers]]
+queue = "agromarketkz-notifications-prod"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "agromarketkz-notifications-dlq-prod"
+max_concurrency = 5
+
+# Enable only after creating the private bucket and a 90-day Bucket Lock rule:
+# [[r2_buckets]]
+# binding = "STORAGE_BACKUP"
+# bucket_name = "agromarketkz-storage-backup-prod"

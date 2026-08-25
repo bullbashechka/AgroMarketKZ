@@ -10,6 +10,7 @@ describe("security headers JSON API", () => {
 
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 });
 

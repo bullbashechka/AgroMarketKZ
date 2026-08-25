@@ -311,6 +311,11 @@ export async function createRequest(
         where id = ${userId}
       `;
     }
+    await tx`
+      insert into app_private.notification_outbox (event_type, request_id)
+      values ('request', ${inserted.id})
+      on conflict (request_id) where request_id is not null do nothing
+    `;
     return { row: inserted, created: true };
   });
 }

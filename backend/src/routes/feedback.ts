@@ -2,12 +2,10 @@ import { createFeedbackInput, feedbackMessageSchema } from "@agromarket/contract
 import { Hono } from "hono";
 import { getEnv, type HonoEnv } from "../env";
 import { runInBackground } from "../lib/background";
-import { formatFeedbackNotification, sendAdminNotification } from "../lib/telegramBot";
+import { dispatchNotificationForEntity } from "../lib/notificationOutbox";
 import { requireAuth } from "../middleware/auth";
 import { requireRegistered } from "../middleware/registered";
 import { createFeedback, toFeedbackMessage } from "../repos/feedback";
-import { getAdminChatId } from "../repos/settings";
-import { findByTelegramId } from "../repos/users";
 
 export const feedbackRoutes = new Hono<HonoEnv>();
 
@@ -16,23 +14,11 @@ feedbackRoutes.use("*", requireAuth, requireRegistered);
 /** Приём сообщения из формы обратной связи. Точный атомарный антиспам-лимит (см. repos/feedback.ts). */
 feedbackRoutes.post("/", async (c) => {
   const env = getEnv(c);
-  const { userId, telegramId } = c.get("auth");
+  const { userId } = c.get("auth");
   const input = createFeedbackInput.parse(await c.req.json());
 
   const row = await createFeedback(env, userId, input);
-
-  const chatId = await getAdminChatId(env);
-  if (chatId) {
-    const user = await findByTelegramId(env, telegramId);
-    const html = formatFeedbackNotification({
-      contactName: row.contact_name,
-      contactPhone: row.contact_phone,
-      contactPhoneVerified: row.contact_phone_verified,
-      message: row.message,
-      telegramUsername: user?.telegram_username ?? null
-    });
-    runInBackground(c, sendAdminNotification(env, chatId, html));
-  }
+  runInBackground(c, dispatchNotificationForEntity(env, "feedback", row.id));
 
   return c.json(feedbackMessageSchema.parse(toFeedbackMessage(row)), 201);
 });

@@ -140,6 +140,19 @@ function storageObjectUrl(env: StorageAdminEnv, storagePath: string): string {
   return `${base}/storage/v1/object/${encodeURIComponent(env.SUPABASE_STORAGE_BUCKET)}/${path}`;
 }
 
+/** Скачивает один объект для server-side backup; URL не публикуется клиенту. */
+export async function downloadStorageObject(
+  env: StorageAdminEnv,
+  storagePath: string,
+): Promise<Response> {
+  return fetch(storageObjectUrl(env, storagePath), {
+    headers: {
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+    },
+  });
+}
+
 /** Постранично перечисляет объекты Storage под произвольным безопасным префиксом. */
 export async function listStorageObjects(
   env: StorageAdminEnv,

@@ -2,8 +2,8 @@ import { sign, verify } from "hono/jwt";
 import { z } from "zod";
 import type { AppEnv } from "../env";
 
-/** Срок жизни JWT — 14 дней; Telegram Mini App тихо перевыпускает его из свежего initData. */
-export const TOKEN_TTL_SEC = 14 * 24 * 60 * 60;
+/** Срок жизни JWT — 24 часа; Mini App перевыпускает его из свежего initData. */
+export const TOKEN_TTL_SEC = 24 * 60 * 60;
 
 export interface TokenClaims {
   /** id пользователя в нашей БД. */
