@@ -26,14 +26,15 @@ async function loginWithInitData(): Promise<void> {
  * Bootstrap сессии: запрашиваем профиль по HttpOnly cookie; в Telegram 401 восстанавливает
  * сессию из свежего initData, в браузере показывает Login Widget.
  */
-async function bootstrapProfile(): Promise<Profile> {
+async function bootstrapProfile(onSessionBoundary: () => void): Promise<Profile> {
   try {
-    return await apiGet<Profile>("/profile");
+    return await apiGet<Profile>("/profile", { notifyUnauthorized: false });
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
+      onSessionBoundary();
       if (isTelegramContext()) {
         await loginWithInitData();
-        return await apiGet<Profile>("/profile");
+        return await apiGet<Profile>("/profile", { notifyUnauthorized: false });
       }
       throw new NeedsLoginError();
     }
@@ -69,16 +70,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setUnauthorizedHandler(async () => {
       // A 401 is a session boundary, not a normal stale-query event. Clear
-      // every cached query so contact/admin data cannot remain visible after
-      // an expired or revoked token.
-      qc.clear();
+      // every non-profile query, then let the profile query own re-authentication.
+      qc.removeQueries({
+        predicate: (query) => query.queryKey[0] !== PROFILE_KEY[0],
+      });
+      await qc.invalidateQueries({ queryKey: PROFILE_KEY, exact: true });
     });
     return () => setUnauthorizedHandler(undefined);
   }, [qc]);
 
   const profileQuery = useQuery({
     queryKey: PROFILE_KEY,
-    queryFn: bootstrapProfile,
+    queryFn: () => bootstrapProfile(() => {
+      qc.removeQueries({
+        predicate: (query) => query.queryKey[0] !== PROFILE_KEY[0],
+      });
+    }),
     retry: false,
     staleTime: Infinity,
     refetchOnWindowFocus: false
@@ -106,12 +113,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   let status: AuthStatus;
-  if (profileQuery.data) {
+  if (profileQuery.error instanceof NeedsLoginError) {
+    status = "needsLogin";
+  } else if (profileQuery.data) {
     status = "ready";
   } else if (profileQuery.isLoading) {
     status = "loading";
-  } else if (profileQuery.error instanceof NeedsLoginError) {
-    status = "needsLogin";
   } else if (profileQuery.error instanceof ApiError && profileQuery.error.status === 429) {
     status = "rateLimited";
   } else if (profileQuery.isError) {

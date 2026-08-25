@@ -5,13 +5,13 @@ import { gotoAdminSection } from "../helpers/nav";
 test.describe("Разграничение доступа", () => {
   test("обычный пользователь не видит раздел «Управление» и получает 403 от admin API", async ({
     userPage: page,
-    userToken
+    userSession
   }) => {
     await page.goto("/general");
     await expect(page.getByTestId("general-link-/admin/cards")).toHaveCount(0);
 
     const res = await fetch(`${API_URL}/admin/cards?type=product`, {
-      headers: { authorization: `Bearer ${userToken}` }
+      headers: { cookie: userSession }
     });
     expect(res.status).toBe(403);
   });
@@ -23,9 +23,8 @@ test.describe("Разграничение доступа", () => {
   });
 
   test("неавторизованный пользователь видит экран входа", async ({ page }) => {
+    await page.context().clearCookies();
     await page.goto("/");
-    await page.evaluate(() => window.localStorage.removeItem("agromarket.jwt"));
-    await page.reload();
     await expect(page.getByText(/войдите через telegram/i)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("tab-services")).not.toBeVisible();
   });

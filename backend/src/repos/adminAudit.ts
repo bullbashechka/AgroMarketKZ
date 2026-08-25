@@ -22,7 +22,7 @@ export async function appendAdminAuditEvent(env: AppEnv, input: AdminAuditInput)
     values (
       ${input.actor.userId}, ${input.actor.telegramId}, ${input.requestId}, ${input.action},
       ${input.targetType}, ${input.targetId ?? null}, ${input.outcome ?? "success"},
-      ${JSON.stringify(input.metadata ?? {})}::jsonb
+      ${sql.json(input.metadata ?? {})}
     )
   `;
 }

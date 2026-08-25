@@ -1,19 +1,30 @@
 # Database
 
-Один Supabase Postgres используется и для локальной разработки, и для прода — Docker не нужен. Runtime-подключение берётся из `DATABASE_URL` и должно использовать отдельную роль приложения; административный URL миграций (`MIGRATION_DATABASE_URL`) хранится отдельно и в Worker не передаётся (см. `DEPLOYMENT.md`).
+PostgreSQL работает в Supabase. Production-миграции выполняются только через связанный
+Supabase CLI project; runtime-подключение Worker должно использовать отдельную роль приложения,
+а не административную роль миграций (см. `DEPLOYMENT.md`).
 
 ## Commands
 
 ```sh
- MIGRATION_DATABASE_URL="$DEV_DATABASE_URL" TARGET_ENV=development bun run db:migrate
- DEV_DATABASE_URL="postgresql://...локальная/стейджинг-БД..." TARGET_ENV=development bun run db:seed:dev
+supabase migration list --linked
+bun run db:migrate:supabase:dry-run
+bun run db:migrate:supabase
 ```
 
-Миграции теперь выполняются журналируемым runner в `app_private.schema_migrations`: он держит
-advisory lock, проверяет SHA-256 checksum и не повторяет уже применённый файл. Для существующей
-БД первый запуск должен явно зарегистрировать известную базу (`MIGRATION_BASELINE_VERSION=0013`)
-после read-only проверки таблиц. Для production дополнительно требуется
-`MIGRATION_CONFIRM=APPLY`; обычный `DATABASE_URL` намеренно не принимается.
+`database/migrations` остаётся каноническим источником SQL. `supabase/migrations` содержит
+загруженную через `supabase migration fetch` удалённую историю и symlink-файлы на прикладные
+миграции `0011+`, поэтому один и тот же SQL проходит локальную проверку и production `db push`.
+Перед production-применением dry-run должен перечислять только ожидаемые новые версии.
+Supabase CLI выполняет migration-файлы в pipeline/транзакционном режиме, поэтому в этих файлах
+нельзя использовать `CREATE INDEX CONCURRENTLY`; обычный `CREATE INDEX` безопасен для новых
+пустых таблиц и проходит тем же путём, что production `db push`.
+
+`app_private.schema_migrations` — исторический checksum-ledger старого runner. В production он
+сверен с файлами до `0019`; версии `0011–0014` однократно зарегистрированы в нативной истории
+Supabase через `migration repair --status applied`, а `0015`–`0019` применены через `db push`.
+Production source of truth — `supabase_migrations.schema_migrations`. Старый
+`bun run db:migrate` не использовать против production.
 
 Seed принимает только отдельный `DEV_DATABASE_URL` и `TARGET_ENV=development`, поэтому корневой
 `.env`, указывающий на production, больше не может случайно наполнить демо-данными.

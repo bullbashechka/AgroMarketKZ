@@ -1,6 +1,9 @@
 name = "agromarketkz-backend"
 main = "src/worker.ts"
 compatibility_date = "2026-06-28"
+# Dashboard-managed plain-text variables are operational state, not deploy
+# input. Preserve them when Wrangler uploads this declarative configuration.
+keep_vars = true
 # postgres.js использует TCP-сокеты через Node-совместимость на Workers.
 compatibility_flags = ["nodejs_compat"]
 
@@ -21,6 +24,8 @@ head_sampling_rate = 1
 crons = ["0 3 * * *", "*/5 * * * *"]
 
 [vars]
+# Enables the fail-closed production environment checks in src/env.ts.
+APP_ENV = "production"
 # Production Pages origin (домен детерминирован CLOUDFLARE_PROJECT_NAME=agromarketkz-webapp).
 # Локально переопределяется через backend/.dev.vars (не в git).
 WEBAPP_ORIGIN = "https://agromarketkz-webapp.pages.dev"

@@ -17,7 +17,7 @@ export async function acceptTelegramUpdate(
   const sql = getDb(env);
   const rows = await sql<{ update_id: string }[]>`
     insert into app_private.telegram_updates (update_id, action, status)
-    values (${updateId}, ${JSON.stringify(action)}::jsonb, 'pending')
+    values (${updateId}, ${sql.json(action)}, 'pending')
     on conflict (update_id) do nothing
     returning update_id
   `;

@@ -9,10 +9,10 @@ create table if not exists app_private.card_image_upload_claims (
   constraint card_image_upload_claims_expiry check (expires_at > created_at)
 );
 
-create index concurrently if not exists requests_submission_category_id_idx
+create index if not exists requests_submission_category_id_idx
   on requests (submission_category_id);
 
-create index concurrently if not exists requests_submission_territory_code_idx
+create index if not exists requests_submission_territory_code_idx
   on requests (submission_territory_code);
 
 alter table app_private.card_image_upload_claims enable row level security;

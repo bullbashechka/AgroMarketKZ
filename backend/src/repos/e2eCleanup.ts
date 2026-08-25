@@ -68,6 +68,16 @@ export async function cleanupE2eRun(env: E2ECleanupEnv): Promise<void> {
     await tx`delete from cards where title like ${prefix} escape '\\'`;
     await tx`delete from categories where name like ${prefix} escape '\\'`;
     await tx`
+      delete from app_private.admin_audit_events audit
+      using users
+      where audit.actor_user_id = users.id
+        and (
+          users.contact_name like ${prefix} escape '\\'
+          or users.telegram_first_name like ${prefix} escape '\\'
+          or users.telegram_last_name like ${prefix} escape '\\'
+        )
+    `;
+    await tx`
       delete from users
       where (
           contact_name like ${prefix} escape '\\'

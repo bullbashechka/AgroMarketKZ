@@ -46,7 +46,12 @@ export function formatApiError(error: unknown, fallback: string): string {
   return `${error.message} (код обращения: ${error.requestId})`;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+interface RequestOptions {
+  /** Profile bootstrap owns its 401 transition and must not invalidate itself. */
+  notifyUnauthorized?: boolean;
+}
+
+async function request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
@@ -59,7 +64,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (response.status === 401) {
     // Токен недействителен/истёк — сбрасываем сессию (в браузере → к Login Widget).
-    handleUnauthorized();
+    if (options.notifyUnauthorized !== false) handleUnauthorized();
     throw new ApiError(
       401,
       "Сессия истекла",
@@ -89,7 +94,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return payload as T;
 }
 
-export const apiGet = <T>(path: string) => request<T>("GET", path);
+export const apiGet = <T>(path: string, options?: RequestOptions) => request<T>("GET", path, undefined, options);
 export const apiPost = <T>(path: string, body?: unknown) => request<T>("POST", path, body);
 export const apiPut = <T>(path: string, body?: unknown) => request<T>("PUT", path, body);
 export const apiPatch = <T>(path: string, body?: unknown) => request<T>("PATCH", path, body);

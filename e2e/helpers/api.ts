@@ -1,6 +1,6 @@
 import { API_URL } from "./env";
 
-class E2EApiError extends Error {
+export class E2EApiError extends Error {
   constructor(
     public readonly method: string,
     public readonly path: string,
@@ -12,12 +12,12 @@ class E2EApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, sessionCookie: string, body?: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${token}`
+      cookie: sessionCookie,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined
   });
@@ -30,30 +30,30 @@ async function request<T>(method: string, path: string, token: string, body?: un
 }
 
 export const api = {
-  get: <T>(path: string, token: string) => request<T>("GET", path, token),
-  post: <T>(path: string, token: string, body?: unknown) => request<T>("POST", path, token, body),
-  put: <T>(path: string, token: string, body?: unknown) => request<T>("PUT", path, token, body),
-  patch: <T>(path: string, token: string, body?: unknown) => request<T>("PATCH", path, token, body),
-  delete: <T>(path: string, token: string, body?: unknown) => request<T>("DELETE", path, token, body)
+  get: <T>(path: string, sessionCookie: string) => request<T>("GET", path, sessionCookie),
+  post: <T>(path: string, sessionCookie: string, body?: unknown) => request<T>("POST", path, sessionCookie, body),
+  put: <T>(path: string, sessionCookie: string, body?: unknown) => request<T>("PUT", path, sessionCookie, body),
+  patch: <T>(path: string, sessionCookie: string, body?: unknown) => request<T>("PATCH", path, sessionCookie, body),
+  delete: <T>(path: string, sessionCookie: string, body?: unknown) => request<T>("DELETE", path, sessionCookie, body)
 };
 
 export const E2E_PREFIX = `[e2e:${process.env.E2E_RUN_ID ?? "unconfigured"}]`;
 
-export async function createTestCategory(token: string, type: "service" | "product") {
-  return api.post<{ id: string; name: string }>("/admin/categories", token, {
+export async function createTestCategory(sessionCookie: string, type: "service" | "product") {
+  return api.post<{ id: string; name: string }>("/admin/categories", sessionCookie, {
     type,
-    name: `${E2E_PREFIX} Категория ${Date.now()}`,
+    name: `${E2E_PREFIX} Кат. ${Date.now()}`,
     sortOrder: 999
   });
 }
 
 export async function createTestCard(
-  token: string,
+  sessionCookie: string,
   categoryId: string,
   type: "service" | "product",
   overrides: Partial<Record<string, unknown>> = {}
 ) {
-  return api.post<{ id: string; title: string }>("/admin/cards", token, {
+  return api.post<{ id: string; title: string }>("/admin/cards", sessionCookie, {
     type,
     categoryId,
     title: `${E2E_PREFIX} Карточка ${Date.now()}`,

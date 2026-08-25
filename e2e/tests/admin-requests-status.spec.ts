@@ -1,27 +1,27 @@
 import { expect, test } from "../fixtures/auth.fixture";
 import { api, E2E_PREFIX } from "../helpers/api";
-import { TELEGRAM_BOT_TOKEN } from "../helpers/env";
+import { API_URL, TELEGRAM_BOT_TOKEN } from "../helpers/env";
 import { gotoAdminSection } from "../helpers/nav";
 import { loginAsTelegramUser } from "../helpers/telegramAuth";
 import { telegramIdFor } from "../helpers/telegramIdentity";
 
 test.describe("Админ — смена статуса заявки", () => {
-  test("новая заявка появляется в списке и меняет статус", async ({ adminPage: page, adminToken }, testInfo) => {
+  test("новая заявка появляется в списке и меняет статус", async ({ adminPage: page, adminSession }, testInfo) => {
     // Свежий telegram id — не делит rate-limit заявок с TEST_USER, которого используют другие спеки.
     const freshUser = {
       id: telegramIdFor(process.env.E2E_RUN_ID ?? "", `test:admin-request-status:${testInfo.testId}`),
       first_name: `${E2E_PREFIX} Status`,
       last_name: "Status"
     };
-    const { token: freshUserToken } = await loginAsTelegramUser(
-      process.env.E2E_API_URL ?? "http://localhost:3000",
+    const { cookie: freshUserSession } = await loginAsTelegramUser(
+      API_URL,
       TELEGRAM_BOT_TOKEN,
       freshUser
     );
-    await api.post("/profile/register", freshUserToken, { contactName: `${E2E_PREFIX} Статус`, contactPhone: "+77019998877" });
+    await api.post("/profile/register", freshUserSession, { contactName: `${E2E_PREFIX} Статус`, contactPhone: "+77019998877" });
 
     const marker = `${E2E_PREFIX} статус-тест ${Date.now()}`;
-    const created = await api.post<{ id: string }>("/requests", freshUserToken, {
+    const created = await api.post<{ id: string }>("/requests", freshUserSession, {
       clientRequestId: crypto.randomUUID(),
       source: "profile",
       contactName: `${E2E_PREFIX} Статус`,
@@ -44,6 +44,6 @@ test.describe("Админ — смена статуса заявки", () => {
     await expect(movedRow).toBeVisible({ timeout: 15_000 });
     await expect(movedRow.getByTestId("request-status-value")).toHaveText(/в работе/i);
 
-    await api.patch(`/admin/requests/${created.id}/status`, adminToken, { status: "closed" });
+    await api.patch(`/admin/requests/${created.id}/status`, adminSession, { status: "closed" });
   });
 });

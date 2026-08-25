@@ -7,6 +7,12 @@ export interface TgUserPayload {
   username?: string;
 }
 
+export interface TelegramSession {
+  /** Cookie header value in the form `name=value`; never expose it in reports. */
+  cookie: string;
+  profile: unknown;
+}
+
 const encoder = new TextEncoder();
 
 async function hmac(key: BufferSource, message: string): Promise<Uint8Array> {
@@ -45,7 +51,7 @@ export async function loginAsTelegramUser(
   botToken: string,
   user: TgUserPayload,
   attempt = 1
-): Promise<{ token: string; profile: unknown }> {
+): Promise<TelegramSession> {
   const initData = await signInitData(botToken, user);
   const res = await fetch(`${apiUrl}/auth/telegram`, {
     method: "POST",
@@ -59,5 +65,16 @@ export async function loginAsTelegramUser(
     }
     throw new Error(`login failed: ${res.status} ${await res.text()}`);
   }
-  return res.json();
+  const setCookie = res.headers.get("set-cookie");
+  if (!setCookie) {
+    throw new Error("login failed: response did not set a session cookie");
+  }
+  const cookie = setCookie.split(";", 1)[0];
+  if (!cookie?.includes("=")) {
+    throw new Error("login failed: response set an invalid session cookie");
+  }
+  return {
+    cookie,
+    profile: await res.json(),
+  };
 }

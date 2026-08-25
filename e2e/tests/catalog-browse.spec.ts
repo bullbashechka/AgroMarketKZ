@@ -27,11 +27,13 @@ test.describe("Каталог: вкладки, поиск, фильтры, ка�
 
     await page.getByTestId("tab-products").click();
     await expect(page).toHaveURL(/\/products/);
-    await expect(page.getByText("Семена пшеницы Астана-2", { exact: true })).toBeVisible();
+    // У каждой вкладки независимый URL-backed фильтр: товары сохраняют выбранную Костанайскую область.
+    await expect(page.getByText("Б/у трактор 150 л.с.", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: /Фильтры и сортировка/ }).click();
     await page.getByLabel("Область").selectOption("all_regions");
     await page.getByRole("button", { name: "Показать товары", exact: true }).click();
+    await expect(page.getByText("Семена пшеницы Астана-2", { exact: true })).toBeVisible();
 
     await page.getByTestId("category-filter-trigger").click();
     const firstCategory = page.getByTestId("category-filter-option").first();
