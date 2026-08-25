@@ -1,6 +1,7 @@
 import { adminPlatformSettingsSchema, updateSettingsInput } from "@agromarket/contracts";
 import { Hono } from "hono";
 import { getEnv, type HonoEnv } from "../../env";
+import { HttpError } from "../../lib/errors";
 import { getAdminSettings, updateSettings } from "../../repos/settings";
 
 export const adminSettingsRoutes = new Hono<HonoEnv>();
@@ -16,6 +17,12 @@ adminSettingsRoutes.get("/", async (c) => {
 adminSettingsRoutes.patch("/", async (c) => {
   const env = getEnv(c);
   const input = updateSettingsInput.parse(await c.req.json());
+  if ("adminChatId" in input) {
+    const ownerTelegramId = Number(env.ADMIN_OWNER_TELEGRAM_ID);
+    if (!Number.isSafeInteger(ownerTelegramId) || c.get("auth").telegramId !== ownerTelegramId) {
+      throw new HttpError(403, "Только владелец может менять чат уведомлений");
+    }
+  }
   const settings = await updateSettings(env, input);
   return c.json(adminPlatformSettingsSchema.parse(settings));
 });

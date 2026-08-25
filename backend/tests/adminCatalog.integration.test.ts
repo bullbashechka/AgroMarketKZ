@@ -116,13 +116,13 @@ describeIntegration("admin catalog persistence", () => {
       serviceTerritoryCodes: [],
       availability: null,
       sortOrder: 0,
-      images: [{ storagePath: "cards/integration-image.jpg", sortOrder: 0 }],
+      images: [{ storagePath: "cards/11111111-1111-4111-8111-111111111111.jpg", sortOrder: 0 }],
       specs: [{ key: "Год выпуска", value: "2026", sortOrder: 0 }],
       expectedVersion: created.version,
     });
 
     expect(updated.detail.reviewIssues).toEqual([]);
-    expect(updated.detail.images.map((image) => image.storagePath)).toEqual(["cards/integration-image.jpg"]);
+    expect(updated.detail.images.map((image) => image.storagePath)).toEqual(["cards/11111111-1111-4111-8111-111111111111.jpg"]);
     expect(updated.detail.version).toBe(created.version + 1);
 
     const published = await publishCard(env, created.id, updated.detail.version);
@@ -172,8 +172,8 @@ describeIntegration("admin catalog persistence", () => {
       availability: null,
       sortOrder: 0,
       images: [
-        { storagePath: "cards/duplicate.jpg", sortOrder: 0 },
-        { storagePath: "cards/duplicate.jpg", sortOrder: 1 },
+        { storagePath: "cards/22222222-2222-4222-8222-222222222222.jpg", sortOrder: 0 },
+        { storagePath: "cards/22222222-2222-4222-8222-222222222222.jpg", sortOrder: 1 },
       ],
       specs: [],
       expectedVersion: card.version,

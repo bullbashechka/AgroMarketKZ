@@ -9,6 +9,18 @@ import {
 import { runStorageCleanup } from "./lib/storageCleanup";
 import { runStorageBackup } from "./lib/storageBackup";
 import { purgeExpiredWidgetAuthProofs } from "./repos/authProofs";
+import { runPrivacyRetention } from "./repos/privacy";
+import { processTelegramUpdate } from "./repos/telegramUpdates";
+
+type WorkerQueueMessage = NotificationQueueMessage | { updateId: number };
+
+function isTelegramUpdateMessage(body: WorkerQueueMessage): body is { updateId: number } {
+  return "updateId" in body && typeof body.updateId === "number";
+}
+
+function isNotificationMessage(body: WorkerQueueMessage): body is NotificationQueueMessage {
+  return "outboxId" in body && typeof body.outboxId === "string";
+}
 
 const app = createApp();
 
@@ -28,6 +40,7 @@ export default {
       ctx.waitUntil(Promise.all([
         runStorageCleanup(resolved),
         runStorageBackup(resolved),
+        runPrivacyRetention(resolved),
       ]).catch((error) => {
         console.error("scheduled storage maintenance failed", error);
       }));
@@ -37,8 +50,19 @@ export default {
     const resolved = resolveEnv(env, undefined);
     for (const message of batch.messages) {
       try {
-        if (!message.body || typeof message.body.outboxId !== "string") {
-          console.error("notification queue message has invalid shape", { messageId: message.id });
+        if (!message.body) {
+          console.error("queue message has no body", { messageId: message.id });
+          message.retry({ delaySeconds: 60 });
+          continue;
+        }
+        if (isTelegramUpdateMessage(message.body)) {
+          const processed = await processTelegramUpdate(resolved, message.body.updateId);
+          if (processed) message.ack();
+          else message.retry({ delaySeconds: 60 });
+          continue;
+        }
+        if (!isNotificationMessage(message.body)) {
+          console.error("queue message has invalid shape", { messageId: message.id });
           message.retry({ delaySeconds: 60 });
           continue;
         }
@@ -56,4 +80,4 @@ export default {
       }
     }
   }
-} satisfies ExportedHandler<WorkerEnv, NotificationQueueMessage>;
+} satisfies ExportedHandler<WorkerEnv, WorkerQueueMessage>;

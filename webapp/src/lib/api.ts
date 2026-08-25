@@ -1,6 +1,6 @@
-import { clearToken, getToken } from "./token";
-
-const apiUrl = (import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/$/, "");
+// Production and preview traffic always traverses the same-origin Pages proxy.
+// The Vite dev server mirrors that path, so browser code never needs a Worker origin.
+const apiUrl = "/api";
 let unauthorizedHandler: (() => Promise<void> | void) | undefined;
 let unauthorizedRecovery: Promise<void> | undefined;
 
@@ -10,7 +10,6 @@ export function setUnauthorizedHandler(handler: (() => Promise<void> | void) | u
 }
 
 function handleUnauthorized(): void {
-  clearToken();
   if (!unauthorizedHandler || unauthorizedRecovery) return;
   const handler = unauthorizedHandler;
   unauthorizedRecovery = Promise.resolve()
@@ -48,15 +47,14 @@ export function formatApiError(error: unknown, fallback: string): string {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const token = getToken();
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const response = await fetch(`${apiUrl}${path}`, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body)
+    body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: "include",
   });
 
   if (response.status === 401) {

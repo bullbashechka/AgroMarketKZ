@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   ALT_TEXT_MAX,
   AVAILABILITY_MAX,
+  CARD_IMAGE_PATH_PATTERN,
   CARD_TITLE_MAX,
   DESCRIPTION_MAX,
   MAX_IMAGES,
@@ -43,7 +44,8 @@ export type CardImage = z.infer<typeof cardImageSchema>;
 
 /** Изображение при создании/редактировании карточки (админ). */
 export const cardImageInput = z.object({
-  storagePath: requiredText(STORAGE_PATH_MAX, "Путь к изображению обязателен"),
+  storagePath: requiredText(STORAGE_PATH_MAX, "Путь к изображению обязателен")
+    .regex(CARD_IMAGE_PATH_PATTERN, "Недопустимый путь к изображению"),
   altText: z.string().trim().max(ALT_TEXT_MAX).optional(),
   sortOrder: z.number().int().min(0).default(0)
 });

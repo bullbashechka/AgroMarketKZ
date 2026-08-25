@@ -5,18 +5,19 @@
 - **Backend (Cloudflare Workers):** `https://agromarketkz-backend.bullbashechka.workers.dev`
 - **Webapp (Cloudflare Pages):** `https://agromarketkz-webapp.pages.dev`
 - **Telegram-вебхук** переключён на прод-backend.
-- Прод-секреты (`JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_ALLOWLIST`, `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) заданы через `wrangler secret put`.
+- Прод-секреты (`PAGES_PROXY_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_ALLOWLIST`, `ADMIN_OWNER_TELEGRAM_ID`, `SUPABASE_SERVICE_ROLE_KEY`) задаются через `wrangler secret put`; Worker не должен иметь прямой production `DATABASE_URL` при включённом Hyperdrive.
 - Backend использует Hyperdrive `agromarketkz-backend-prod` (Supavisor session mode `:5432`, SQL cache disabled, origin limit 5), KV `agromarketkz-auth-cache-prod` и explicit Placement `aws:ap-northeast-1` рядом с production Supabase.
-- Следующая версия release-hardening подготовлена в этой ветке: Hono 4.13.4, одноразовый Widget
-  proof exchange, durable notification outbox/Queue consumer и строгий auth-cache mode. Эти
-  изменения считаются непоставленными до миграции 0014 и подтверждённого canary.
+- Следующая версия release-hardening подготовлена в этой ветке: opaque HttpOnly-сессии, same-origin
+  Pages proxy, durable Telegram webhook/Queue, upload claims и строгий auth-cache mode. Эти
+  изменения считаются непоставленными до миграций 0015–0019 и подтверждённого canary.
 - Persisted Worker logs включены. Для release-hardening email alerts на 5xx, DB connection errors,
   Queue backlog и DLQ нужно активировать в Workers Observability до canary; текущая live-версия их
   ещё не имеет, `CF_ANALYTICS_API_TOKEN` пока не создаётся.
 - **GitHub Actions не используется** — CI/CD полностью на стороне Cloudflare. `.github/workflows/ci.yml` удалён.
 - **Webapp (Cloudflare Pages) деплоится автоматически**: проект `agromarketkz-webapp` привязан к репозиторию через Git-интеграцию Cloudflare Pages (не GitHub Actions) — любой пуш в любую ветку собирает preview-деплой, пуш в `main` собирает production. `VITE_API_URL`, `SUPABASE_URL`, `CSP_ENFORCE` заданы в `deployment_configs` проекта (Cloudflare dashboard → Pages → agromarketkz-webapp → Settings → Environment variables), а не через env репозитория.
+- Pages Function `functions/api/[[path]].js` требует secret `BACKEND_ORIGIN` (Worker origin) и тот же `PAGES_PROXY_SECRET`, что Worker. Она добавляет proxy proof и отвергает cross-origin mutation до Worker; без обоих secret production release блокируется.
 - **Backend (Cloudflare Workers) деплоится только вручную** — Git-интеграции у Workers-проекта нет, см. «Деплой backend» ниже.
-- Тестов/тайпчека на пуш больше нет — гонять руками (см. «Проверки перед деплоем»).
+- Preview Pages остаются автоматическими. Production merge разрешён только после ручного `bun run release:verify` на изолированных E2E ресурсах (см. «Проверки перед деплоем»).
 
 ## Осталось сделать вручную (BotFather)
 
@@ -35,12 +36,20 @@ bun run --cwd webapp test         # чистая логика webapp
 bun run build                     # прод-сборка (нужны VITE_API_URL и SUPABASE_URL в env)
 ```
 
+Полный блокирующий gate:
+
+```bash
+bun run release:verify
+```
+
+Он требует frozen install, typecheck, unit/integration, dependency audit, build и E2E. High/critical reachable advisory, любой неуспешный шаг или E2E вне изолированных ресурсов блокируют production merge. Исключение допускается только с отдельной записью о reachability и сроком устранения.
+
 Перед каждым релизом дополнительно:
 
 - Supabase Security и Performance Advisors — ноль `ERROR`/`WARN`; тринадцать
   `INFO rls_enabled_no_policy` для закрытых backend-only таблиц ожидаемы после применения 0012.
-- После 0014 проверить `app_private.schema_migrations`, `widget_auth_proofs` и
-  `notification_outbox`; Queue backlog/DLQ должны быть нулевыми на canary и после каждой волны.
+- После 0015–0019 проверить `app_private.schema_migrations`, `user_sessions`, `telegram_updates`,
+  `card_image_upload_claims` и `notification_outbox`; Queue backlog/DLQ должны быть нулевыми на canary и после каждой волны.
 - В Workers Observability создать email alerts на `5xx > 1%` (минимум 20 ответов/5 минут),
   DB connection errors `>0`, Queue backlog `>100` и DLQ `>0`. Проверить получение тестового
   webhook/уведомления до включения следующей волны.
@@ -88,7 +97,7 @@ DB connection errors = 0, outbox sent/delivered = 100%, DLQ = 0.
 
 ## Rollout release-hardening
 
-1. Заморозить административные записи, применить 0014 через migration runner, выдать
+1. Заморозить административные записи, применить 0015–0019 через migration runner, выдать
    `agromarket_runtime` grants для `app_private`, обновить Hyperdrive credentials и затем
    read-only проверить RLS, grants, ledger и `notification_outbox`.
 2. Развернуть Worker и выполнить 0% smoke: `/health`, Mini App auth, Widget exchange, каталог,
@@ -201,7 +210,7 @@ alter default privileges for role <SCHEMA_OWNER_ROLE> in schema public
 -- ledger schema_migrations runtime-роли не нужен.
 ```
 
-После применения 0014 выдать этой роли grants для созданных `app_private` таблиц. Затем обновить
+После применения 0014–0018 выдать этой роли grants для созданных `app_private` таблиц. Затем обновить
 origin credentials у production Hyperdrive `2a6a43b891504d61af053a17ca5aa598`
 на эту роль и заменить Worker secret `DATABASE_URL` на такой же URL (Hyperdrive имеет приоритет
 над `DATABASE_URL`; смена только Worker secret не меняет активное production-подключение).
@@ -367,9 +376,8 @@ order by indexrelname;
 - PITR 7 дней и restore drill обязательны до canary; смена региона БД остаётся отдельным
   решением и в этот релиз не входит.
 
-## Токены
+## Токены и локальные secret-файлы
 
-- `backend/.dev.vars` (гитигнорен) хранит два Cloudflare API-токена:
-  - `CLOUDFLARE_API_TOKEN` — с TTL, создавался для ручных операций в конкретной сессии (деплой backend, правка настроек Pages-проекта).
-  - `CI_CLOUDFLARE_API_TOKEN` — бессрочный; GitHub Actions не используется, токен сейчас нигде не подключён — держится про запас.
-  - Оба — права только `Workers Scripts: Edit` + `Cloudflare Pages: Edit`, аккаунт `saidashev.kirill2004@gmail.com`.
+- Неиспользуемый `CI_CLOUDFLARE_API_TOKEN` подлежит отзыву вручную до release. Deploy token создаётся короткоживущим, с минимальными правами на один account/project, и не хранится в `.dev.vars`.
+- После ручной ротации выставить для `.env`, `.env.e2e` и `backend/.dev.vars` права `0600`; хранить значения в Keychain или secret manager, не в документации и не в git.
+- До canary вручную задать `PAGES_PROXY_SECRET` и `ADMIN_OWNER_TELEGRAM_ID`; Pages Function и Worker получают одинаковый proxy secret. Не печатать их при проверках.

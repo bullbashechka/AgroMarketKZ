@@ -18,6 +18,7 @@
     "test:integration": "bun run --cwd packages/contracts build && bun run backend/scripts/run-integration-tests.ts",
     "build": "bun run --cwd packages/contracts build && bun run --cwd backend build && bun run --cwd webapp build",
     "security:deps": "bun audit --audit-level high",
+    "release:verify": "bun install --frozen-lockfile && bun run typecheck && bun test backend/tests packages/contracts/tests webapp/tests && bun run test:integration && bun run security:deps && bun run build && bun run test:e2e",
     "typecheck": "bun run --cwd packages/contracts build && bun run --cwd backend typecheck && bun run --cwd webapp typecheck",
     "load:test": "bun --env-file=.env e2e/scripts/loadTest.ts",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",

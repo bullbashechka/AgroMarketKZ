@@ -31,7 +31,9 @@ const CONNECTION_ERROR_CODES = new Set([
 type DatabaseEnv = Pick<AppEnv, "DATABASE_URL" | "HYPERDRIVE">;
 
 function createClient(env: DatabaseEnv): Sql {
-  return postgres(env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL, POSTGRES_POOL_OPTIONS);
+  const url = env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
+  if (!url) throw new Error("Не задан Hyperdrive или DATABASE_URL");
+  return postgres(url, POSTGRES_POOL_OPTIONS);
 }
 
 /**

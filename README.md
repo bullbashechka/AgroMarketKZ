@@ -125,7 +125,7 @@ Menu Button + `/newapp` URL в BotFather). В выводе скрипта `getWe
 | Переменная | Где | Назначение |
 |-----------|-----|-----------|
 | `DATABASE_URL` | backend | строка подключения PostgreSQL |
-| `JWT_SECRET` | backend | подпись JWT сессий |
+| `PAGES_PROXY_SECRET` | backend + Pages Function | 32+ символов, разрешает только same-origin proxy к Worker |
 | `TELEGRAM_BOT_TOKEN` | backend | валидация `initData`, Login Widget, отправка уведомлений |
 | `TELEGRAM_WEBHOOK_SECRET` | backend | секрет вебхука бота (проверка `X-Telegram-Bot-Api-Secret-Token`) |
 | `TELEGRAM_BOT_USERNAME` | backend | username бота без @ — deep-link-кнопки в уведомлениях |

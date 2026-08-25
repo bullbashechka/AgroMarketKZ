@@ -45,6 +45,7 @@ async function runUpload(file: File, update: (patch: Partial<EditorImage>) => vo
       body: blob
     });
     if (!response.ok) throw new Error("upload failed");
+    await apiPost<void>("/admin/uploads/complete", { storagePath, contentType: "image/jpeg" });
     update({ status: "done", storagePath, publicUrl: publicUrlFromUploadUrl(uploadUrl) });
   } catch (err) {
     update({

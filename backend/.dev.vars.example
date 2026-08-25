@@ -4,7 +4,8 @@ DATABASE_URL=postgresql://agromarket_runtime:[RUNTIME-PASSWORD]@aws-0-your-regio
 # Production Worker default: disabled. Set read-through only after accepting
 # up-to-60s session revocation lag and validating KV health.
 AUTH_CACHE_MODE=disabled
-JWT_SECRET=replace-with-local-secret
+PAGES_PROXY_SECRET=replace-with-local-proxy-secret-at-least-32-characters
+ADMIN_OWNER_TELEGRAM_ID=telegram_owner_id
 TELEGRAM_BOT_TOKEN=replace-with-telegram-bot-token
 TELEGRAM_WEBHOOK_SECRET=replace-with-random-webhook-secret
 TELEGRAM_BOT_USERNAME=replace_with_bot_username
@@ -13,7 +14,3 @@ ADMIN_ALLOWLIST=telegram_username_or_user_id
 SUPABASE_URL=https://replace-with-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=replace-with-supabase-service-role-key
 SUPABASE_STORAGE_BUCKET=card-images
-
-# Только для ручного деплоя (см. DEPLOYMENT.md), не читается приложением:
-# токен Cloudflare с правами Workers Scripts: Edit + Cloudflare Pages: Edit.
-CLOUDFLARE_API_TOKEN=replace-with-cloudflare-api-token

@@ -16,6 +16,7 @@ import type { TransactionSql } from "postgres";
 import { getDb } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
+import { consumeUploadClaims } from "./uploadClaims";
 import { paginateRows, type PaginatedResult } from "../lib/pagination";
 import { escapeLike, normalizeCatalogText } from "../lib/search";
 import {
@@ -637,7 +638,11 @@ export async function getAdminCardDetailForMutation(
 }
 
 /** Создаёт серверный черновик вместе с уже успешно загруженными фото и характеристиками. */
-export async function createCard(env: AppEnv, input: CreateCardInput): Promise<AdminCardDetail> {
+export async function createCard(
+  env: AppEnv,
+  input: CreateCardInput,
+  options: { actorUserId?: string } = {},
+): Promise<AdminCardDetail> {
   const sql = getDb(env);
   const normalizedInput = normalizeCardInput(input);
   const legacyLocation = await legacyLocationForInput(env, normalizedInput);
@@ -681,6 +686,10 @@ export async function createCard(env: AppEnv, input: CreateCardInput): Promise<A
         return undefined;
       }
       const createdId = card.id;
+
+      if (options.actorUserId) {
+        await consumeUploadClaims(tx, options.actorUserId, normalizedInput.images.map((image) => image.storagePath));
+      }
 
       if (normalizedInput.images.length > 0) {
         const imageRows = normalizedInput.images.map((img) => ({
@@ -773,7 +782,8 @@ export async function createCard(env: AppEnv, input: CreateCardInput): Promise<A
 export async function updateCard(
   env: AppEnv,
   id: string,
-  input: UpdateCardInput
+  input: UpdateCardInput,
+  options: { actorUserId?: string } = {},
 ): Promise<{ detail: AdminCardDetail; removedPaths: string[] }> {
   const sql = getDb(env);
   const normalizedInput = normalizeCardInput(input);
@@ -859,6 +869,16 @@ export async function updateCard(
       const oldImages = await tx<{ storage_path: string }[]>`
         select storage_path from card_images where card_id = ${id}
       `;
+      if (options.actorUserId) {
+        const oldPaths = new Set(oldImages.map((image) => image.storage_path));
+        await consumeUploadClaims(
+          tx,
+          options.actorUserId,
+          normalizedInput.images
+            .map((image) => image.storagePath)
+            .filter((storagePath) => !oldPaths.has(storagePath)),
+        );
+      }
 
       const [card] = await tx<CardRow[]>`
         update cards set

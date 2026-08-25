@@ -14,6 +14,7 @@ interface TelegramChatMember {
 }
 
 interface TelegramUpdate {
+  update_id?: number;
   message?: {
     chat?: TelegramChat;
     text?: string;
@@ -25,6 +26,12 @@ interface TelegramUpdate {
     old_chat_member?: TelegramChatMember;
     new_chat_member?: TelegramChatMember;
   };
+}
+
+export function getTelegramUpdateId(update: unknown): number | undefined {
+  if (typeof update !== "object" || update === null) return undefined;
+  const id = (update as TelegramUpdate).update_id;
+  return typeof id === "number" && Number.isSafeInteger(id) && id >= 0 ? id : undefined;
 }
 
 export type WebhookAction =

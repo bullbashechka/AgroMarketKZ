@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { ContactFields } from "../components/ContactFields";
 import { Screen } from "../components/Screen";
 import { SuccessCheck } from "../components/SuccessCheck";
-import { ApiError } from "../lib/api";
+import { ApiError, apiDelete } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { zodFieldErrors } from "../lib/formErrors";
 import { useRegistrationIntent } from "../lib/registrationIntent";
@@ -18,6 +18,7 @@ export function ProfileEditScreen() {
   const [phone, setPhone] = useState(profile?.contactPhone ?? "");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -34,6 +35,19 @@ export function ProfileEditScreen() {
       setSuccess(true);
     } catch (error) {
       setErrors({ form: error instanceof ApiError ? error.message : "Не удалось сохранить данные" });
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!window.confirm("Удалить аккаунт и обезличить историю обращений? Это действие нельзя отменить.")) return;
+    setDeleting(true);
+    try {
+      await apiDelete("/profile", { confirmed: true });
+      await navigate({ href: "/general" });
+      window.location.reload();
+    } catch (error) {
+      setErrors({ form: error instanceof ApiError ? error.message : "Не удалось удалить аккаунт" });
+      setDeleting(false);
     }
   }
 
@@ -74,6 +88,9 @@ export function ProfileEditScreen() {
 
         <button type="submit" className="button button-primary" disabled={updateProfilePending}>
           {updateProfilePending ? "Сохраняем…" : "Сохранить"}
+        </button>
+        <button type="button" className="button button-secondary" onClick={handleDeleteAccount} disabled={deleting}>
+          {deleting ? "Удаляем…" : "Удалить аккаунт"}
         </button>
       </form>
     </Screen>

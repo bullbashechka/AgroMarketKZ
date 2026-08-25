@@ -7,6 +7,7 @@ import { ZodError } from "zod";
 import { isConnectionError } from "./db";
 import { type AppEnv, type HonoEnv, resolveEnv } from "./env";
 import { HttpError } from "./lib/errors";
+import { timingSafeEqual } from "./lib/telegram";
 import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { catalogRoutes } from "./routes/catalog";
@@ -85,6 +86,29 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.use("*", async (c, next) => {
+    const env = c.get("env");
+    const path = new URL(c.req.url).pathname;
+    const isWebhook = path === "/telegram/webhook";
+    if (env.APP_ENV === "production" && path !== "/health" && !isWebhook) {
+      const proxySecret = c.req.header("X-Agromarket-Proxy") ?? "";
+      if (!env.PAGES_PROXY_SECRET || !timingSafeEqual(proxySecret, env.PAGES_PROXY_SECRET)) {
+        throw new HttpError(401, "Запрос должен пройти через приложение");
+      }
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(c.req.method)) {
+        const origin = c.req.header("Origin");
+        const forwardedOrigin = c.req.header("X-Forwarded-Origin");
+        if (!origin || origin !== forwardedOrigin) {
+          throw new HttpError(403, "Недопустимый Origin", { code: "CSRF_ORIGIN_INVALID" });
+        }
+        if (!c.req.header("Content-Type")?.startsWith("application/json")) {
+          throw new HttpError(415, "Ожидается JSON-запрос", { code: "CSRF_CONTENT_TYPE_INVALID" });
+        }
+      }
+    }
+    await next();
+  });
+
+  app.use("*", async (c, next) => {
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Referrer-Policy", "no-referrer");
     // API responses can contain profile, contact and admin data. Never let a
@@ -112,7 +136,8 @@ export function createApp(options: AppOptions = {}) {
         return origin === allowed ? origin : undefined;
       },
       allowHeaders: ["Content-Type", "Authorization"],
-      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      credentials: true,
     })
   );
 
