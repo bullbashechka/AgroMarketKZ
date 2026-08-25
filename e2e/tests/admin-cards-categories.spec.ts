@@ -46,7 +46,6 @@ test.describe("Админ — категории и карточки", () => {
     await page.getByTestId("card-editor-territory").selectOption({ index: 1 });
     await page.getByLabel("Форма собственности").selectOption({ index: 1 });
     await page.getByLabel("Местонахождение товара").selectOption({ index: 1 });
-    await page.getByTestId("card-editor-availability").fill("В наличии");
     await page.getByTestId("card-spec-value-0").fill("2024");
     await page.locator('input[type="file"]').setInputFiles(TEST_IMAGE);
     await expect(page.getByTestId("card-image-upload-status")).toHaveText("Фото готово к публикации.", {
@@ -210,6 +209,8 @@ test.describe("Админ — категории и карточки", () => {
       await expect(page).toHaveURL(new RegExp(`/admin/cards/${card.id}$`), { timeout: 15_000 });
       await expect(page.getByRole("alert")).toContainText("Смоделированная ошибка публикации", { timeout: 15_000 });
       await expect(page.getByRole("alert")).toContainText("e2e-publish-error");
+      await expect(page.getByRole("button", { name: "Повторить проверку", exact: true })).toBeVisible();
+      await expect(page.getByTestId("card-editor-title")).toBeDisabled();
       expect(publishAttempts).toBe(2);
 
       const reconciled = await api.get<{ title: string; publicationStatus: string }>(`/admin/cards/${card.id}`, adminToken);
@@ -254,7 +255,6 @@ test.describe("Админ — категории и карточки", () => {
       await page.getByTestId("card-editor-territory").selectOption({ index: 1 });
       await page.getByLabel("Форма собственности").selectOption({ index: 1 });
       await page.getByLabel("Местонахождение товара").selectOption({ index: 1 });
-      await page.getByTestId("card-editor-availability").fill("В наличии");
       await page.locator('input[type="file"]').setInputFiles(TEST_IMAGE);
       await expect(page.getByTestId("card-image-upload-status")).toHaveText("Фото готово к публикации.", {
         timeout: 20_000,

@@ -8,6 +8,7 @@ import type {
   ProductOwnershipForm,
   RequestStatus
 } from "@agromarket/contracts";
+import { productTerritoryCodes } from "@agromarket/contracts";
 
 export interface CatalogSearch {
   q?: string;
@@ -19,11 +20,20 @@ export interface CatalogSearch {
   productLocation?: ProductLocation | "all";
 }
 
-/** `validateSearch` для роутов каталога/категории — из сырых query-параметров URL. */
-export function catalogSearchSchema(search: Record<string, unknown>): CatalogSearch {
+const serviceCatalogRegions = new Set<CatalogRegionFilter>([
+  "all_regions",
+  "republican_cities",
+  ...productTerritoryCodes,
+]);
+const productCatalogRegions = new Set<CatalogRegionFilter>(["all_regions", ...productTerritoryCodes]);
+
+function parseCatalogSearch(
+  search: Record<string, unknown>,
+  allowedRegions: ReadonlySet<CatalogRegionFilter>,
+): CatalogSearch {
   const q = typeof search.q === "string" && search.q.trim().length > 0 ? search.q : undefined;
   const price = search.price === "with_price" || search.price === "on_request" ? search.price : undefined;
-  const region = typeof search.region === "string" && ["all_regions", "republican_cities", "abay_region", "akmola_region", "aktobe_region", "almaty_region", "atyrau_region", "east_kazakhstan_region", "zhambyl_region", "zhetysu_region", "west_kazakhstan_region", "karaganda_region", "kostanay_region", "kyzylorda_region", "mangystau_region", "pavlodar_region", "north_kazakhstan_region", "turkistan_region", "ulytau_region"].includes(search.region)
+  const region = typeof search.region === "string" && allowedRegions.has(search.region as CatalogRegionFilter)
     ? search.region as CatalogRegionFilter
     : undefined;
   const sort = search.sort === "price_asc" || search.sort === "volume_asc" ? search.sort : undefined;
@@ -36,6 +46,16 @@ export function catalogSearchSchema(search: Record<string, unknown>): CatalogSea
   const ownershipForms = parseList(search.ownershipForms, ["peasant_farm", "llp_vat_agricultural_producer", "llp_trader"] as const);
   const productLocation = search.productLocation === "elevator" || search.productLocation === "seller_site" ? search.productLocation : undefined;
   return { q, price, region, sort, commodityGroups, ownershipForms, productLocation };
+}
+
+/** `validateSearch` для услуг: точные территории и агрегат городов республиканского значения. */
+export function catalogSearchSchema(search: Record<string, unknown>): CatalogSearch {
+  return parseCatalogSearch(search, serviceCatalogRegions);
+}
+
+/** `validateSearch` для товаров: только 17 областей и значение «все области». */
+export function productCatalogSearchSchema(search: Record<string, unknown>): CatalogSearch {
+  return parseCatalogSearch(search, productCatalogRegions);
 }
 
 /** Строит query-строку для каталога; массивы фильтров сохраняются через запятую. */

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VOLUME_MAX, VOLUME_MIN } from "./constants";
 
 /** Группа зернового/масличного/зернобобового товара. */
 export const commodityGroupSchema = z.enum(["cereals", "oilseeds", "pulses"]);
@@ -16,9 +17,9 @@ export const commodityGroupListSchema = z.array(commodityGroupSchema)
 
 export const volumeTonnesSchema = z.number({ error: "Укажите объём числом" })
   .finite({ error: "Укажите корректный объём" })
-  .min(0.001, { error: "Объём должен быть больше нуля" })
-  .max(99_999_999_999.999, { error: "Слишком большой объём" })
-  .refine((value) => Number.isInteger(value * 1000), { error: "Объём можно указать максимум с 3 знаками после запятой" });
+  .min(VOLUME_MIN, { error: "Объём должен быть больше нуля" })
+  .max(VOLUME_MAX, { error: "Слишком большой объём" })
+  .multipleOf(VOLUME_MIN, { error: "Объём можно указать максимум с 3 знаками после запятой" });
 
 export type VolumeTonnes = z.infer<typeof volumeTonnesSchema>;
 

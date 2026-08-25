@@ -23,6 +23,7 @@ import { optionalText, requiredText } from "./primitives";
 import {
   productLocationSchema,
   productOwnershipFormSchema,
+  productTerritoryCodeSchema,
   territoryCodeSchema,
   territorySchema
 } from "./territory";
@@ -187,6 +188,9 @@ export const createCardInput = cardBaseInput.superRefine((input, ctx) => {
     ctx.addIssue({ code: "custom", path: ["priceReason"], message: "Для фиксированной цены пояснение не требуется" });
   }
   if (input.type === "product") {
+    if (input.territoryCode && !productTerritoryCodeSchema.safeParse(input.territoryCode).success) {
+      ctx.addIssue({ code: "custom", path: ["territoryCode"], message: "Для товара доступна только область" });
+    }
     if ((input.commodityGroup == null) !== (input.volumeTonnes == null)) {
       ctx.addIssue({ code: "custom", path: ["volumeTonnes"], message: "Укажите группу и объём вместе" });
     }

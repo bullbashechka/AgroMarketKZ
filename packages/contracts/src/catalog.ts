@@ -53,7 +53,7 @@ export const cardListQuery = paginationQuerySchema.extend({
   ownershipForms: commaSeparated(productOwnershipFormListSchema),
   productLocation: z.enum(["all", "elevator", "seller_site"]).optional().default("all")
 }).superRefine((query, ctx) => {
-  if (query.type === "product" && query.region !== "all_regions" && query.region !== "republican_cities"
+  if (query.type === "product" && query.region !== "all_regions"
     && !productTerritoryCodeSchema.safeParse(query.region).success) {
     ctx.addIssue({ code: "custom", path: ["region"], message: "Для товаров доступна только область" });
   }

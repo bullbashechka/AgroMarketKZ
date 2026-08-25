@@ -7,8 +7,9 @@ test.describe("Каталог: вкладки, поиск, фильтры, ка�
     await expect(page.getByTestId("tab-products")).toBeVisible();
     await expect(page.getByTestId("card-tile").first()).toBeVisible({ timeout: 15_000 });
 
-    await page.getByTestId("region-filter-trigger").click();
-    await page.getByRole("button", { name: "Костанайская область", exact: true }).click();
+    await page.getByRole("button", { name: /Фильтры и сортировка/ }).click();
+    await page.getByLabel("Область").selectOption("kostanay_region");
+    await page.getByRole("button", { name: "Показать товары", exact: true }).click();
     await expect(page.getByText("Б/у трактор 150 л.с.", { exact: true })).toBeVisible();
     await expect(page.getByText("Семена пшеницы Астана-2", { exact: true })).toHaveCount(0);
 
@@ -28,8 +29,9 @@ test.describe("Каталог: вкладки, поиск, фильтры, ка�
     await expect(page).toHaveURL(/\/products/);
     await expect(page.getByText("Семена пшеницы Астана-2", { exact: true })).toBeVisible();
 
-    await page.getByTestId("region-filter-trigger").click();
-    await page.getByTestId("region-filter-all").click();
+    await page.getByRole("button", { name: /Фильтры и сортировка/ }).click();
+    await page.getByLabel("Область").selectOption("all_regions");
+    await page.getByRole("button", { name: "Показать товары", exact: true }).click();
 
     await page.getByTestId("category-filter-trigger").click();
     const firstCategory = page.getByTestId("category-filter-option").first();
@@ -43,9 +45,6 @@ test.describe("Каталог: вкладки, поиск, фильтры, ка�
     await page.getByTestId("category-filter-trigger").click();
     await page.getByTestId("category-filter-all").click();
     await expect(page).toHaveURL(/\/products$/);
-
-    await page.getByTestId("price-filter-on_request").click();
-    await page.getByTestId("price-filter-all").click();
 
     await page.getByTestId("search-input").fill("несуществующий-запрос-zzz");
     await expect(page.getByText(/ничего не найдено/i)).toBeVisible({ timeout: 5_000 });

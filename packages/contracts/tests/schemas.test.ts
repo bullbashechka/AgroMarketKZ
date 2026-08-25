@@ -6,6 +6,8 @@ import { createUploadUrlInput } from "../src/upload";
 import { adminCardListQuery } from "../src/admin";
 import { adminPlatformSettingsSchema } from "../src/settings";
 import { cardListQuery, categoryListQuery } from "../src/catalog";
+import { VOLUME_MAX, VOLUME_MIN } from "../src/constants";
+import { volumeTonnesSchema } from "../src/commodity";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 const oneImage = [{ storagePath: "cards/a.jpg" }];
@@ -140,6 +142,35 @@ describe("publishCardInput — география по типу", () => {
       serviceTerritoryCodes: ["akmola_region"],
     }).success).toBe(false);
   });
+
+  test("товар принимает только область, но не город республиканского значения", () => {
+    expect(createCardInput.safeParse({
+      ...baseCard,
+      territoryCode: "kostanay_region",
+      priceType: "fixed",
+      priceAmount: 120000,
+    }).success).toBe(true);
+    expect(createCardInput.safeParse({
+      ...baseCard,
+      territoryCode: "almaty_city",
+      priceType: "fixed",
+      priceAmount: 120000,
+    }).success).toBe(false);
+  });
+});
+
+describe("volumeTonnesSchema", () => {
+  test("принимает допустимые значения с точностью до трёх знаков", () => {
+    for (const value of [VOLUME_MIN, 1.001, 1.003, 12.375, VOLUME_MAX]) {
+      expect(volumeTonnesSchema.safeParse(value).success).toBe(true);
+    }
+  });
+
+  test("отклоняет значения вне диапазона и с четвёртым знаком", () => {
+    for (const value of [0, 0.0009, 1.0001, VOLUME_MAX + VOLUME_MIN]) {
+      expect(volumeTonnesSchema.safeParse(value).success).toBe(false);
+    }
+  });
 });
 
 describe("createRequestInput — источник", () => {
@@ -263,6 +294,8 @@ describe("cardListQuery — фильтры товаров", () => {
 
   test("не принимает города республиканского значения как область товара", () => {
     expect(cardListQuery.safeParse({ type: "product", region: "almaty_city" }).success).toBe(false);
+    expect(cardListQuery.safeParse({ type: "product", region: "republican_cities" }).success).toBe(false);
+    expect(cardListQuery.safeParse({ type: "service", region: "republican_cities" }).success).toBe(true);
   });
 
   test("не принимает повторяющиеся значения фильтра", () => {

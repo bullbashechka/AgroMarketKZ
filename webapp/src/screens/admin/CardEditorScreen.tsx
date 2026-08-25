@@ -31,7 +31,7 @@ import { CardDetailsView } from "../../components/CardDetailsView";
 import { Screen } from "../../components/Screen";
 import { SkeletonList } from "../../components/Skeleton";
 import { ApiError, apiDelete, apiGet, apiPost, apiPut, formatApiError, isAmbiguousMutationError } from "../../lib/api";
-import { cardMatchesInput, PublishAfterSaveError } from "../../lib/cardMutation";
+import { PublishAfterSaveError } from "../../lib/cardMutation";
 import { clearCardDraft, loadCardDraft, saveCardDraft, type CardDraft } from "../../lib/cardDraft";
 import { zodFieldErrorsByPath } from "../../lib/formErrors";
 import { getLivePublicationIssues } from "../../lib/publicationChecklist";
@@ -74,6 +74,10 @@ function CardEditorEdit({ cardId }: { cardId: string }) {
           initial={data}
           recoveryError={recoveryError}
           onRecoveryError={setRecoveryError}
+          onRecoveryRefresh={async () => {
+            const refreshed = await refetch({ throwOnError: true });
+            if (!refreshed.data) throw new Error("Карточка не загрузилась после изменения");
+          }}
         />
       )}
     </Screen>
@@ -132,6 +136,7 @@ interface CardEditorFormProps {
   draft?: CardDraft;
   recoveryError?: string;
   onRecoveryError?: (message: string | undefined) => void;
+  onRecoveryRefresh?: () => Promise<void>;
 }
 
 function CardEditorForm({
@@ -141,6 +146,7 @@ function CardEditorForm({
   draft,
   recoveryError,
   onRecoveryError,
+  onRecoveryRefresh,
 }: CardEditorFormProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -186,7 +192,15 @@ function CardEditorForm({
       ? draft.clientRequestId
       : crypto.randomUUID();
   });
-  const [updateMutationId] = useState<string | undefined>(() => mode === "edit" ? crypto.randomUUID() : undefined);
+  type SaveAction = "draft" | "publish";
+  type RecoveryResult = "committed" | "not_found" | "changed" | "rejected" | "unknown";
+  type PendingSaveAttempt = {
+    action: SaveAction;
+    input: CreateCardInput;
+    cardId?: string;
+  };
+  const [pendingSaveAttempt, setPendingSaveAttempt] = useState<PendingSaveAttempt | null>(null);
+  const [isCheckingSave, setIsCheckingSave] = useState(false);
 
   useEffect(() => {
     if (recoveryError) setErrors((current) => ({ ...current, form: recoveryError }));
@@ -265,29 +279,25 @@ function CardEditorForm({
     }
   }
 
-  /** Проверяет неоднозначный PUT/POST и при необходимости повторяет только публикацию. */
-  async function reconcileSaveMutation(
+  async function verifyEditMutation(
     cardId: string,
     input: CreateCardInput,
     publish: boolean,
-    error: unknown,
-  ): Promise<boolean> {
-    if (!isAmbiguousMutationError(error) || !initial || !input.mutationId) return false;
+  ): Promise<RecoveryResult> {
+    if (!initial || !input.mutationId) return "not_found";
     let current: AdminCardDetail;
     try {
       current = await apiGet<AdminCardDetail>(
         `/admin/cards/${cardId}?mutationId=${encodeURIComponent(input.mutationId)}`,
       );
-    } catch {
-      return false;
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "CARD_UPDATE_MUTATION_NOT_FOUND") return "not_found";
+      if (error instanceof ApiError && error.code === "CARD_CHANGED_AFTER_REPLAY") return "changed";
+      return "unknown";
     }
-    qc.setQueryData(adminCardQueryOptions(cardId).queryKey, current);
-    invalidateCatalogQueries(cardId);
-    if (!cardMatchesInput(current, input, initial.version)) return false;
-
     if (!publish || current.publicationStatus === "published") {
       finishSavedCard(current);
-      return true;
+      return "committed";
     }
 
     try {
@@ -295,41 +305,41 @@ function CardEditorForm({
         expectedVersion: current.version,
       });
       finishSavedCard(published);
-      return true;
-    } catch {
+      return "committed";
+    } catch (error) {
+      if (!isAmbiguousMutationError(error)) {
+        cacheSavedCard(current);
+        return "rejected";
+      }
       try {
         const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${cardId}`);
         if (afterPublish.publicationStatus === "published") {
           finishSavedCard(afterPublish);
-          return true;
+          return "committed";
         }
       } catch {
-        // Показываем исходную ошибку, если проверка после publish тоже недоступна.
+        return "unknown";
       }
-      return false;
+      return "unknown";
     }
   }
 
-  /** Replay-safe reconciliation for a create request whose response may have been lost. */
-  async function reconcileCreateMutation(
+  /** Повторяет create с тем же clientRequestId: backend либо вернёт receipt, либо создаст запись. */
+  async function verifyCreateMutation(
     input: CreateCardInput,
     publish: boolean,
-    error: unknown,
-  ): Promise<boolean> {
-    if (mode !== "create" || !createClientRequestId || !isAmbiguousMutationError(error)) return false;
+  ): Promise<RecoveryResult> {
+    if (mode !== "create" || !createClientRequestId) return "not_found";
     let current: AdminCardDetail;
     try {
-      current = await apiGet<AdminCardDetail>(`/admin/cards/${createClientRequestId}`);
-    } catch {
-      return false;
+      current = await apiPost<AdminCardDetail>("/admin/cards", input);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "CARD_CREATE_REQUEST_REUSED") return "changed";
+      return isAmbiguousMutationError(error) ? "unknown" : "rejected";
     }
-    qc.setQueryData(adminCardQueryOptions(current.id).queryKey, current);
-    invalidateCatalogQueries(current.id);
-    if (!cardMatchesInput(current, input, 0)) return false;
-
     if (!publish || current.publicationStatus === "published") {
       finishSavedCard(current);
-      return true;
+      return "committed";
     }
 
     try {
@@ -337,18 +347,65 @@ function CardEditorForm({
         expectedVersion: current.version,
       });
       finishSavedCard(published);
-      return true;
-    } catch {
+      return "committed";
+    } catch (error) {
+      if (!isAmbiguousMutationError(error)) {
+        cacheSavedCard(current);
+        return "rejected";
+      }
       try {
         const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${current.id}`);
         if (afterPublish.publicationStatus === "published") {
           finishSavedCard(afterPublish);
-          return true;
+          return "committed";
         }
       } catch {
-        // Показываем исходную ошибку, если проверка после publish тоже недоступна.
+        return "unknown";
       }
-      return false;
+      return "unknown";
+    }
+  }
+
+  async function verifyPendingSave(): Promise<void> {
+    if (!pendingSaveAttempt || isCheckingSave) return;
+    setIsCheckingSave(true);
+    setErrors({});
+    try {
+      const result = mode === "create"
+        ? await verifyCreateMutation(pendingSaveAttempt.input, pendingSaveAttempt.action === "publish")
+        : await verifyEditMutation(
+          pendingSaveAttempt.cardId!,
+          pendingSaveAttempt.input,
+          pendingSaveAttempt.action === "publish",
+        );
+      if (result === "committed") {
+        setPendingSaveAttempt(null);
+        return;
+      }
+      if (result === "not_found") {
+        setPendingSaveAttempt(null);
+        setErrors({ form: "Попытка сохранения не найдена. Проверьте данные и повторите сохранение." });
+        onRecoveryError?.("Попытка сохранения не найдена. Проверьте данные и повторите сохранение.");
+        return;
+      }
+      if (result === "changed") {
+        try {
+          await onRecoveryRefresh?.();
+          setPendingSaveAttempt(null);
+          setErrors({ form: "Карточка изменилась. Данные обновлены, проверьте форму перед сохранением." });
+        } catch {
+          setErrors({ form: "Карточка изменилась, но обновить её не удалось. Повторите проверку." });
+        }
+        return;
+      }
+      if (result === "rejected") {
+        setPendingSaveAttempt(null);
+        setErrors({ form: "Сервер отклонил сохранение. Исправьте данные и повторите попытку." });
+        return;
+      }
+      setErrors({ form: "Не удалось подтвердить результат сохранения. Форма остаётся заблокированной." });
+    } finally {
+      setIsCheckingSave(false);
     }
   }
 
@@ -484,13 +541,13 @@ function CardEditorForm({
     }
   }
 
-  function buildPayload(completeSpecsOnly = false) {
+  function buildPayload(completeSpecsOnly = false, mutationId?: string) {
     const payloadSpecs = completeSpecsOnly
       ? specs.filter((spec) => spec.key.trim() && spec.value.trim())
       : specs;
     return {
       clientRequestId: mode === "create" ? createClientRequestId : undefined,
-      mutationId: mode === "edit" ? updateMutationId : undefined,
+      mutationId,
       type,
       categoryId,
       title,
@@ -549,7 +606,8 @@ function CardEditorForm({
     specs: livePayload.specs,
   });
 
-  async function handleAction(action: "draft" | "publish") {
+  async function handleAction(action: SaveAction) {
+    if (pendingSaveAttempt) return;
     setErrors({});
     onRecoveryError?.(undefined);
     // Незавершённая строка характеристики не должна мешать сохранить серверный черновик.
@@ -565,6 +623,10 @@ function CardEditorForm({
       return;
     }
 
+    const input = mode === "edit"
+      ? { ...parsed.data, mutationId: crypto.randomUUID() }
+      : parsed.data;
+
     if (action === "publish") {
       if (imageUploads.hasErrors) {
         setErrors({ images: "Исправьте ошибку загрузки фото перед публикацией" });
@@ -574,28 +636,31 @@ function CardEditorForm({
         setErrors({ form: `Сначала исправьте: ${livePublicationIssues.join("; ")}` });
         return;
       }
-      const missingRequired = (selectedCategory?.requiredSpecs ?? []).filter((requiredKey) => {
-        const normalized = requiredKey.trim().toLocaleLowerCase("ru");
-        return !specs.some((spec) => spec.key.trim().toLocaleLowerCase("ru") === normalized && spec.value.trim());
-      });
-      if (missingRequired.length > 0) {
-        setErrors({ form: `Заполните обязательные характеристики: ${missingRequired.join(", ")}` });
-        return;
-      }
     }
 
     try {
       setSaveAction(action);
-      await saveMutation.mutateAsync({ input: parsed.data, publish: action === "publish" });
+      await saveMutation.mutateAsync({ input, publish: action === "publish" });
     } catch (error) {
       if (error instanceof PublishAfterSaveError) {
-        const current = await refreshSavedCard(error.saved);
         if (isAmbiguousMutationError(error.publishError)) {
-          if (await reconcileCreateMutation(parsed.data, true, error.publishError)) return;
-          if (mode === "edit" && initial && await reconcileSaveMutation(initial.id, parsed.data, true, error.publishError)) {
+          const result = mode === "create"
+            ? await verifyCreateMutation(input, true)
+            : await verifyEditMutation(initial!.id, input, true);
+          if (result === "committed") return;
+          if (result === "rejected") {
+            const message = formatApiError(error.publishError, "Не удалось опубликовать карточку");
+            setErrors({ form: message });
+            onRecoveryError?.(message);
             return;
           }
+          setPendingSaveAttempt({ action, input, cardId: initial?.id });
+          setErrors({
+            form: `Не удалось подтвердить публикацию: ${formatApiError(error.publishError, "сервер не ответил")}. Форма заблокирована до повторной проверки.`,
+          });
+          return;
         }
+        const current = await refreshSavedCard(error.saved);
         if (mode === "create") {
           if (current.publicationStatus === "published") {
             finishSavedCard(current);
@@ -613,10 +678,21 @@ function CardEditorForm({
         onRecoveryError?.(message);
         return;
       }
-      if (await reconcileCreateMutation(parsed.data, action === "publish", error)) {
-        return;
-      }
-      if (mode === "edit" && initial && await reconcileSaveMutation(initial.id, parsed.data, action === "publish", error)) {
+      if (isAmbiguousMutationError(error)) {
+        const result = mode === "create"
+          ? await verifyCreateMutation(input, action === "publish")
+          : await verifyEditMutation(initial!.id, input, action === "publish");
+        if (result === "committed") return;
+        if (result === "rejected" || result === "not_found") {
+          const message = formatApiError(error, "Не удалось сохранить карточку");
+          setErrors({ form: message });
+          onRecoveryError?.(message);
+          return;
+        }
+        setPendingSaveAttempt({ action, input, cardId: initial?.id });
+        setErrors({
+          form: `Не удалось подтвердить сохранение: ${formatApiError(error, "сервер не ответил")}. Форма заблокирована до повторной проверки.`,
+        });
         return;
       }
       const message = formatApiError(error, "Не удалось сохранить карточку");
@@ -630,7 +706,8 @@ function CardEditorForm({
     await handleAction("draft");
   }
 
-  const canSave = imageUploads.settled && !saveMutation.isPending;
+  const isSaveBlocked = pendingSaveAttempt !== null || isCheckingSave;
+  const canSave = imageUploads.settled && !saveMutation.isPending && !isSaveBlocked;
   const canPublish = canSave && livePublicationIssues.length === 0;
   const previewPayload = livePayload;
   const previewCard: CardDetail = {
@@ -682,6 +759,17 @@ function CardEditorForm({
 
   return (
     <form className="form" onSubmit={handleSubmit} noValidate>
+      {pendingSaveAttempt && (
+        <div className="card notice-card" role="alert">
+          <p className="eyebrow">Проверка сохранения</p>
+          <p className="description">Результат сохранения не подтверждён. Форма заблокирована, чтобы не потерять исходную попытку.</p>
+          <button type="button" className="button button-primary" onClick={() => void verifyPendingSave()} disabled={isCheckingSave}>
+            {isCheckingSave ? "Проверяем…" : "Повторить проверку"}
+          </button>
+        </div>
+      )}
+
+      <fieldset disabled={isSaveBlocked}>
       <Segmented options={typeOptions} value={type} onChange={handleTypeChange} ariaLabel="Тип карточки" />
 
       <label className="field">
@@ -989,6 +1077,7 @@ function CardEditorForm({
         onConfirm={() => { if (typeChange) applyTypeChange(typeChange); }}
         onClose={() => setTypeChange(null)}
       />
+      </fieldset>
     </form>
   );
 }

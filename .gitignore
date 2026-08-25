@@ -9,6 +9,7 @@ backend/dist/
 backend/dist-worker/
 webapp/dist/
 packages/*/dist/
+outputs/
 .wrangler/
 backend/.wrangler/
 .vite/

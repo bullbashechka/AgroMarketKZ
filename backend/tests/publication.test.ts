@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getPublicationIssues, getPublicationStatus } from "../src/lib/publication";
+import { getPublicationIssues, getPublicationStatus } from "@agromarket/contracts";
 
 const complete = {
   description: "Подробное описание",

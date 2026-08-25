@@ -1,7 +1,16 @@
 import { getDb } from "../db";
 import type { AppEnv } from "../env";
 import { deleteStorageObjectsStrict, listStorageObjects } from "../lib/storage";
-import { findReferencedStoragePaths } from "./cardImages";
+
+type E2ECleanupEnv = Pick<
+  AppEnv,
+  | "DATABASE_URL"
+  | "HYPERDRIVE"
+  | "SUPABASE_URL"
+  | "SUPABASE_STORAGE_BUCKET"
+  | "SUPABASE_SERVICE_ROLE_KEY"
+  | "E2E_RUN_ID"
+>;
 
 const E2E_STORAGE_LIST_PAGE_SIZE = 100;
 const E2E_STORAGE_PREFIX = "e2e/";
@@ -19,7 +28,7 @@ export function e2eStoragePrefix(runId: string): string {
   return `${E2E_STORAGE_PREFIX}${escaped}/`;
 }
 
-async function listE2eRunObjects(env: AppEnv, prefix: string): Promise<string[]> {
+async function listE2eRunObjects(env: E2ECleanupEnv, prefix: string): Promise<string[]> {
   const paths: string[] = [];
   let offset = 0;
   while (true) {
@@ -34,64 +43,17 @@ async function listE2eRunObjects(env: AppEnv, prefix: string): Promise<string[]>
   return [...new Set(paths)];
 }
 
-async function findExternalImageReferences(
-  env: AppEnv,
-  storagePaths: string[],
-  runPrefix: string,
-): Promise<Set<string>> {
-  if (storagePaths.length === 0) return new Set();
-  const sql = getDb(env);
-  const rows = await sql<{ storage_path: string }[]>`
-    select distinct ci.storage_path
-    from card_images ci
-    join cards c on c.id = ci.card_id
-    where ci.storage_path = any(${storagePaths}::text[])
-      and c.title not like ${runPrefix} escape '\\'
-  `;
-  return new Set(rows.map((row) => row.storage_path));
-}
-
 /** Удаляет только данные текущего E2E-прогона; без E2E_RUN_ID операция невозможна. */
-export async function cleanupE2eRun(env: AppEnv): Promise<void> {
+export async function cleanupE2eRun(env: E2ECleanupEnv): Promise<void> {
   if (!env.E2E_RUN_ID) throw new Error("E2E cleanup is unavailable without E2E_RUN_ID");
   const prefix = e2eLikePrefix(env.E2E_RUN_ID);
   const storagePrefix = e2eStoragePrefix(env.E2E_RUN_ID);
   const sql = getDb(env);
 
-  const imageRows = await sql<{ storage_path: string }[]>`
-    select ci.storage_path
-    from card_images ci
-    join cards c on c.id = ci.card_id
-    where c.title like ${prefix} escape '\\'
-  `;
-
-  // Помимо ссылок из card_images, ищем объекты текущего run без ссылки. Такая
-  // загрузка могла завершиться до сетевого сбоя при создании/сохранении карточки.
   const runStoragePaths = await listE2eRunObjects(env, storagePrefix);
-  const referencedRunPaths = await findReferencedStoragePaths(env, runStoragePaths);
-  const unboundRunPaths = runStoragePaths.filter((path) => !referencedRunPaths.has(path));
-
-  // Storage удаляем до SQL. Успешные ссылки можно убрать сразу, а неудачные
-  // оставляем в card_images, чтобы следующий teardown повторил только их.
-  const imagePaths = [...new Set(imageRows.map((row) => row.storage_path))];
-  // A malformed/manual E2E fixture could share a path with another card. Never
-  // remove that object while the other card still references it.
-  const externalReferences = await findExternalImageReferences(env, imagePaths, prefix);
-  const deletableImagePaths = imagePaths.filter((path) => !externalReferences.has(path));
-  const storageResult = await deleteStorageObjectsStrict(
-    env,
-    [...new Set([...deletableImagePaths, ...unboundRunPaths])],
-    { reconcileMissing: true },
-  );
-  if (storageResult.deleted.length > 0) {
-    await sql`
-      delete from card_images ci
-      using cards c
-      where c.id = ci.card_id
-        and c.title like ${prefix} escape '\\'
-        and ci.storage_path = any(${storageResult.deleted}::text[])
-    `;
-  }
+  const storageResult = await deleteStorageObjectsStrict(env, runStoragePaths, {
+    reconcileMissing: true,
+  });
   if (storageResult.failed.length > 0) {
     throw new Error(`E2E Storage cleanup failed for ${storageResult.failed.length} object(s)`);
   }

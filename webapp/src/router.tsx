@@ -15,7 +15,13 @@ import { FeedbackScreen } from "./screens/FeedbackScreen";
 import { GeneralTab } from "./screens/GeneralTab";
 import { ProfileEditScreen } from "./screens/ProfileEditScreen";
 import { RootLayout } from "./screens/RootLayout";
-import { adminCardsSearchSchema, adminRequestsSearchSchema, adminTypeSearchSchema, catalogSearchSchema } from "./lib/searchParams";
+import {
+  adminCardsSearchSchema,
+  adminRequestsSearchSchema,
+  adminTypeSearchSchema,
+  catalogSearchSchema,
+  productCatalogSearchSchema,
+} from "./lib/searchParams";
 import { rememberLocation } from "./lib/tabHistory";
 
 const rootRoute = createRootRoute({ component: RootLayout });
@@ -51,14 +57,14 @@ const servicesCardRoute = createRoute({
 const productsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/products",
-  validateSearch: catalogSearchSchema,
+  validateSearch: productCatalogSearchSchema,
   component: () => <CatalogTab type="product" section="products" title="Товары" />
 });
 
 const productsCategoryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/products/$categoryId",
-  validateSearch: catalogSearchSchema,
+  validateSearch: productCatalogSearchSchema,
   component: () => <CategoryScreen type="product" section="products" />
 });
 
