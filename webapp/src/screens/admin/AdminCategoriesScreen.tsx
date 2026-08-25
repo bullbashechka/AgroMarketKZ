@@ -25,6 +25,7 @@ const typeOptions: { value: CatalogType; label: string }[] = [
 
 type Sheet =
   | { mode: "actions"; category: AdminCategory }
+  | { mode: "commodity"; category: AdminCategory }
   | { mode: "rename"; category: AdminCategory }
   | { mode: "specs"; category: AdminCategory }
   | { mode: "create" }
@@ -74,6 +75,15 @@ export function AdminCategoriesScreen() {
       invalidate();
       setSheet(null);
     },
+  });
+
+  const commodityMutation = useMutation({
+    mutationFn: ({ id, isCommodity }: { id: string; isCommodity: boolean }) =>
+      apiPatch(`/admin/categories/${id}`, { isCommodity }),
+    onSuccess: () => {
+      invalidate();
+      setSheet(null);
+    }
   });
 
   const deleteMutation = useMutation({
@@ -157,6 +167,15 @@ export function AdminCategoriesScreen() {
             >
               Обязательные характеристики
             </button>
+            {sheet.category.type === "product" && (
+              <button
+                type="button"
+                className="sheet-action"
+                onClick={() => setSheet({ mode: "commodity", category: sheet.category })}
+              >
+                {sheet.category.isCommodity ? "Снять признак товарной категории" : "Сделать товарной категорией"}
+              </button>
+            )}
             <button
               type="button"
               className="sheet-action"
@@ -180,6 +199,16 @@ export function AdminCategoriesScreen() {
             category={sheet.category}
             pending={specsMutation.isPending}
             onSubmit={(requiredSpecs) => specsMutation.mutateAsync({ id: sheet.category.id, requiredSpecs })}
+          />
+        )}
+      </BottomSheet>
+
+      <BottomSheet open={sheet?.mode === "commodity"} onClose={() => setSheet(null)}>
+        {sheet?.mode === "commodity" && (
+          <CommodityCategoryForm
+            category={sheet.category}
+            pending={commodityMutation.isPending}
+            onSubmit={(isCommodity) => commodityMutation.mutateAsync({ id: sheet.category.id, isCommodity })}
           />
         )}
       </BottomSheet>
@@ -349,6 +378,46 @@ function CategoryNameForm({
         {error && <span className="field-error">{error}</span>}
       </label>
       <button type="submit" className="button button-primary" data-testid="admin-category-save" disabled={pending}>
+        {pending ? "Сохраняем…" : "Сохранить"}
+      </button>
+    </form>
+  );
+}
+
+function CommodityCategoryForm({
+  category,
+  pending,
+  onSubmit,
+}: {
+  category: AdminCategory;
+  pending: boolean;
+  onSubmit: (isCommodity: boolean) => Promise<unknown>;
+}) {
+  const [isCommodity, setIsCommodity] = useState(category.isCommodity);
+  const [error, setError] = useState<string | undefined>();
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(undefined);
+    try {
+      await onSubmit(isCommodity);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Не удалось изменить признак категории");
+    }
+  }
+
+  return (
+    <form className="form" onSubmit={submit}>
+      <h2 className="screen-title">Группа продукции</h2>
+      <p className="description">
+        Для товарной категории продавец указывает группу и объём в тоннах. Изменить признак можно только после скрытия её опубликованных карточек.
+      </p>
+      <label className="check-row">
+        <input type="checkbox" checked={isCommodity} onChange={(event) => setIsCommodity(event.target.checked)} />
+        <span>Это зерновая, масличная или зернобобовая продукция</span>
+      </label>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <button type="submit" className="button button-primary" disabled={pending}>
         {pending ? "Сохраняем…" : "Сохранить"}
       </button>
     </form>

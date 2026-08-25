@@ -12,6 +12,10 @@ import type {
   CategoryListItem,
   PlatformSettings,
   PriceFilter,
+  CommodityGroup,
+  ProductLocation,
+  ProductSort,
+  ProductOwnershipForm,
   ContactCapabilities,
   Request,
   RequestListResponse,
@@ -46,6 +50,10 @@ interface CardsQueryParams {
   search?: string;
   price?: PriceFilter;
   region: CatalogRegionFilter;
+  sort?: ProductSort;
+  commodityGroups?: CommodityGroup[];
+  ownershipForms?: ProductOwnershipForm[];
+  productLocation?: ProductLocation | "all";
 }
 
 function buildCardsQuery(params: CardsQueryParams, offset: number): string {
@@ -54,6 +62,10 @@ function buildCardsQuery(params: CardsQueryParams, offset: number): string {
   if (params.search) query.set("search", params.search);
   if (params.price) query.set("price", params.price);
   query.set("region", params.region);
+  if (params.sort) query.set("sort", params.sort);
+  if (params.commodityGroups?.length) query.set("commodityGroups", params.commodityGroups.join(","));
+  if (params.ownershipForms?.length) query.set("ownershipForms", params.ownershipForms.join(","));
+  if (params.productLocation && params.productLocation !== "all") query.set("productLocation", params.productLocation);
   return query.toString();
 }
 
@@ -66,7 +78,11 @@ export const cardsInfiniteQueryOptions = (params: CardsQueryParams) =>
       params.categoryId ?? null,
       params.search ?? "",
       params.price ?? null,
-      params.region
+      params.region,
+      params.sort ?? "default",
+      params.commodityGroups?.join(",") ?? "",
+      params.ownershipForms?.join(",") ?? "",
+      params.productLocation ?? "all"
     ] as const,
     queryFn: ({ pageParam }) => apiGet<CardListResponse>(`/catalog/cards?${buildCardsQuery(params, pageParam)}`),
     initialPageParam: 0,

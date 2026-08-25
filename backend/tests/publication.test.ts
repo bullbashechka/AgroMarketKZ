@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getPublicationIssues, getPublicationStatus } from "../src/lib/publication";
+import { getPublicationIssues, getPublicationStatus } from "@agromarket/contracts";
 
 const complete = {
   description: "Подробное описание",
@@ -67,6 +67,28 @@ describe("getPublicationIssues", () => {
     expect(issues).toContain("Укажите единицу цены");
     expect(issues).toContain("Объясните, от чего зависит цена");
     expect(issues).toContain("Заполните характеристику «год выпуска»");
+  });
+
+  test("товарная категория требует группу, объём и цену, но не наличие", () => {
+    const product = {
+      ...complete,
+      type: "product" as const,
+      territoryCode: "kostanay_region",
+      ownershipForm: "peasant_farm" as const,
+      productLocation: "elevator" as const,
+      categoryIsCommodity: true,
+      commodityGroup: "cereals" as const,
+      volumeTonnes: 120.5,
+      availability: null,
+      priceType: "fixed" as const,
+      priceAmount: 100_000,
+      priceUnit: "за тонну",
+      priceReason: null,
+    };
+    expect(getPublicationIssues(product)).toEqual([]);
+    expect(getPublicationIssues({ ...product, commodityGroup: null })).toContain("Выберите группу продукции");
+    expect(getPublicationIssues({ ...product, volumeTonnes: null })).toContain("Укажите объём в тоннах");
+    expect(getPublicationIssues({ ...product, priceType: "on_request", priceAmount: null, priceReason: "По договорённости" })).toContain("У товара всегда должна быть цена");
   });
 });
 

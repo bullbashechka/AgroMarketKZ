@@ -27,6 +27,10 @@ export const ADMIN_CHAT_ID_MAX = 64;
 export const PRICE_MIN = 1;
 export const PRICE_MAX = 1_000_000_000; // защита от опечаток вроде лишних нулей
 
+// Объём товара в тоннах; хранится в numeric(14,3).
+export const VOLUME_MIN = 0.001;
+export const VOLUME_MAX = 99_999_999_999.999;
+
 // Изображения и характеристики карточки
 export const MIN_IMAGES = 1; // минимум одно фото обязательно
 export const MAX_IMAGES = 10;

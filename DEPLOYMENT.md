@@ -44,7 +44,7 @@ bun run build                     # прод-сборка (нужны VITE_API_U
   переиспользуются. На бесплатном Supabase без отдельного проекта E2E ожидаемо останавливается
   безопасной проверкой и не создаёт записи.
 - Данные E2E помечаются уникальным `[e2e:<run-id>]`, а синтетические Telegram id генерируются
-  отдельно для каждого run. Global teardown через test-only cleanup endpoint синхронно удаляет только этот
+  отдельно для каждого run. Global teardown напрямую вызывает test-only cleanup helper и синхронно удаляет только этот
   префикс в карточках, категориях, заявках, feedback, Storage и тестовых профилях и строго сообщает
 об ошибках удаления. Storage удаляется перед SQL-транзакцией, поэтому повтор teardown может
 использовать сохранённые ссылки после временного сбоя; старые префиксы намеренно не удаляются автоматически, чтобы не затронуть
@@ -178,8 +178,74 @@ order by c.type, c.title;
 
 Ненулевой результат проверки географии требует ручного backfill и повторной проверки до
 публикации новых территориальных фильтров. После успешной финальной RLS-проверки миграция
-0012 безопасна для существующих карточек и не требует backfill; только теперь можно выкатывать
-backend с recovery PUT.
+0012 безопасна для существующих карточек и не требует backfill.
+
+Миграция [`0013_product_catalog_filters.sql`](./database/migrations/0013_product_catalog_filters.sql)
+добавляет признак товарной категории, группу продукции, объём в тоннах и фильтры товарного каталога.
+Она намеренно скрывает все активные товары и очищает их устаревшее поле `availability`, но не удаляет
+карточки, заявки или избранное. Перед production-применением выполните файл точечно через SQL Editor/
+`apply_migration`, затем проверьте:
+
+```sql
+select count(*) as active_products_with_old_availability
+from cards
+where type = 'product'
+  and availability is not null;
+
+select count(*) as visible_products_after_migration
+from cards
+where type = 'product'
+  and published_at is not null
+  and archived_at is null;
+```
+
+Ожидается ноль в обоих результатах. После этого администратор отмечает товарные категории,
+заполняет область, цену, объём, форму собственности и местонахождение и публикует карточки
+вручную. Дополнительно убедитесь, что новые поля, ограничения и индексы действительно существуют:
+
+```sql
+select table_name, column_name, data_type, numeric_precision, numeric_scale
+from information_schema.columns
+where table_schema = 'public'
+  and ((table_name = 'categories' and column_name = 'is_commodity')
+    or (table_name = 'cards' and column_name in ('commodity_group', 'volume_tonnes'))
+    or (table_name = 'requests' and column_name in ('submission_commodity_group', 'submission_volume_tonnes')))
+order by table_name, column_name;
+
+select conrelid::regclass as table_name, conname, convalidated
+from pg_constraint
+where conname in (
+  'categories_commodity_type', 'cards_commodity_group_valid', 'cards_volume_tonnes_valid',
+  'cards_commodity_fields_shape', 'cards_product_territory_region',
+  'cards_published_price_complete', 'cards_published_product_fields_complete',
+  'requests_submission_commodity_group_valid', 'requests_submission_volume_tonnes_valid',
+  'requests_submission_product_territory_region', 'requests_listing_submission_shape'
+)
+order by table_name, conname;
+
+select indexrelname
+from pg_stat_user_indexes
+where schemaname = 'public'
+  and indexrelname in ('cards_published_product_group_idx', 'cards_published_product_volume_idx')
+order by indexrelname;
+```
+
+### Порядок rollout для 0012/0013 и кода
+
+Выполняйте шаги с замороженными административными записями. Production SQL и deploy в этой
+доработке не выполнялись.
+
+1. Точечно применить `0012_card_update_mutations.sql`, проверить RLS/grants запросами выше.
+2. Точечно применить `0013_product_catalog_filters.sql`, проверить новые колонки, ограничения,
+   индексы и нулевые значения `active_products_with_old_availability` и
+   `visible_products_after_migration`.
+3. С feature-ветки вручную выкатить Worker, содержащий recovery PUT и товарный каталог. До
+   merge проверить старые Pages smoke-маршруты: профиль, категории, товары и один админский
+   endpoint; убедиться, что миграции не вернули старые товары в публикацию.
+4. После зелёного smoke выполнить merge/push в `main`: Cloudflare Pages соберёт новую webapp
+   автоматически. Повторить smoke для фильтров товаров, публикации карточки и recovery PUT.
+5. Снять freeze записей только после успешной проверки Worker и Pages. При ошибке остановиться
+   на предыдущем шаге и не запускать корневой `bun run db:migrate`.
 
 ## Регламент апгрейда Supabase
 

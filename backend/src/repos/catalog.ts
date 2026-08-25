@@ -6,7 +6,9 @@ import type {
   CatalogType,
   Category,
   CategoryListItem,
-  Territory
+  Territory,
+  VolumeTonnes,
+  CommodityGroup
 } from "@agromarket/contracts";
 import { getDb } from "../db";
 import type { AppEnv } from "../env";
@@ -22,6 +24,7 @@ export interface CategoryRow {
   name: string;
   sort_order: number;
   is_active: boolean;
+  is_commodity?: boolean;
   required_specs: string[];
   created_at: Date;
   updated_at: Date;
@@ -52,6 +55,8 @@ export interface CardListRow {
   first_image_path: string | null;
   first_spec_key: string | null;
   first_spec_value: string | null;
+  commodity_group?: CommodityGroup | null;
+  volume_tonnes?: number | string | null;
 }
 
 export interface CardRow {
@@ -80,6 +85,8 @@ export interface CardRow {
   archived_at: Date | null;
   created_at: Date;
   updated_at: Date;
+  commodity_group?: CommodityGroup | null;
+  volume_tonnes?: number | string | null;
 }
 
 export interface TerritoryRow {
@@ -112,10 +119,17 @@ export function toCategory(row: CategoryRow): Category {
     name: row.name,
     sortOrder: row.sort_order,
     isActive: row.is_active,
-    requiredSpecs: row.required_specs,
+    isCommodity: row.is_commodity ?? false,
+    requiredSpecs: row.required_specs ?? [],
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString()
   };
+}
+
+function numericValue(value: number | string | null | undefined): VolumeTonnes | null {
+  if (value == null) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function toCategoryListItem(row: CategoryListRow): CategoryListItem {
@@ -187,8 +201,12 @@ export function toCardListItem(row: CardListRow, env: AppEnv): CardListItem {
     priceType: row.price_type,
     priceAmount: row.price_amount,
     priceUnit: row.price_unit,
+    commodityGroup: row.commodity_group ?? null,
+    volumeTonnes: numericValue(row.volume_tonnes),
     imageUrl: row.first_image_path ? publicImageUrl(env, row.first_image_path) : null,
-    shortSpec: [legacyLocation, row.availability].filter(Boolean).join(" · ") || fallbackSpec,
+    shortSpec: row.type === "product"
+      ? fallbackSpec
+      : [legacyLocation, row.availability].filter(Boolean).join(" · ") || fallbackSpec,
     territory: territoryFromCard(row),
     ownershipForm: row.ownership_form,
     productLocation: row.product_location,
@@ -214,6 +232,8 @@ export function toCardDetail(
     priceAmount: row.price_amount,
     priceUnit: row.price_unit,
     priceReason: row.price_reason,
+    commodityGroup: row.commodity_group ?? null,
+    volumeTonnes: numericValue(row.volume_tonnes),
     location: row.location,
     territory: territoryFromCard(row),
     ownershipForm: row.ownership_form,
@@ -258,7 +278,7 @@ export async function listCategories(
   const sql = getDb(env);
   const rows = await sql<CategoryListRow[]>`
     select
-      cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.required_specs,
+      cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.is_commodity, cat.required_specs,
       cat.created_at, cat.updated_at,
       count(c.id)::int as card_count
     from categories cat
@@ -300,7 +320,7 @@ export async function listCards(env: AppEnv, query: CardListQuery): Promise<Pagi
   const rows = await sql<CardListRow[]>`
     select
       c.id, c.type, c.category_id, c.title, c.price_type, c.price_amount,
-      c.price_unit, c.location, c.availability,
+      c.price_unit, c.location, c.availability, c.commodity_group, c.volume_tonnes,
       c.territory_code, territory.name as territory_name, territory.kind as territory_kind,
       territory.sort_order as territory_sort_order,
       c.ownership_form, c.product_location, c.service_all_kazakhstan,
@@ -347,7 +367,22 @@ export async function listCards(env: AppEnv, query: CardListQuery): Promise<Pagi
           )
         )
       )
-    order by c.sort_order, c.title, c.id
+      and (
+        ${query.type !== "product" || !query.commodityGroups?.length ? null : query.commodityGroups}::text[] is null
+        or c.commodity_group = any(${query.commodityGroups?.length ? query.commodityGroups : null}::text[])
+      )
+      and (
+        ${query.type !== "product" || !query.ownershipForms?.length ? null : query.ownershipForms}::text[] is null
+        or c.ownership_form = any(${query.ownershipForms?.length ? query.ownershipForms : null}::text[])
+      )
+      and (
+        ${query.type !== "product" || query.productLocation === "all" ? null : query.productLocation}::text is null
+        or c.product_location = ${query.productLocation === "all" ? null : query.productLocation}::text
+      )
+    order by
+      case when ${query.sort} = 'price_asc' and c.type = 'product' then c.price_amount end asc nulls last,
+      case when ${query.sort} = 'volume_asc' and c.type = 'product' then c.volume_tonnes end asc nulls last,
+      c.sort_order, c.title, c.id
     limit ${query.limit + 1} offset ${query.offset}
   `;
   const items = rows.map((row) => toCardListItem(row, env));
@@ -358,7 +393,7 @@ async function getCard(env: AppEnv, id: string, includeDraft: boolean): Promise<
   const sql = getDb(env);
   const [row] = await sql<CardRow[]>`
     select id, type, category_id, title, description, price_type, price_amount,
-      price_unit, price_reason, location, availability,
+      price_unit, price_reason, location, availability, commodity_group, volume_tonnes,
       c.territory_code, territory.name as territory_name, territory.kind as territory_kind,
       territory.sort_order as territory_sort_order,
       c.ownership_form, c.product_location, c.product_location_detail, c.service_all_kazakhstan,

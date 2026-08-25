@@ -23,6 +23,30 @@ export const territoryCodes = [
   "shymkent_city"
 ] as const;
 
+/** Точные 17 областей Казахстана; города республиканского значения в фильтре товаров не участвуют. */
+export const productTerritoryCodes = [
+  "abay_region",
+  "akmola_region",
+  "aktobe_region",
+  "almaty_region",
+  "atyrau_region",
+  "east_kazakhstan_region",
+  "zhambyl_region",
+  "zhetysu_region",
+  "west_kazakhstan_region",
+  "karaganda_region",
+  "kostanay_region",
+  "kyzylorda_region",
+  "mangystau_region",
+  "pavlodar_region",
+  "north_kazakhstan_region",
+  "turkistan_region",
+  "ulytau_region"
+] as const;
+
+export const productTerritoryCodeSchema = z.enum(productTerritoryCodes);
+export type ProductTerritoryCode = z.infer<typeof productTerritoryCodeSchema>;
+
 export const territoryCodeSchema = z.enum(territoryCodes);
 export type TerritoryCode = z.infer<typeof territoryCodeSchema>;
 
@@ -58,6 +82,10 @@ export const productOwnershipFormLabels: Record<ProductOwnershipForm, string> = 
   llp_vat_agricultural_producer: "ТОО НДС СХТП",
   llp_trader: "ТОО Трейдер"
 };
+
+export const productOwnershipFormListSchema = z.array(productOwnershipFormSchema)
+  .max(3)
+  .refine((forms) => new Set(forms).size === forms.length, "Формы собственности не должны повторяться");
 
 export const productLocationSchema = z.enum(["elevator", "seller_site"]);
 export type ProductLocation = z.infer<typeof productLocationSchema>;

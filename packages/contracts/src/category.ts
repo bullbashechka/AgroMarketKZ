@@ -10,6 +10,7 @@ export const categorySchema = z.object({
   name: z.string(),
   sortOrder: z.number().int(),
   isActive: z.boolean(),
+  isCommodity: z.boolean(),
   requiredSpecs: z.array(z.string()),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime()
@@ -39,6 +40,7 @@ export const createCategoryInput = z.object({
   type: catalogTypeSchema,
   name: requiredText(CATEGORY_NAME_MAX, "Укажите название категории"),
   sortOrder: z.number().int().min(0).default(0),
+  isCommodity: z.boolean().default(false),
   requiredSpecs: z.array(requiredText(SPEC_KEY_MAX, "Укажите название характеристики")).max(MAX_SPECS).default([]),
 });
 
@@ -48,6 +50,7 @@ export type CreateCategoryInput = z.infer<typeof createCategoryInput>;
 export const updateCategoryInput = z.object({
   name: requiredText(CATEGORY_NAME_MAX, "Укажите название категории").optional(),
   sortOrder: z.number().int().min(0).optional(),
+  isCommodity: z.boolean().optional(),
   requiredSpecs: z.array(requiredText(SPEC_KEY_MAX, "Укажите название характеристики")).max(MAX_SPECS).optional(),
 }).superRefine((input, ctx) => {
   if (!input.requiredSpecs) return;

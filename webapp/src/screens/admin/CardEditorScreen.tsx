@@ -1,5 +1,6 @@
 import {
   catalogTypeLabels,
+  commodityGroupLabels,
   createCardInput,
   publishCardInput,
   DESCRIPTION_MAX,
@@ -10,6 +11,7 @@ import {
   type AdminCardDetail,
   type CardDetail,
   type CatalogType,
+  type CommodityGroup,
   type CreateCardInput,
   type PriceType,
   type ProductLocation,
@@ -29,7 +31,7 @@ import { CardDetailsView } from "../../components/CardDetailsView";
 import { Screen } from "../../components/Screen";
 import { SkeletonList } from "../../components/Skeleton";
 import { ApiError, apiDelete, apiGet, apiPost, apiPut, formatApiError, isAmbiguousMutationError } from "../../lib/api";
-import { cardMatchesInput, PublishAfterSaveError } from "../../lib/cardMutation";
+import { PublishAfterSaveError } from "../../lib/cardMutation";
 import { clearCardDraft, loadCardDraft, saveCardDraft, type CardDraft } from "../../lib/cardDraft";
 import { zodFieldErrorsByPath } from "../../lib/formErrors";
 import { getLivePublicationIssues } from "../../lib/publicationChecklist";
@@ -72,6 +74,10 @@ function CardEditorEdit({ cardId }: { cardId: string }) {
           initial={data}
           recoveryError={recoveryError}
           onRecoveryError={setRecoveryError}
+          onRecoveryRefresh={async () => {
+            const refreshed = await refetch({ throwOnError: true });
+            if (!refreshed.data) throw new Error("Карточка не загрузилась после изменения");
+          }}
         />
       )}
     </Screen>
@@ -130,6 +136,7 @@ interface CardEditorFormProps {
   draft?: CardDraft;
   recoveryError?: string;
   onRecoveryError?: (message: string | undefined) => void;
+  onRecoveryRefresh?: () => Promise<void>;
 }
 
 function CardEditorForm({
@@ -139,6 +146,7 @@ function CardEditorForm({
   draft,
   recoveryError,
   onRecoveryError,
+  onRecoveryRefresh,
 }: CardEditorFormProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -147,7 +155,11 @@ function CardEditorForm({
   const [categoryId, setCategoryId] = useState(initial?.categoryId ?? draft?.categoryId ?? "");
   const [title, setTitle] = useState(initial?.title ?? draft?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? draft?.description ?? "");
-  const [priceType, setPriceType] = useState<PriceType>(initial?.priceType ?? draft?.priceType ?? "fixed");
+  const [priceType, setPriceType] = useState<PriceType>(
+    (initial?.type ?? draft?.type ?? initialType) === "product" && (initial?.priceType ?? draft?.priceType) === "on_request"
+      ? "fixed"
+      : initial?.priceType ?? draft?.priceType ?? "fixed"
+  );
   const [priceAmount, setPriceAmount] = useState(
     initial?.priceAmount != null ? String(initial.priceAmount) : draft?.priceAmount ?? ""
   );
@@ -157,6 +169,10 @@ function CardEditorForm({
   const [ownershipForm, setOwnershipForm] = useState<ProductOwnershipForm | "">(initial?.ownershipForm ?? draft?.ownershipForm ?? "");
   const [productLocation, setProductLocation] = useState<ProductLocation | "">(initial?.productLocation ?? draft?.productLocation ?? "");
   const [productLocationDetail, setProductLocationDetail] = useState(initial?.productLocationDetail ?? draft?.productLocationDetail ?? "");
+  const [commodityGroup, setCommodityGroup] = useState<CommodityGroup | "">(initial?.commodityGroup ?? draft?.commodityGroup ?? "");
+  const [volumeTonnes, setVolumeTonnes] = useState(
+    initial?.volumeTonnes != null ? String(initial.volumeTonnes) : draft?.volumeTonnes ?? ""
+  );
   const [serviceAllKazakhstan, setServiceAllKazakhstan] = useState(initial?.serviceAllKazakhstan ?? draft?.serviceAllKazakhstan ?? false);
   const [serviceTerritoryCodes, setServiceTerritoryCodes] = useState<TerritoryCode[]>(
     initial?.serviceTerritories.map((territory) => territory.code) ?? draft?.serviceTerritoryCodes ?? []
@@ -176,7 +192,15 @@ function CardEditorForm({
       ? draft.clientRequestId
       : crypto.randomUUID();
   });
-  const [updateMutationId] = useState<string | undefined>(() => mode === "edit" ? crypto.randomUUID() : undefined);
+  type SaveAction = "draft" | "publish";
+  type RecoveryResult = "committed" | "not_found" | "changed" | "rejected" | "unknown";
+  type PendingSaveAttempt = {
+    action: SaveAction;
+    input: CreateCardInput;
+    cardId?: string;
+  };
+  const [pendingSaveAttempt, setPendingSaveAttempt] = useState<PendingSaveAttempt | null>(null);
+  const [isCheckingSave, setIsCheckingSave] = useState(false);
 
   useEffect(() => {
     if (recoveryError) setErrors((current) => ({ ...current, form: recoveryError }));
@@ -189,6 +213,12 @@ function CardEditorForm({
   const categoriesQuery = useQuery(adminCategoriesQueryOptions(type));
   const territoriesQuery = useQuery(territoriesQueryOptions);
   const selectedCategory = categoriesQuery.data?.find((category) => category.id === categoryId);
+
+  useEffect(() => {
+    if (!selectedCategory || selectedCategory.isCommodity) return;
+    setCommodityGroup("");
+    setVolumeTonnes("");
+  }, [selectedCategory?.id, selectedCategory?.isCommodity]);
 
   useEffect(() => {
     const required = selectedCategory?.requiredSpecs ?? [];
@@ -249,29 +279,25 @@ function CardEditorForm({
     }
   }
 
-  /** Проверяет неоднозначный PUT/POST и при необходимости повторяет только публикацию. */
-  async function reconcileSaveMutation(
+  async function verifyEditMutation(
     cardId: string,
     input: CreateCardInput,
     publish: boolean,
-    error: unknown,
-  ): Promise<boolean> {
-    if (!isAmbiguousMutationError(error) || !initial || !input.mutationId) return false;
+  ): Promise<RecoveryResult> {
+    if (!initial || !input.mutationId) return "not_found";
     let current: AdminCardDetail;
     try {
       current = await apiGet<AdminCardDetail>(
         `/admin/cards/${cardId}?mutationId=${encodeURIComponent(input.mutationId)}`,
       );
-    } catch {
-      return false;
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "CARD_UPDATE_MUTATION_NOT_FOUND") return "not_found";
+      if (error instanceof ApiError && error.code === "CARD_CHANGED_AFTER_REPLAY") return "changed";
+      return "unknown";
     }
-    qc.setQueryData(adminCardQueryOptions(cardId).queryKey, current);
-    invalidateCatalogQueries(cardId);
-    if (!cardMatchesInput(current, input, initial.version)) return false;
-
     if (!publish || current.publicationStatus === "published") {
       finishSavedCard(current);
-      return true;
+      return "committed";
     }
 
     try {
@@ -279,41 +305,41 @@ function CardEditorForm({
         expectedVersion: current.version,
       });
       finishSavedCard(published);
-      return true;
-    } catch {
+      return "committed";
+    } catch (error) {
+      if (!isAmbiguousMutationError(error)) {
+        cacheSavedCard(current);
+        return "rejected";
+      }
       try {
         const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${cardId}`);
         if (afterPublish.publicationStatus === "published") {
           finishSavedCard(afterPublish);
-          return true;
+          return "committed";
         }
       } catch {
-        // Показываем исходную ошибку, если проверка после publish тоже недоступна.
+        return "unknown";
       }
-      return false;
+      return "unknown";
     }
   }
 
-  /** Replay-safe reconciliation for a create request whose response may have been lost. */
-  async function reconcileCreateMutation(
+  /** Повторяет create с тем же clientRequestId: backend либо вернёт receipt, либо создаст запись. */
+  async function verifyCreateMutation(
     input: CreateCardInput,
     publish: boolean,
-    error: unknown,
-  ): Promise<boolean> {
-    if (mode !== "create" || !createClientRequestId || !isAmbiguousMutationError(error)) return false;
+  ): Promise<RecoveryResult> {
+    if (mode !== "create" || !createClientRequestId) return "not_found";
     let current: AdminCardDetail;
     try {
-      current = await apiGet<AdminCardDetail>(`/admin/cards/${createClientRequestId}`);
-    } catch {
-      return false;
+      current = await apiPost<AdminCardDetail>("/admin/cards", input);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "CARD_CREATE_REQUEST_REUSED") return "changed";
+      return isAmbiguousMutationError(error) ? "unknown" : "rejected";
     }
-    qc.setQueryData(adminCardQueryOptions(current.id).queryKey, current);
-    invalidateCatalogQueries(current.id);
-    if (!cardMatchesInput(current, input, 0)) return false;
-
     if (!publish || current.publicationStatus === "published") {
       finishSavedCard(current);
-      return true;
+      return "committed";
     }
 
     try {
@@ -321,18 +347,65 @@ function CardEditorForm({
         expectedVersion: current.version,
       });
       finishSavedCard(published);
-      return true;
-    } catch {
+      return "committed";
+    } catch (error) {
+      if (!isAmbiguousMutationError(error)) {
+        cacheSavedCard(current);
+        return "rejected";
+      }
       try {
         const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${current.id}`);
         if (afterPublish.publicationStatus === "published") {
           finishSavedCard(afterPublish);
-          return true;
+          return "committed";
         }
       } catch {
-        // Показываем исходную ошибку, если проверка после publish тоже недоступна.
+        return "unknown";
       }
-      return false;
+      return "unknown";
+    }
+  }
+
+  async function verifyPendingSave(): Promise<void> {
+    if (!pendingSaveAttempt || isCheckingSave) return;
+    setIsCheckingSave(true);
+    setErrors({});
+    try {
+      const result = mode === "create"
+        ? await verifyCreateMutation(pendingSaveAttempt.input, pendingSaveAttempt.action === "publish")
+        : await verifyEditMutation(
+          pendingSaveAttempt.cardId!,
+          pendingSaveAttempt.input,
+          pendingSaveAttempt.action === "publish",
+        );
+      if (result === "committed") {
+        setPendingSaveAttempt(null);
+        return;
+      }
+      if (result === "not_found") {
+        setPendingSaveAttempt(null);
+        setErrors({ form: "Попытка сохранения не найдена. Проверьте данные и повторите сохранение." });
+        onRecoveryError?.("Попытка сохранения не найдена. Проверьте данные и повторите сохранение.");
+        return;
+      }
+      if (result === "changed") {
+        try {
+          await onRecoveryRefresh?.();
+          setPendingSaveAttempt(null);
+          setErrors({ form: "Карточка изменилась. Данные обновлены, проверьте форму перед сохранением." });
+        } catch {
+          setErrors({ form: "Карточка изменилась, но обновить её не удалось. Повторите проверку." });
+        }
+        return;
+      }
+      if (result === "rejected") {
+        setPendingSaveAttempt(null);
+        setErrors({ form: "Сервер отклонил сохранение. Исправьте данные и повторите попытку." });
+        return;
+      }
+      setErrors({ form: "Не удалось подтвердить результат сохранения. Форма остаётся заблокированной." });
+    } finally {
+      setIsCheckingSave(false);
     }
   }
 
@@ -408,6 +481,8 @@ function CardEditorForm({
     ownershipForm: ownershipForm || undefined,
     productLocation: productLocation || undefined,
     productLocationDetail,
+    commodityGroup: commodityGroup || undefined,
+    volumeTonnes: volumeTonnes || undefined,
     serviceAllKazakhstan,
     serviceTerritoryCodes,
     availability,
@@ -426,11 +501,17 @@ function CardEditorForm({
 
   function applyTypeChange(nextType: CatalogType) {
     setType(nextType);
+    if (nextType === "product" && priceType === "on_request") {
+      setPriceType("fixed");
+      setPriceReason("");
+    }
     setCategoryId("");
     setTerritoryCode("");
     setOwnershipForm("");
     setProductLocation("");
     setProductLocationDetail("");
+    setCommodityGroup("");
+    setVolumeTonnes("");
     setServiceAllKazakhstan(false);
     setServiceTerritoryCodes([]);
     setTypeChange(null);
@@ -438,7 +519,7 @@ function CardEditorForm({
 
   function handleTypeChange(nextType: CatalogType) {
     if (nextType === type) return;
-    if (categoryId || territoryCode || ownershipForm || productLocation || serviceTerritoryCodes.length > 0) {
+    if (categoryId || territoryCode || ownershipForm || productLocation || commodityGroup || volumeTonnes || serviceTerritoryCodes.length > 0) {
       setTypeChange(nextType);
       return;
     }
@@ -451,13 +532,22 @@ function CardEditorForm({
       : [...current, code]);
   }
 
-  function buildPayload(completeSpecsOnly = false) {
+  function handleCategoryChange(nextCategoryId: string) {
+    setCategoryId(nextCategoryId);
+    const nextCategory = categoriesQuery.data?.find((category) => category.id === nextCategoryId);
+    if (!nextCategory?.isCommodity) {
+      setCommodityGroup("");
+      setVolumeTonnes("");
+    }
+  }
+
+  function buildPayload(completeSpecsOnly = false, mutationId?: string) {
     const payloadSpecs = completeSpecsOnly
       ? specs.filter((spec) => spec.key.trim() && spec.value.trim())
       : specs;
     return {
       clientRequestId: mode === "create" ? createClientRequestId : undefined,
-      mutationId: mode === "edit" ? updateMutationId : undefined,
+      mutationId,
       type,
       categoryId,
       title,
@@ -472,9 +562,11 @@ function CardEditorForm({
       ownershipForm: type === "product" ? ownershipForm || null : null,
       productLocation: type === "product" ? productLocation || null : null,
       productLocationDetail: type === "product" ? productLocationDetail || null : null,
+      commodityGroup: type === "product" && selectedCategory?.isCommodity ? commodityGroup || null : null,
+      volumeTonnes: type === "product" && selectedCategory?.isCommodity && volumeTonnes ? Number(volumeTonnes.replace(",", ".")) : null,
       serviceAllKazakhstan: type === "service" && serviceAllKazakhstan,
       serviceTerritoryCodes: type === "service" && !serviceAllKazakhstan ? serviceTerritoryCodes : [],
-      availability,
+      availability: type === "service" ? availability : null,
       images: imageUploads.images
         .filter((img) => img.status === "done")
         .map((img, idx) => ({ storagePath: img.storagePath!, sortOrder: idx })),
@@ -502,6 +594,9 @@ function CardEditorForm({
     territoryCode: livePayload.territoryCode,
     ownershipForm: livePayload.ownershipForm,
     productLocation: livePayload.productLocation,
+    categoryIsCommodity: selectedCategory?.isCommodity ?? false,
+    commodityGroup: livePayload.commodityGroup,
+    volumeTonnes: livePayload.volumeTonnes,
     serviceAllKazakhstan: livePayload.serviceAllKazakhstan,
     serviceTerritoryCount: livePayload.serviceAllKazakhstan ? 1 : livePayload.serviceTerritoryCodes.length,
     availability: livePayload.availability || null,
@@ -511,7 +606,8 @@ function CardEditorForm({
     specs: livePayload.specs,
   });
 
-  async function handleAction(action: "draft" | "publish") {
+  async function handleAction(action: SaveAction) {
+    if (pendingSaveAttempt) return;
     setErrors({});
     onRecoveryError?.(undefined);
     // Незавершённая строка характеристики не должна мешать сохранить серверный черновик.
@@ -527,6 +623,10 @@ function CardEditorForm({
       return;
     }
 
+    const input = mode === "edit"
+      ? { ...parsed.data, mutationId: crypto.randomUUID() }
+      : parsed.data;
+
     if (action === "publish") {
       if (imageUploads.hasErrors) {
         setErrors({ images: "Исправьте ошибку загрузки фото перед публикацией" });
@@ -536,28 +636,31 @@ function CardEditorForm({
         setErrors({ form: `Сначала исправьте: ${livePublicationIssues.join("; ")}` });
         return;
       }
-      const missingRequired = (selectedCategory?.requiredSpecs ?? []).filter((requiredKey) => {
-        const normalized = requiredKey.trim().toLocaleLowerCase("ru");
-        return !specs.some((spec) => spec.key.trim().toLocaleLowerCase("ru") === normalized && spec.value.trim());
-      });
-      if (missingRequired.length > 0) {
-        setErrors({ form: `Заполните обязательные характеристики: ${missingRequired.join(", ")}` });
-        return;
-      }
     }
 
     try {
       setSaveAction(action);
-      await saveMutation.mutateAsync({ input: parsed.data, publish: action === "publish" });
+      await saveMutation.mutateAsync({ input, publish: action === "publish" });
     } catch (error) {
       if (error instanceof PublishAfterSaveError) {
-        const current = await refreshSavedCard(error.saved);
         if (isAmbiguousMutationError(error.publishError)) {
-          if (await reconcileCreateMutation(parsed.data, true, error.publishError)) return;
-          if (mode === "edit" && initial && await reconcileSaveMutation(initial.id, parsed.data, true, error.publishError)) {
+          const result = mode === "create"
+            ? await verifyCreateMutation(input, true)
+            : await verifyEditMutation(initial!.id, input, true);
+          if (result === "committed") return;
+          if (result === "rejected") {
+            const message = formatApiError(error.publishError, "Не удалось опубликовать карточку");
+            setErrors({ form: message });
+            onRecoveryError?.(message);
             return;
           }
+          setPendingSaveAttempt({ action, input, cardId: initial?.id });
+          setErrors({
+            form: `Не удалось подтвердить публикацию: ${formatApiError(error.publishError, "сервер не ответил")}. Форма заблокирована до повторной проверки.`,
+          });
+          return;
         }
+        const current = await refreshSavedCard(error.saved);
         if (mode === "create") {
           if (current.publicationStatus === "published") {
             finishSavedCard(current);
@@ -575,10 +678,21 @@ function CardEditorForm({
         onRecoveryError?.(message);
         return;
       }
-      if (await reconcileCreateMutation(parsed.data, action === "publish", error)) {
-        return;
-      }
-      if (mode === "edit" && initial && await reconcileSaveMutation(initial.id, parsed.data, action === "publish", error)) {
+      if (isAmbiguousMutationError(error)) {
+        const result = mode === "create"
+          ? await verifyCreateMutation(input, action === "publish")
+          : await verifyEditMutation(initial!.id, input, action === "publish");
+        if (result === "committed") return;
+        if (result === "rejected" || result === "not_found") {
+          const message = formatApiError(error, "Не удалось сохранить карточку");
+          setErrors({ form: message });
+          onRecoveryError?.(message);
+          return;
+        }
+        setPendingSaveAttempt({ action, input, cardId: initial?.id });
+        setErrors({
+          form: `Не удалось подтвердить сохранение: ${formatApiError(error, "сервер не ответил")}. Форма заблокирована до повторной проверки.`,
+        });
         return;
       }
       const message = formatApiError(error, "Не удалось сохранить карточку");
@@ -592,7 +706,8 @@ function CardEditorForm({
     await handleAction("draft");
   }
 
-  const canSave = imageUploads.settled && !saveMutation.isPending;
+  const isSaveBlocked = pendingSaveAttempt !== null || isCheckingSave;
+  const canSave = imageUploads.settled && !saveMutation.isPending && !isSaveBlocked;
   const canPublish = canSave && livePublicationIssues.length === 0;
   const previewPayload = livePayload;
   const previewCard: CardDetail = {
@@ -605,6 +720,8 @@ function CardEditorForm({
     priceAmount: previewPayload.priceAmount,
     priceUnit: priceUnit || null,
     priceReason: priceType === "fixed" ? null : priceReason || null,
+    commodityGroup: type === "product" && selectedCategory?.isCommodity ? commodityGroup || null : null,
+    volumeTonnes: type === "product" && selectedCategory?.isCommodity && volumeTonnes ? Number(volumeTonnes.replace(",", ".")) : null,
     location: null,
     territory: type === "product"
       ? territoriesQuery.data?.find((territory) => territory.code === territoryCode) ?? null
@@ -616,7 +733,7 @@ function CardEditorForm({
     serviceTerritories: type === "service"
       ? (territoriesQuery.data ?? []).filter((territory) => serviceTerritoryCodes.includes(territory.code))
       : [],
-    availability: availability || null,
+    availability: type === "service" ? availability || null : null,
     sortOrder: initial?.sortOrder ?? 0,
     version: initial?.version ?? 1,
     publishedAt: initial?.publishedAt ?? null,
@@ -642,6 +759,17 @@ function CardEditorForm({
 
   return (
     <form className="form" onSubmit={handleSubmit} noValidate>
+      {pendingSaveAttempt && (
+        <div className="card notice-card" role="alert">
+          <p className="eyebrow">Проверка сохранения</p>
+          <p className="description">Результат сохранения не подтверждён. Форма заблокирована, чтобы не потерять исходную попытку.</p>
+          <button type="button" className="button button-primary" onClick={() => void verifyPendingSave()} disabled={isCheckingSave}>
+            {isCheckingSave ? "Проверяем…" : "Повторить проверку"}
+          </button>
+        </div>
+      )}
+
+      <fieldset disabled={isSaveBlocked}>
       <Segmented options={typeOptions} value={type} onChange={handleTypeChange} ariaLabel="Тип карточки" />
 
       <label className="field">
@@ -650,7 +778,7 @@ function CardEditorForm({
           className="input"
           data-testid="card-editor-category"
           value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
+          onChange={(e) => handleCategoryChange(e.target.value)}
         >
           <option value="">Выберите категорию</option>
           {(categoriesQuery.data ?? []).map((category) => (
@@ -687,7 +815,12 @@ function CardEditorForm({
         {errors.description && <span className="field-error">{errors.description}</span>}
       </label>
 
-      <Segmented options={priceTypeOptions} value={priceType} onChange={setPriceType} ariaLabel="Тип цены" />
+      <Segmented
+        options={type === "product" ? priceTypeOptions.filter((option) => option.value !== "on_request") : priceTypeOptions}
+        value={priceType === "on_request" && type === "product" ? "fixed" : priceType}
+        onChange={(next) => setPriceType(next)}
+        ariaLabel="Тип цены"
+      />
 
       {priceType !== "on_request" && (
         <label className="field">
@@ -744,7 +877,7 @@ function CardEditorForm({
       {type === "product" ? (
         <>
           <label className="field">
-            <span className="field-label">Регион</span>
+            <span className="field-label">Область</span>
             <select
               className="input"
               data-testid="card-editor-territory"
@@ -753,7 +886,7 @@ function CardEditorForm({
               disabled={territoriesQuery.isPending}
             >
               <option value="">Выберите регион</option>
-              {(territoriesQuery.data ?? []).map((territory) => (
+              {(territoriesQuery.data ?? []).filter((territory) => territory.kind === "region").map((territory) => (
                 <option key={territory.code} value={territory.code}>{territory.name}</option>
               ))}
             </select>
@@ -769,6 +902,31 @@ function CardEditorForm({
             </select>
             {errors.ownershipForm && <span className="field-error">{errors.ownershipForm}</span>}
           </label>
+          {selectedCategory?.isCommodity && (
+            <>
+              <label className="field">
+                <span className="field-label">Группа продукции</span>
+                <select className="input" value={commodityGroup} onChange={(event) => setCommodityGroup(event.target.value as CommodityGroup | "")}>
+                  <option value="">Выберите группу</option>
+                  {Object.entries(commodityGroupLabels).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                {errors.commodityGroup && <span className="field-error">{errors.commodityGroup}</span>}
+              </label>
+              <label className="field">
+                <span className="field-label">Объём, тонн</span>
+                <input
+                  className="input"
+                  value={volumeTonnes}
+                  onChange={(event) => setVolumeTonnes(event.target.value.replace(/[^\d.,]/g, ""))}
+                  inputMode="decimal"
+                  placeholder="Например, 12,375"
+                />
+                {errors.volumeTonnes && <span className="field-error">{errors.volumeTonnes}</span>}
+              </label>
+            </>
+          )}
           <label className="field">
             <span className="field-label">Местонахождение товара</span>
             <select className="input" value={productLocation} onChange={(event) => setProductLocation(event.target.value as ProductLocation | "")}>
@@ -805,11 +963,13 @@ function CardEditorForm({
         </fieldset>
       )}
 
-      <label className="field">
-        <span className="field-label">Наличие, срок поставки или исполнения</span>
-        <input className="input" data-testid="card-editor-availability" value={availability} onChange={(event) => setAvailability(event.target.value)} />
-        {errors.availability && <span className="field-error">{errors.availability}</span>}
-      </label>
+      {type === "service" && (
+        <label className="field">
+          <span className="field-label">Срок исполнения</span>
+          <input className="input" data-testid="card-editor-availability" value={availability} onChange={(event) => setAvailability(event.target.value)} />
+          {errors.availability && <span className="field-error">{errors.availability}</span>}
+        </label>
+      )}
 
       {mode === "create" ? (
         <div className="card notice-card">
@@ -917,6 +1077,7 @@ function CardEditorForm({
         onConfirm={() => { if (typeChange) applyTypeChange(typeChange); }}
         onClose={() => setTypeChange(null)}
       />
+      </fieldset>
     </form>
   );
 }

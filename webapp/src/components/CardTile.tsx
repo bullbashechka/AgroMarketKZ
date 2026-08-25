@@ -1,4 +1,4 @@
-import type { CardListItem } from "@agromarket/contracts";
+import { productLocationLabels, productOwnershipFormLabels, type CardListItem } from "@agromarket/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import type { MouseEvent } from "react";
 import { cardHref, formatPrice } from "../lib/format";
@@ -17,6 +17,14 @@ export function CardTile({ item }: { item: CardListItem }) {
   const navigate = useNavigate();
   const href = cardHref(item);
   const territory = territorySummary(item);
+  const productDetails = item.type === "product"
+    ? [
+        territory,
+        item.volumeTonnes !== null ? `${item.volumeTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т` : null,
+        item.ownershipForm ? productOwnershipFormLabels[item.ownershipForm] : null,
+        item.productLocation ? productLocationLabels[item.productLocation] : null,
+      ].filter(Boolean).join(" · ")
+    : null;
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -35,9 +43,10 @@ export function CardTile({ item }: { item: CardListItem }) {
         <FavoriteButton item={item} />
       </div>
       <div className="card-tile-body">
-        <p className="card-tile-price">{formatPrice(item.priceType, item.priceAmount)}</p>
+        <p className="card-tile-price">{formatPrice(item.priceType, item.priceAmount, item.priceUnit)}</p>
         <p className="card-tile-title">{item.title}</p>
-        {territory && <span className="card-tile-territory">{territory}</span>}
+        {productDetails && <span className="card-tile-territory">{productDetails}</span>}
+        {item.type === "service" && territory && <span className="card-tile-territory">{territory}</span>}
         {item.shortSpec && <span className="card-tile-spec">{item.shortSpec}</span>}
       </div>
     </a>

@@ -3,8 +3,19 @@ import { SEARCH_MAX } from "./constants";
 import { cardListItemSchema } from "./card";
 import { categorySchema, categoryListItemSchema } from "./category";
 import { catalogTypeSchema, priceFilterSchema } from "./enums";
+import { commodityGroupListSchema, productSortSchema } from "./commodity";
 import { paginated, paginationQuerySchema } from "./pagination";
-import { catalogRegionFilterSchema, territoryListResponse } from "./territory";
+import {
+  catalogRegionFilterSchema,
+  productOwnershipFormListSchema,
+  productTerritoryCodeSchema,
+  territoryListResponse
+} from "./territory";
+
+const commaSeparated = <T extends z.ZodTypeAny>(schema: T) => z.preprocess(
+  (value) => typeof value === "string" ? value.split(",").map((item) => item.trim()).filter(Boolean) : value,
+  schema.optional()
+);
 
 /** Список категорий вкладки. */
 export const categoryListQuery = z.object({
@@ -36,7 +47,16 @@ export const cardListQuery = paginationQuerySchema.extend({
     .optional()
     .transform((value) => (value && value.length > 0 ? value : undefined)),
   price: priceFilterSchema.optional(),
-  region: catalogRegionFilterSchema.optional().default("all_regions")
+  region: catalogRegionFilterSchema.optional().default("all_regions"),
+  sort: productSortSchema.optional().default("default"),
+  commodityGroups: commaSeparated(commodityGroupListSchema),
+  ownershipForms: commaSeparated(productOwnershipFormListSchema),
+  productLocation: z.enum(["all", "elevator", "seller_site"]).optional().default("all")
+}).superRefine((query, ctx) => {
+  if (query.type === "product" && query.region !== "all_regions"
+    && !productTerritoryCodeSchema.safeParse(query.region).success) {
+    ctx.addIssue({ code: "custom", path: ["region"], message: "Для товаров доступна только область" });
+  }
 });
 
 export type CardListQuery = z.infer<typeof cardListQuery>;

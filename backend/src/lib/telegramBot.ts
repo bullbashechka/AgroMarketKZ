@@ -1,5 +1,6 @@
 import {
   catalogTypeTabLabels,
+  commodityGroupLabels,
   priceTypeLabels,
   productLocationLabels,
   productOwnershipFormLabels,
@@ -66,14 +67,22 @@ export function formatRequestNotification(input: RequestNotificationInput): stri
     if (input.listingSubmission.type === "product") {
       lines.push(`Регион: ${escapeHtml(input.listingSubmission.territory.name)}`);
       lines.push(`Форма собственности: ${escapeHtml(productOwnershipFormLabels[input.listingSubmission.ownershipForm])}`);
-      const location = productLocationLabels[input.listingSubmission.productLocation];
-      lines.push(
-        `Местонахождение: ${escapeHtml(
-          input.listingSubmission.productLocationDetail
-            ? `${location} — ${input.listingSubmission.productLocationDetail}`
-            : location
-        )}`
-      );
+      if (input.listingSubmission.commodityGroup) {
+        lines.push(`Группа продукции: ${escapeHtml(commodityGroupLabels[input.listingSubmission.commodityGroup])}`);
+      }
+      if (input.listingSubmission.volumeTonnes != null) {
+        lines.push(`Объём: ${escapeHtml(input.listingSubmission.volumeTonnes.toLocaleString("ru-RU", { maximumFractionDigits: 3 }))} т`);
+      }
+      if (input.listingSubmission.productLocation) {
+        const location = productLocationLabels[input.listingSubmission.productLocation];
+        lines.push(
+          `Местонахождение: ${escapeHtml(
+            input.listingSubmission.productLocationDetail
+              ? `${location} — ${input.listingSubmission.productLocationDetail}`
+              : location
+          )}`
+        );
+      }
     } else {
       lines.push(
         input.listingSubmission.allKazakhstan

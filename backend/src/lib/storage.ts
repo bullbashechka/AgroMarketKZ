@@ -2,6 +2,11 @@ import type { UploadContentType } from "@agromarket/contracts";
 import type { AppEnv } from "../env";
 import { HttpError } from "./errors";
 
+type StorageAdminEnv = Pick<
+  AppEnv,
+  "SUPABASE_URL" | "SUPABASE_STORAGE_BUCKET" | "SUPABASE_SERVICE_ROLE_KEY"
+>;
+
 /**
  * Публичный URL изображения в Supabase Storage (бакет публичный, см.
  * `database/supabase/storage.sql`). В БД хранится только `storage_path`.
@@ -126,7 +131,7 @@ export interface StorageObjectSummary {
   createdAt: Date;
 }
 
-function storageObjectUrl(env: AppEnv, storagePath: string): string {
+function storageObjectUrl(env: StorageAdminEnv, storagePath: string): string {
   const base = env.SUPABASE_URL.replace(/\/+$/, "");
   const path = storagePath
     .split("/")
@@ -137,7 +142,7 @@ function storageObjectUrl(env: AppEnv, storagePath: string): string {
 
 /** Постранично перечисляет объекты Storage под произвольным безопасным префиксом. */
 export async function listStorageObjects(
-  env: AppEnv,
+  env: StorageAdminEnv,
   prefix: string,
   options: { limit: number; offset: number },
 ): Promise<StorageObjectSummary[]> {
@@ -194,7 +199,7 @@ export interface StrictDeleteOptions {
   reconcileMissing?: boolean;
 }
 
-async function reconcileMissingStoragePaths(env: AppEnv, paths: string[]): Promise<string[]> {
+async function reconcileMissingStoragePaths(env: StorageAdminEnv, paths: string[]): Promise<string[]> {
   const missing: string[] = [];
   for (const path of paths) {
     try {
@@ -219,7 +224,7 @@ async function reconcileMissingStoragePaths(env: AppEnv, paths: string[]): Promi
  * чтобы вызывающий код мог корректно логировать и не считал неудачное удаление успешным.
  */
 export async function deleteStorageObjectsStrict(
-  env: AppEnv,
+  env: StorageAdminEnv,
   storagePaths: string[],
   options: StrictDeleteOptions = {},
 ): Promise<StrictDeleteResult> {

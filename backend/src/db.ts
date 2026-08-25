@@ -28,7 +28,9 @@ const CONNECTION_ERROR_CODES = new Set([
   "EHOSTUNREACH",
 ]);
 
-function createClient(env: AppEnv): Sql {
+type DatabaseEnv = Pick<AppEnv, "DATABASE_URL" | "HYPERDRIVE">;
+
+function createClient(env: DatabaseEnv): Sql {
   return postgres(env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL, POSTGRES_POOL_OPTIONS);
 }
 
@@ -133,7 +135,7 @@ export function withReconnect(hooks: ClientHooks): Sql {
  * биндингу, если он есть — иначе тоже `DATABASE_URL`). `prepare: false` совместимо и с
  * transaction-mode Supavisor (локально/fallback), и с Hyperdrive поверх session-mode.
  */
-export function getDb(env: AppEnv): Sql {
+export function getDb(env: DatabaseEnv): Sql {
   if (!client) {
     client = createClient(env);
   }
