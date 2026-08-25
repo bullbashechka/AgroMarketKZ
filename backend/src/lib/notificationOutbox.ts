@@ -1,5 +1,5 @@
 import type { AppEnv } from "../env";
-import { getDb } from "../db";
+import { getDb, getIdempotentDb } from "../db";
 import { HttpError } from "./errors";
 import {
   buildRequestDeepLink,
@@ -193,7 +193,7 @@ export async function dispatchNotificationForEntity(
 
 /** Reconciles events whose enqueue ack was lost; safe to run from cron. */
 export async function reconcileNotificationOutbox(env: AppEnv): Promise<void> {
-  const sql = getDb(env);
+  const sql = getIdempotentDb(env);
   const rows = await sql<Pick<OutboxRow, "id">[]>`
     select id from app_private.notification_outbox
     where status = 'pending' and next_attempt_at <= now()

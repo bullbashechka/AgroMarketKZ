@@ -1,4 +1,4 @@
-import { getDb } from "../db";
+import { getDb, getIdempotentDb } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 
@@ -39,12 +39,11 @@ export async function consumeWidgetAuthProof(
 }
 
 /** Удаляет только давно истёкшие одноразовые proofs; вызывается из cron. */
-export async function purgeExpiredWidgetAuthProofs(env: AppEnv): Promise<number> {
-  const sql = getDb(env);
-  const rows = await sql<{ proof_hash: string }[]>`
+export async function purgeExpiredWidgetAuthProofs(env: AppEnv): Promise<void> {
+  // DELETE по фиксированному cutoff идемпотентен; cleanup не публикует неоднозначный row count.
+  const sql = getIdempotentDb(env);
+  await sql`
     delete from app_private.widget_auth_proofs
     where expires_at < now() - interval '1 hour'
-    returning proof_hash
   `;
-  return rows.length;
 }

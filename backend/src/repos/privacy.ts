@@ -1,4 +1,4 @@
-import { getDb } from "../db";
+import { getDb, getIdempotentDb } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 
@@ -67,7 +67,9 @@ export async function deleteAccount(env: AppEnv, userId: string): Promise<void> 
  * PII is anonymised before deleting an inactive account record's identifiers.
  */
 export async function runPrivacyRetention(env: AppEnv): Promise<void> {
-  const sql = getDb(env);
+  // Все standalone statements ниже — повторяемые DELETE/absolute anonymisation UPDATE или SELECT.
+  // deleteAccount() использует отдельную транзакцию через обычный getDb() и никогда не ретраится.
+  const sql = getIdempotentDb(env);
   await sql`
     delete from app_private.card_image_upload_claims
     where expires_at < now() - interval '1 day'
