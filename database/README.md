@@ -1,18 +1,22 @@
 # Database
 
-Один Supabase Postgres используется и для локальной разработки, и для прода — Docker не нужен. Подключение берётся из `DATABASE_URL` (строка Supabase transaction pooler, см. корневой `.env.example`).
+Один Supabase Postgres используется и для локальной разработки, и для прода — Docker не нужен. Runtime-подключение берётся из `DATABASE_URL` и должно использовать отдельную роль приложения; административный URL миграций (`MIGRATION_DATABASE_URL`) хранится отдельно и в Worker не передаётся (см. `DEPLOYMENT.md`).
 
 ## Commands
 
 ```sh
-bun run db:migrate     # применить SQL-миграции из database/migrations/*.sql к DATABASE_URL
-bun run db:seed:dev     # демо-категории и карточки (опционально)
+ MIGRATION_DATABASE_URL="$DEV_DATABASE_URL" TARGET_ENV=development bun run db:migrate
+ DEV_DATABASE_URL="postgresql://...локальная/стейджинг-БД..." TARGET_ENV=development bun run db:seed:dev
 ```
 
-Скрипт не ведёт журнал применённых файлов и всегда выполняет каталог с начала. Поэтому он
-подходит только для пустой безопасной БД. На production новую миграцию применять точечно через
-Supabase MCP (`apply_migration`) или SQL Editor: повторный запуск `0008` меняет данные в
-`platform_settings`.
+Миграции теперь выполняются журналируемым runner в `app_private.schema_migrations`: он держит
+advisory lock, проверяет SHA-256 checksum и не повторяет уже применённый файл. Для существующей
+БД первый запуск должен явно зарегистрировать известную базу (`MIGRATION_BASELINE_VERSION=0013`)
+после read-only проверки таблиц. Для production дополнительно требуется
+`MIGRATION_CONFIRM=APPLY`; обычный `DATABASE_URL` намеренно не принимается.
+
+Seed принимает только отдельный `DEV_DATABASE_URL` и `TARGET_ENV=development`, поэтому корневой
+`.env`, указывающий на production, больше не может случайно наполнить демо-данными.
 
 Пока корневой `.env` указывает на production, `bun run test:e2e` и `bun run load:test`
 запрещены: оба выполняют auth upsert, а E2E дополнительно создаёт каталог и заявки.

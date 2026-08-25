@@ -1,6 +1,6 @@
 const TOKEN_KEY = "agromarket.jwt";
 
-/** Хранение JWT в localStorage (сессия «как будто вечная», см. решения Этапа 3). */
+/** Хранение JWT в localStorage; серверский срок действия токена — 24 часа. */
 export function getToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_KEY);

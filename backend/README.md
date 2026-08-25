@@ -11,7 +11,7 @@ bun run typecheck
 bun test
 ```
 
-Переменные окружения локально читаются из корневого `.env` (`Bun.env`), на Workers — из `c.env` (см. `wrangler.toml` и `wrangler secret put`). Требуются: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_ALLOWLIST`, `WEBAPP_ORIGIN`.
+Переменные окружения локально читаются из корневого `.env` (`Bun.env`), на Workers — из `c.env` (см. `wrangler.toml` и `wrangler secret put`). Требуются: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_ALLOWLIST`, `WEBAPP_ORIGIN`. `DATABASE_URL` и origin credentials Hyperdrive должны принадлежать отдельной runtime-роли без superuser/DDL-привилегий; миграции используют отдельный `MIGRATION_DATABASE_URL`.
 
 CORS разрешает только точный `WEBAPP_ORIGIN` (сравнение origin запроса, без wildcard и без localhost-fallback в коде): production-значение в `wrangler.toml` — `https://agromarketkz-webapp.pages.dev` (домен детерминирован именем Cloudflare Pages проекта). Локально `wrangler dev` переопределяет его через `backend/.dev.vars` (не в git), обычный `bun run dev` — через корневой `.env`.
 
@@ -27,17 +27,18 @@ src/
   repos/            # SQL-доступ к пользователям, каталогу, заявкам, настройкам и Storage
   lib/
     telegram.ts     # валидация initData и Login Widget (Web Crypto, HMAC-SHA256)
-    jwt.ts          # выпуск/проверка JWT (hono/jwt, HS256, 14 дней, версия сессии)
+    jwt.ts          # выпуск/проверка JWT (hono/jwt, HS256, 24 часа, версия сессии)
     admin.ts        # валидация и кеш ADMIN_ALLOWLIST, проверка прав по числовому id
     telegramId.ts   # общий допустимый диапазон реальных и синтетических Telegram id
     errors.ts       # HttpError (статус + сообщение)
-    storage*.ts     # signed URL, удаление файлов и ежедневная уборка orphaned-объектов
+    storage*.ts     # signed URL, cleanup и versioned R2 backup snapshots
+    notificationOutbox.ts # durable at-least-once Telegram delivery через Queue/DLQ
     telegram*.ts    # webhook, requestContact и уведомления в Telegram
   middleware/
     auth.ts         # requireAuth — проверка Bearer JWT
     admin.ts        # requireAdmin — живая проверка прав
   routes/
-    auth.ts         # /auth/telegram, /auth/widget
+    auth.ts         # /auth/telegram, /auth/widget/exchange (legacy /auth/widget alias)
     catalog.ts      # /catalog/categories и /catalog/cards
     profile.ts      # профиль, регистрация и проверка Telegram-контакта
     admin/          # управление каталогом, заявками, пользователями, настройками и загрузками
@@ -49,9 +50,11 @@ tests/              # unit- и контрактные тесты
 Личность подтверждается Telegram, отдельного логина/пароля нет. Две ветки входа:
 
 - **Telegram Mini App** — клиент шлёт сырой `initData`; backend пересчитывает HMAC-подпись `TELEGRAM_BOT_TOKEN` (секрет `HMAC_SHA256("WebAppData", token)`), сверяет `hash` и свежесть `auth_date` (окно 24 ч).
-- **Браузер (Telegram Login Widget)** — backend проверяет подпись с секретом `SHA256(token)`.
+- **Браузер (Telegram Login Widget)** — backend проверяет подпись с секретом `SHA256(token)`, принимает
+  `auth_date` не старше 5 минут и атомарно записывает HMAC proof в `app_private.widget_auth_proofs`,
+  поэтому один redirect нельзя обменять дважды.
 
-После успешной валидации создаётся/обновляется `User` (зеркало Telegram: id, username, имя — обновляется при каждом входе; контактные имя/телефон неприкосновенны) и выдаётся **JWT на 14 дней** (`Authorization: Bearer`). В Telegram токен молча перевыпускается из свежего `initData`, поэтому повторного входа пользователь не видит.
+После успешной валидации создаётся/обновляется `User` (зеркало Telegram: id, username, имя — обновляется при каждом входе; контактные имя/телефон неприкосновенны) и выдаётся **JWT на 24 часа** (`Authorization: Bearer`). В Telegram токен молча перевыпускается из свежего `initData`, поэтому повторного входа пользователь не видит.
 
 **Админы** определяются по `ADMIN_ALLOWLIST` (числовые Telegram id, через запятую). Принимаются
 только канонические положительные целые без ведущих нулей, не выше `2^52`; битые токены
@@ -61,7 +64,7 @@ tests/              # unit- и контрактные тесты
 
 ## JWT-сессии и отзыв
 
-JWT выпускается на 14 дней с claims `sub`, `tgId`, `ver`, `iat` и `exp`. `requireAuth` проверяет подпись и форму claims, затем одним запросом к `users` сверяет существование пользователя, его `telegram_id` и `token_version`. Удалённый пользователь или несовпадение версии получают `401`; сбой БД остаётся серверной ошибкой.
+JWT выпускается на 24 часа с claims `sub`, `tgId`, `ver`, `iat` и `exp`. `requireAuth` проверяет подпись и форму claims, затем одним запросом к `users` сверяет существование пользователя, его `telegram_id` и `token_version`. Production устанавливает `AUTH_CACHE_MODE=disabled`, поэтому отзыв сессии не ждёт KV TTL; `read-through` допускается только как осознанная capacity-настройка. Удалённый пользователь или несовпадение версии получают `401`; сбой БД остаётся серверной ошибкой.
 
 Миграция `0006_user_token_version.sql` добавляет `users.token_version`. Администратор отзывает все ранее выданные JWT пользователя запросом `POST /admin/users/:id/revoke-sessions`; маршрут возвращает `204`, либо `404` для отсутствующего UUID-пользователя. Новый вход выдаёт JWT с новой версией. Legacy JWT без `ver` и `iat` временно считается версией `0` до собственного `exp`.
 
@@ -71,7 +74,7 @@ JWT выпускается на 14 дней с claims `sub`, `tgId`, `ver`, `iat
 
 | Группа | Маршруты |
 |-------|----------|
-| Сервис и вход | `GET /health`, `POST /auth/telegram`, `POST /auth/widget` |
+| Сервис и вход | `GET /health`, `POST /auth/telegram`, `POST /auth/widget/exchange` (`/auth/widget` — временный alias) |
 | Профиль | `GET /profile`, `POST /profile/register`, `PUT /profile`, `POST /profile/contact` |
 | Каталог | `GET /catalog/categories`, `GET /catalog/cards`, `GET /catalog/cards/:id` |
 | Контакты площадки | `GET /settings/capabilities`, `GET /settings` |
@@ -79,7 +82,7 @@ JWT выпускается на 14 дней с claims `sub`, `tgId`, `ver`, `iat
 | Telegram | `POST /telegram/webhook` с заголовком `X-Telegram-Bot-Api-Secret-Token` |
 | Администрирование | категории, карточки, загрузки, заявки, пользователи и настройки под `/admin/*` |
 
-`/catalog/*` доступен сразу после подтверждения Telegram-личности. Реальные контакты из `GET /settings`, избранное, обратная связь и личные разделы требуют заполненного профиля. `POST /requests` принимает первую заявку вместе с контактами и атомарно завершает регистрацию. Повтор с тем же `clientRequestId` возвращает уже созданную заявку и не отправляет повторное уведомление.
+`/catalog/*` доступен сразу после подтверждения Telegram-личности. Реальные контакты из `GET /settings`, избранное, обратная связь и личные разделы требуют заполненного профиля. `POST /requests` принимает первую заявку вместе с контактами и атомарно завершает регистрацию. Заявки и feedback в той же транзакции записывают `app_private.notification_outbox`; Worker Queue доставляет Telegram at-least-once, а повтор с тем же `clientRequestId` не создаёт второе событие. В уведомление добавляется `outboxId` для дедупликации.
 
 `contactPhone` принимается только как казахстанский мобильный (`+7 7xx`), нормализуется к `+77XXXXXXXXX`; иначе `400`. Ошибки используют единый JSON `{ error, issues? }` со статусами `400/401/403/404/409/413/429/500`.
 
@@ -94,7 +97,8 @@ JWT выпускается на 14 дней с claims `sub`, `tgId`, `ver`, `iat
 - `AUTH_RATE_LIMITER`: широкий потолок 300 запросов за 60 секунд, ключ — `CF-Connecting-IP`;
 - `AUTH_IDENTITY_RATE_LIMITER`: 10 запросов за 60 секунд, ключ — `IP:telegramId`.
 
-Оба auth-limiter применяются на `/auth/telegram` и `/auth/widget` до проверки Telegram-подписи.
+Оба auth-limiter применяются на `/auth/telegram`, `/auth/widget/exchange` и временном alias
+`/auth/widget` до проверки Telegram-подписи.
 Telegram id извлекается из неподписанного тела только для ключа и не участвует в авторизации.
 Составной ключ не позволяет постороннему IP заблокировать известный id, а IP-потолок ограничивает
 перебор поддельных id. Если id безопасно извлечь нельзя, identity-limiter пропускается; битый JSON
@@ -129,3 +133,8 @@ Acceptance load выполняется только после M1 и долже�
 Daily Cron Trigger (`wrangler.toml`, `crons = ["0 3 * * *"]`) вызывает `scheduled` в `worker.ts`, который запускает `runStorageCleanup` (`src/lib/storageCleanup.ts`). Джоба постранично перечисляет объекты бакета `card-images` строго под префиксом `cards/`, принимает только пути вида `cards/<uuid>.(jpg|png|webp)`, рассматривает объекты старше 7 суток (`CLEANUP_GRACE_PERIOD_DAYS`) и сверяет их с `card_images.storage_path` (batch-запросом, затем повторно — непосредственно перед удалением, чтобы закрыть race window). Удаление — через отдельный строгий helper (`deleteStorageObjectsStrict` в `src/lib/storage.ts`), который возвращает точный список удалённых/неудалённых путей и не скрывает частичный сбой (в отличие от best-effort `deleteStorageObjects`, используемого при редактировании/удалении карточек). Один запуск ограничен `CLEANUP_MAX_SCANNED_OBJECTS` (2000) просмотренных и `CLEANUP_MAX_DELETE_PER_RUN` (500) удалённых объектов; состояние между запусками не хранится, поэтому джоба идемпотентна.
 
 `STORAGE_CLEANUP_DRY_RUN` (`wrangler.toml [vars]`, по умолчанию `"true"`) — при dry-run джоба только логирует scanned/candidates/deleted/failed и список путей-кандидатов (без токенов, URL и PII — только `storage_path`), реального удаления не происходит. Первый production-запуск обязателен в dry-run; переключение на `"false"` (реальное удаление) — только после ручной проверки кандидатов по логам (`wrangler tail`) и отдельного deploy. Удаление необратимо: откат Cron Trigger не восстанавливает уже удалённые объекты.
+
+Тот же daily cron при наличии приватного R2 binding `STORAGE_BACKUP` создаёт versioned snapshot
+объектов `cards/` и JSON manifest. Manifest с `complete=false` означает, что сработал safety
+budget или отдельный объект не скопировался; такой snapshot не считается полноценной точкой
+восстановления и должен попасть в операционный разбор.

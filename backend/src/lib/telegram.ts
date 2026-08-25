@@ -1,9 +1,13 @@
 import type { WidgetLoginInput } from "@agromarket/contracts";
 import type { TelegramUser } from "../repos/users";
 import { HttpError } from "./errors";
+import { isPlausibleTelegramId } from "./telegramId";
 
-/** Окно свежести подписи (auth_date) — 24 часа. */
-const MAX_AUTH_AGE_SEC = 24 * 60 * 60;
+/** Окно свежести подписи Mini App — 24 часа. */
+const INIT_DATA_MAX_AUTH_AGE_SEC = 24 * 60 * 60;
+/** Login Widget redirect — одноразовый короткоживущий proof, не bearer-сессия. */
+const WIDGET_MAX_AUTH_AGE_SEC = 5 * 60;
+const MAX_FUTURE_SKEW_SEC = 30;
 
 const encoder = new TextEncoder();
 
@@ -47,9 +51,13 @@ function buildDataCheckString(entries: [string, string][]): string {
     .join("\n");
 }
 
-function assertFresh(authDate: number): void {
+function assertFresh(authDate: number, maxAgeSec: number): void {
   const now = Math.floor(Date.now() / 1000);
-  if (!Number.isFinite(authDate) || now - authDate > MAX_AUTH_AGE_SEC) {
+  if (
+    !Number.isFinite(authDate)
+    || authDate > now + MAX_FUTURE_SKEW_SEC
+    || now - authDate > maxAgeSec
+  ) {
     throw new HttpError(401, "Данные авторизации устарели, попробуйте ещё раз");
   }
 }
@@ -77,18 +85,28 @@ export async function validateInitData(initData: string, botToken: string): Prom
     throw new HttpError(401, "Не удалось подтвердить личность Telegram");
   }
 
-  assertFresh(Number(params.get("auth_date")));
+  assertFresh(Number(params.get("auth_date")), INIT_DATA_MAX_AUTH_AGE_SEC);
 
   const userRaw = params.get("user");
   if (!userRaw) {
     throw new HttpError(401, "Отсутствуют данные пользователя Telegram");
   }
-  const user = JSON.parse(userRaw) as {
-    id: number;
+  let user: {
+    id?: number;
     username?: string;
     first_name?: string;
     last_name?: string;
   };
+  try {
+    const parsed: unknown = JSON.parse(userRaw);
+    if (typeof parsed !== "object" || parsed === null) throw new Error("not an object");
+    user = parsed as typeof user;
+  } catch {
+    throw new HttpError(401, "Некорректные данные пользователя Telegram");
+  }
+  if (!isPlausibleTelegramId(user.id)) {
+    throw new HttpError(401, "Некорректный идентификатор Telegram");
+  }
 
   return {
     id: user.id,
@@ -134,7 +152,11 @@ export async function validateContactResponse(
 
   const authDate = Number(params.get("auth_date"));
   const now = Math.floor(Date.now() / 1000);
-  if (!Number.isFinite(authDate) || now - authDate > CONTACT_MAX_AGE_SEC) {
+  if (
+    !Number.isFinite(authDate)
+    || authDate > now + MAX_FUTURE_SKEW_SEC
+    || now - authDate > CONTACT_MAX_AGE_SEC
+  ) {
     throw new HttpError(401, "Данные контакта устарели, поделитесь контактом ещё раз");
   }
 
@@ -142,13 +164,19 @@ export async function validateContactResponse(
   if (!contactRaw) {
     throw new HttpError(400, "Отсутствуют данные контакта Telegram");
   }
-  let contact: { phone_number?: string; user_id?: number };
+  let contact: { phone_number?: unknown; user_id?: unknown };
   try {
-    contact = JSON.parse(contactRaw) as { phone_number?: string; user_id?: number };
+    const parsed: unknown = JSON.parse(contactRaw);
+    if (typeof parsed !== "object" || parsed === null) throw new Error("not an object");
+    contact = parsed as { phone_number?: unknown; user_id?: unknown };
   } catch {
     throw new HttpError(400, "Некорректные данные контакта Telegram");
   }
-  if (!contact.phone_number || typeof contact.user_id !== "number") {
+  if (
+    typeof contact.phone_number !== "string"
+    || contact.phone_number.trim().length === 0
+    || !isPlausibleTelegramId(contact.user_id)
+  ) {
     throw new HttpError(400, "Некорректные данные контакта Telegram");
   }
 
@@ -178,7 +206,10 @@ export async function validateWidgetLogin(
     throw new HttpError(401, "Не удалось подтвердить вход через Telegram");
   }
 
-  assertFresh(data.auth_date);
+  assertFresh(data.auth_date, WIDGET_MAX_AUTH_AGE_SEC);
+  if (!isPlausibleTelegramId(data.id)) {
+    throw new HttpError(401, "Некорректный идентификатор Telegram");
+  }
 
   return {
     id: data.id,

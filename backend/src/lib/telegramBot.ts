@@ -131,6 +131,8 @@ export interface InlineKeyboardMarkup {
   inline_keyboard: { text: string; url: string }[][];
 }
 
+const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
+
 /**
  * Deep link на заявку в админке через Mini App: `t.me/<бот>/<приложение>?startapp=…`.
  * Возвращает `null`, если username бота или shortname Mini App не заданы в окружении —
@@ -155,6 +157,7 @@ export async function sendTelegramMessage(
     const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
       body: JSON.stringify({
         chat_id: chatId,
         text: html,
@@ -188,6 +191,7 @@ export async function sendTelegramPhoto(
     const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
       body: JSON.stringify({
         chat_id: chatId,
         photo: photoUrl,
@@ -212,15 +216,25 @@ export async function sendTelegramPhoto(
  * с одной немедленной повторной попыткой: сбой не должен ломать создание
  * заявки/сообщения обратной связи (заявка в любом случае видна в админке).
  */
-export async function sendAdminNotification(
+export async function sendAdminNotificationResult(
   env: AppEnv,
   chatId: string,
   html: string,
   replyMarkup?: InlineKeyboardMarkup
-): Promise<void> {
-  if (await sendTelegramMessage(env, chatId, html, replyMarkup)) return;
+): Promise<boolean> {
+  if (await sendTelegramMessage(env, chatId, html, replyMarkup)) return true;
   await new Promise((resolve) => setTimeout(resolve, 500));
-  if (!(await sendTelegramMessage(env, chatId, html, replyMarkup))) {
-    console.error("sendAdminNotification: уведомление не доставлено после повторной попытки");
-  }
+  const delivered = await sendTelegramMessage(env, chatId, html, replyMarkup);
+  if (!delivered) console.error("sendAdminNotification: уведомление не доставлено после повторной попытки");
+  return delivered;
+}
+
+/** Backward-compatible fire-and-forget API for non-critical callers. */
+export async function sendAdminNotification(
+  env: AppEnv,
+  chatId: string,
+  html: string,
+  replyMarkup?: InlineKeyboardMarkup,
+): Promise<void> {
+  await sendAdminNotificationResult(env, chatId, html, replyMarkup);
 }

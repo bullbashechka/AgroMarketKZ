@@ -40,8 +40,10 @@ export function LoginScreen() {
     handledRedirect.current = true;
     const parsed = parseWidgetRedirect(window.location.search);
     if (parsed) {
-      loginWidget(parsed);
+      // Remove the signed Telegram payload before any asynchronous network
+      // work. The URL is otherwise copied into history, referrers or screenshots.
       window.history.replaceState(null, "", window.location.pathname);
+      loginWidget(parsed);
     }
   }, [loginWidget]);
 

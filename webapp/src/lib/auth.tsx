@@ -78,7 +78,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setUnauthorizedHandler(async () => {
-      await qc.invalidateQueries({ queryKey: PROFILE_KEY });
+      // A 401 is a session boundary, not a normal stale-query event. Clear
+      // every cached query so contact/admin data cannot remain visible after
+      // an expired or revoked token.
+      qc.clear();
     });
     return () => setUnauthorizedHandler(undefined);
   }, [qc]);
@@ -96,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [profileQuery.data]);
 
   const loginMutation = useMutation({
-    mutationFn: (data: WidgetLoginInput) => apiPost<AuthResponse>("/auth/widget", data),
+    mutationFn: (data: WidgetLoginInput) => apiPost<AuthResponse>("/auth/widget/exchange", data),
     onSuccess: ({ token, profile }) => {
       setToken(token);
       qc.setQueryData(PROFILE_KEY, profile);

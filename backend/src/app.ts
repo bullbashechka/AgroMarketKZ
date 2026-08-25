@@ -87,6 +87,9 @@ export function createApp(options: AppOptions = {}) {
   app.use("*", async (c, next) => {
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Referrer-Policy", "no-referrer");
+    // API responses can contain profile, contact and admin data. Never let a
+    // browser, intermediary or an accidental public cache persist them.
+    c.header("Cache-Control", "no-store");
     await next();
   });
 

@@ -81,6 +81,11 @@ describe("validateInitData", () => {
     const initData = await buildInitData(now() - 25 * 60 * 60);
     await expect(validateInitData(initData, BOT_TOKEN)).rejects.toThrow();
   });
+
+  test("отклоняет auth_date из далёкого будущего", async () => {
+    const initData = await buildInitData(now() + 31);
+    await expect(validateInitData(initData, BOT_TOKEN)).rejects.toThrow();
+  });
 });
 
 /** Собирает валидную подписанную строку ответа requestContact. */
@@ -120,6 +125,11 @@ describe("validateContactResponse", () => {
     await expect(validateContactResponse(response, BOT_TOKEN)).rejects.toThrow();
   });
 
+  test("отклоняет auth_date из далёкого будущего", async () => {
+    const response = await buildContactResponse(now() + 31);
+    await expect(validateContactResponse(response, BOT_TOKEN)).rejects.toThrow();
+  });
+
   test("отклоняет payload без contact", async () => {
     const response = await buildContactResponse(now(), null);
     await expect(validateContactResponse(response, BOT_TOKEN)).rejects.toThrow();
@@ -127,6 +137,11 @@ describe("validateContactResponse", () => {
 
   test("отклоняет contact без телефона или user_id", async () => {
     const response = await buildContactResponse(now(), { first_name: "Aidos" });
+    await expect(validateContactResponse(response, BOT_TOKEN)).rejects.toThrow();
+  });
+
+  test("отклоняет contact с нечисловым или синтетически невозможным user_id", async () => {
+    const response = await buildContactResponse(now(), { phone_number: "77011234567", user_id: "777" });
     await expect(validateContactResponse(response, BOT_TOKEN)).rejects.toThrow();
   });
 });
@@ -145,6 +160,11 @@ describe("validateWidgetLogin", () => {
 
   test("отклоняет устаревший auth_date", async () => {
     const data = await buildWidget(now() - 25 * 60 * 60);
+    await expect(validateWidgetLogin(data, BOT_TOKEN)).rejects.toThrow();
+  });
+
+  test("отклоняет Widget proof старше пяти минут", async () => {
+    const data = await buildWidget(now() - 6 * 60);
     await expect(validateWidgetLogin(data, BOT_TOKEN)).rejects.toThrow();
   });
 });

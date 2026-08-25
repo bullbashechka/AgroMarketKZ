@@ -73,7 +73,10 @@ export async function findAuthUserCached(
   telegramId: number,
 ): Promise<{ tokenVersion: number; isRegistered: boolean } | undefined> {
   const kv = env.AUTH_CACHE_KV;
-  if (!kv) return findAuthUser(env, userId, telegramId);
+  // Session revocation is a security boundary. Cache use must be an explicit
+  // capacity choice; production defaults to a live DB read so token_version
+  // changes take effect immediately even if KV invalidation is delayed.
+  if (!kv || env.AUTH_CACHE_MODE === "disabled") return findAuthUser(env, userId, telegramId);
 
   const key = authCacheKey(userId);
   const cached = await kv.get<AuthCacheEntry>(key, "json").catch(() => null);

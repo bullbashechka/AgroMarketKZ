@@ -57,6 +57,11 @@ export async function createFeedback(
       )
       returning *
     `;
+    await tx`
+      insert into app_private.notification_outbox (event_type, feedback_id)
+      values ('feedback', ${row!.id})
+      on conflict (feedback_id) where feedback_id is not null do nothing
+    `;
     return row!;
   });
 }
