@@ -1,12 +1,12 @@
 import type { CardListItem } from "@agromarket/contracts";
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { type CardListRow, toCardListItem } from "./catalog";
 
 /** Добавляет карточку в избранное. 404, если карточки не существует. Идемпотентно. */
-export async function addFavorite(env: AppEnv, userId: string, cardId: string): Promise<void> {
-  const sql = getDb(env);
+export async function addFavorite(env: AppEnv, userId: string, cardId: string, db: Database): Promise<void> {
+  const sql = db.sql;
   const [card] = await sql<{ id: string }[]>`
     select id from cards
     where id = ${cardId} and published_at is not null and archived_at is null
@@ -22,14 +22,14 @@ export async function addFavorite(env: AppEnv, userId: string, cardId: string): 
 }
 
 /** Убирает карточку из избранного. Идемпотентно — отсутствие записи не ошибка. */
-export async function removeFavorite(env: AppEnv, userId: string, cardId: string): Promise<void> {
-  const sql = getDb(env);
+export async function removeFavorite(env: AppEnv, userId: string, cardId: string, db: Database): Promise<void> {
+  const sql = db.sql;
   await sql`delete from favorites where user_id = ${userId} and card_id = ${cardId}`;
 }
 
 /** Список избранного пользователя (карточки-превью), новые сверху. Архив исключён. */
-export async function listFavorites(env: AppEnv, userId: string): Promise<CardListItem[]> {
-  const sql = getDb(env);
+export async function listFavorites(env: AppEnv, userId: string, db: Database): Promise<CardListItem[]> {
+  const sql = db.sql;
   const rows = await sql<CardListRow[]>`
     select
       c.id, c.type, c.category_id, c.title, c.price_type, c.price_amount,

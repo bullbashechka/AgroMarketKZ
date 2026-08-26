@@ -1,5 +1,5 @@
 import type { PaginationQuery, Profile } from "@agromarket/contracts";
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { isAdmin } from "../lib/admin";
 import { paginateRows, type PaginatedResult } from "../lib/pagination";
@@ -28,8 +28,8 @@ export interface TelegramUser {
 }
 
 /** Находит пользователя по Telegram id. */
-export async function findByTelegramId(env: AppEnv, telegramId: number): Promise<UserRow | undefined> {
-  const sql = getDb(env);
+export async function findByTelegramId(env: AppEnv, telegramId: number, db: Database): Promise<UserRow | undefined> {
+  const sql = db.sql;
   const [row] = await sql<UserRow[]>`
     select * from users where telegram_id = ${telegramId} limit 1
   `;
@@ -41,8 +41,9 @@ export async function findAuthUser(
   env: AppEnv,
   userId: string,
   telegramId: number,
+  db: Database,
 ): Promise<{ tokenVersion: number; isRegistered: boolean } | undefined> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = await sql<{ token_version: number; registered_at: Date | null }[]>`
     select token_version, registered_at
     from users
@@ -71,12 +72,13 @@ export async function findAuthUserCached(
   env: AppEnv,
   userId: string,
   telegramId: number,
+  db: Database,
 ): Promise<{ tokenVersion: number; isRegistered: boolean } | undefined> {
   const kv = env.AUTH_CACHE_KV;
   // Session revocation is a security boundary. Cache use must be an explicit
   // capacity choice; production defaults to a live DB read so token_version
   // changes take effect immediately even if KV invalidation is delayed.
-  if (!kv || env.AUTH_CACHE_MODE === "disabled") return findAuthUser(env, userId, telegramId);
+  if (!kv || env.AUTH_CACHE_MODE === "disabled") return findAuthUser(env, userId, telegramId, db);
 
   const key = authCacheKey(userId);
   const cached = await kv.get<AuthCacheEntry>(key, "json").catch(() => null);
@@ -84,7 +86,7 @@ export async function findAuthUserCached(
     return cached;
   }
 
-  const fresh = await findAuthUser(env, userId, telegramId);
+  const fresh = await findAuthUser(env, userId, telegramId, db);
   if (fresh) {
     kv.put(key, JSON.stringify(fresh), { expirationTtl: AUTH_CACHE_TTL_SECONDS }).catch(() => {});
   }
@@ -97,8 +99,8 @@ async function invalidateAuthCache(env: AppEnv, userId: string): Promise<void> {
 }
 
 /** Атомарно отзывает все JWT пользователя, выпущенные до текущей версии сессии. */
-export async function revokeUserSessions(env: AppEnv, userId: string): Promise<boolean> {
-  const sql = getDb(env);
+export async function revokeUserSessions(env: AppEnv, userId: string, db: Database): Promise<boolean> {
+  const sql = db.sql;
   const rows = await sql<{ id: string }[]>`
     update users
     set token_version = token_version + 1
@@ -114,8 +116,8 @@ export async function revokeUserSessions(env: AppEnv, userId: string): Promise<b
  * Создаёт пользователя или обновляет ЗЕРКАЛО Telegram (username/имя/фамилия).
  * Контактные поля (`contact_*`, `registered_at`) НЕ трогает — они источник правды.
  */
-export async function upsertFromTelegram(env: AppEnv, tg: TelegramUser): Promise<UserRow> {
-  const sql = getDb(env);
+export async function upsertFromTelegram(env: AppEnv, tg: TelegramUser, db: Database): Promise<UserRow> {
+  const sql = db.sql;
   const [row] = await sql<UserRow[]>`
     insert into users (telegram_id, telegram_username, telegram_first_name, telegram_last_name)
     values (${tg.id}, ${tg.username ?? null}, ${tg.firstName ?? null}, ${tg.lastName ?? null})
@@ -133,9 +135,10 @@ export async function register(
   env: AppEnv,
   userId: string,
   data: { contactName: string; contactPhone: string },
+  db: Database,
   verifiedPhone: string | null = null,
 ): Promise<UserRow> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = await sql<UserRow[]>`
     update users set
       contact_name = ${data.contactName},
@@ -156,9 +159,10 @@ export async function register(
 export async function updateContacts(
   env: AppEnv,
   userId: string,
-  data: { contactName: string; contactPhone: string }
+  data: { contactName: string; contactPhone: string },
+  db: Database,
 ): Promise<UserRow> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = await sql<UserRow[]>`
     update users set
       contact_name = ${data.contactName},
@@ -177,9 +181,10 @@ export async function updateContacts(
 /** Зарегистрированные пользователи (админ) — база собранных контактов, новые сверху. */
 export async function listRegisteredUsers(
   env: AppEnv,
-  query: PaginationQuery
+  query: PaginationQuery,
+  db: Database,
 ): Promise<PaginatedResult<Profile>> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const rows = await sql<UserRow[]>`
     select * from users
     where registered_at is not null

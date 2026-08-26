@@ -4,7 +4,11 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ZodError } from "zod";
-import { isConnectionError } from "./db";
+import {
+  createDatabaseInvocation as defaultCreateDatabaseInvocation,
+  isConnectionError,
+  type DatabaseInvocation,
+} from "./db";
 import { type AppEnv, type HonoEnv, resolveEnv } from "./env";
 import { HttpError } from "./lib/errors";
 import { timingSafeEqual } from "./lib/telegram";
@@ -21,6 +25,10 @@ import { telegramRoutes } from "./routes/telegram";
 type AppOptions = {
   /** Локальный override окружения (Bun.env). На Workers не передаётся — используется c.env. */
   env?: Partial<AppEnv>;
+  /** Test seam and invocation-owned provider; production uses the default provider. */
+  createDatabaseInvocation?: (env: AppEnv) => DatabaseInvocation;
+  /** Bun owns local client disposal; Workers leave cleanup to Hyperdrive/platform. */
+  disposeDatabase?: boolean;
 };
 
 export const JSON_BODY_LIMIT_BYTES = 256 * 1024;
@@ -81,8 +89,20 @@ export function createApp(options: AppOptions = {}) {
 
   // Слияние окружения: Workers-биндинги (c.env) + локальный override (Bun.env).
   app.use("*", async (c, next) => {
-    c.set("env", resolveEnv(c.env, options.env));
-    await next();
+    const env = resolveEnv(c.env, options.env);
+    const database = (options.createDatabaseInvocation ?? defaultCreateDatabaseInvocation)(env);
+    const backgroundTasks = new Set<Promise<unknown>>();
+    c.set("env", env);
+    c.set("database", database);
+    c.set("backgroundTasks", backgroundTasks);
+    try {
+      await next();
+    } finally {
+      if (options.disposeDatabase) {
+        await Promise.allSettled([...backgroundTasks]);
+        await database.dispose();
+      }
+    }
   });
 
   app.use("*", async (c, next) => {

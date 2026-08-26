@@ -1,6 +1,6 @@
 import { adminPlatformSettingsSchema, updateSettingsInput } from "@agromarket/contracts";
 import { Hono } from "hono";
-import { getEnv, type HonoEnv } from "../../env";
+import { getDatabase, getEnv, type HonoEnv } from "../../env";
 import { HttpError } from "../../lib/errors";
 import { getAdminSettings, updateSettings } from "../../repos/settings";
 
@@ -9,7 +9,7 @@ export const adminSettingsRoutes = new Hono<HonoEnv>();
 /** Настройки площадки для админа (включая `adminChatId`). */
 adminSettingsRoutes.get("/", async (c) => {
   const env = getEnv(c);
-  const settings = await getAdminSettings(env);
+  const settings = await getAdminSettings(env, getDatabase(c));
   return c.json(adminPlatformSettingsSchema.parse(settings));
 });
 
@@ -23,6 +23,6 @@ adminSettingsRoutes.patch("/", async (c) => {
       throw new HttpError(403, "Только владелец может менять чат уведомлений");
     }
   }
-  const settings = await updateSettings(env, input);
+  const settings = await updateSettings(env, input, getDatabase(c));
   return c.json(adminPlatformSettingsSchema.parse(settings));
 });

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getEnv, type HonoEnv } from "../../env";
+import { getDatabase, getEnv, type HonoEnv } from "../../env";
 import { requireAdmin } from "../../middleware/admin";
 import { requireAuth } from "../../middleware/auth";
 import { appendAdminAuditEvent } from "../../repos/adminAudit";
@@ -34,7 +34,7 @@ adminRoutes.use("*", requireAuth, requireAdmin, async (c, next) => {
     targetType: target.split("/")[0] ?? "admin",
     targetId,
     metadata: { status: c.res.status },
-  });
+  }, getDatabase(c));
 });
 
 adminRoutes.route("/categories", adminCategoriesRoutes);

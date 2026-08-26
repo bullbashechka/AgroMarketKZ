@@ -1,5 +1,5 @@
 import type { AppEnv } from "../env";
-import { getDb, getIdempotentDb } from "../db";
+import type { Database, IdempotentDatabase } from "../db";
 import { HttpError } from "./errors";
 import {
   buildRequestDeepLink,
@@ -31,8 +31,8 @@ function retryDelaySeconds(attempts: number): number {
   return Math.min(MAX_RETRY_DELAY_SECONDS, Math.max(30, 2 ** Math.min(attempts, 10)));
 }
 
-async function claimOutbox(env: AppEnv, outboxId: string): Promise<OutboxRow | undefined> {
-  const sql = getDb(env);
+async function claimOutbox(env: AppEnv, outboxId: string, db: Database): Promise<OutboxRow | undefined> {
+  const sql = db.sql;
   const [row] = await sql<OutboxRow[]>`
     update app_private.notification_outbox
     set status = 'processing',
@@ -48,8 +48,8 @@ async function claimOutbox(env: AppEnv, outboxId: string): Promise<OutboxRow | u
   return row;
 }
 
-async function markSent(env: AppEnv, outboxId: string): Promise<void> {
-  const sql = getDb(env);
+async function markSent(env: AppEnv, outboxId: string, db: Database): Promise<void> {
+  const sql = db.sql;
   await sql`
     update app_private.notification_outbox
     set status = 'sent', sent_at = now(), processing_at = null, last_error = null
@@ -57,8 +57,8 @@ async function markSent(env: AppEnv, outboxId: string): Promise<void> {
   `;
 }
 
-async function markFailure(env: AppEnv, outboxId: string, attempts: number, error: string): Promise<void> {
-  const sql = getDb(env);
+async function markFailure(env: AppEnv, outboxId: string, attempts: number, error: string, db: Database): Promise<void> {
+  const sql = db.sql;
   const status = attempts >= MAX_OUTBOX_ATTEMPTS ? "dead_letter" : "pending";
   await sql`
     update app_private.notification_outbox
@@ -74,12 +74,12 @@ function appendEventId(html: string, outboxId: string): string {
   return `${html}\n<code>Событие: ${escapeHtml(outboxId)}</code>`;
 }
 
-async function sendRequestNotification(env: AppEnv, outbox: OutboxRow, chatId: string): Promise<boolean> {
+async function sendRequestNotification(env: AppEnv, outbox: OutboxRow, chatId: string, db: Database): Promise<boolean> {
   if (!outbox.request_id) throw new HttpError(500, "Уведомление заявки не связано с заявкой");
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = await sql<RequestRow[]>`select * from requests where id = ${outbox.request_id}`;
   if (!row) throw new HttpError(404, "Заявка для уведомления не найдена");
-  const request = await toRequest(env, row);
+  const request = await toRequest(env, row, db);
   const [user] = await sql<{ telegram_username: string | null }[]>`
     select telegram_username from users where id = ${row.user_id}
   `;
@@ -105,9 +105,9 @@ async function sendRequestNotification(env: AppEnv, outbox: OutboxRow, chatId: s
   return sendAdminNotificationResult(env, chatId, appendEventId(html, outbox.id), replyMarkup);
 }
 
-async function sendFeedbackNotification(env: AppEnv, outbox: OutboxRow, chatId: string): Promise<boolean> {
+async function sendFeedbackNotification(env: AppEnv, outbox: OutboxRow, chatId: string, db: Database): Promise<boolean> {
   if (!outbox.feedback_id) throw new HttpError(500, "Уведомление feedback не связано с обращением");
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = await sql<FeedbackRow[]>`select * from feedback_messages where id = ${outbox.feedback_id}`;
   if (!row) throw new HttpError(404, "Обращение для уведомления не найдено");
   const [user] = await sql<{ telegram_username: string | null }[]>`
@@ -127,29 +127,30 @@ async function sendFeedbackNotification(env: AppEnv, outbox: OutboxRow, chatId: 
 export async function processNotificationOutbox(
   env: AppEnv,
   outboxId: string,
+  db: Database,
 ): Promise<boolean> {
-  const outbox = await claimOutbox(env, outboxId);
+  const outbox = await claimOutbox(env, outboxId, db);
   if (!outbox) return true;
 
-  const chatId = await getAdminChatId(env);
+  const chatId = await getAdminChatId(env, db);
   if (!chatId) {
-    await markFailure(env, outboxId, outbox.attempts, "admin_chat_id is not configured");
+    await markFailure(env, outboxId, outbox.attempts, "admin_chat_id is not configured", db);
     return false;
   }
 
   try {
     const delivered = outbox.event_type === "request"
-      ? await sendRequestNotification(env, outbox, chatId)
-      : await sendFeedbackNotification(env, outbox, chatId);
+      ? await sendRequestNotification(env, outbox, chatId, db)
+      : await sendFeedbackNotification(env, outbox, chatId, db);
     if (delivered) {
-      await markSent(env, outboxId);
+      await markSent(env, outboxId, db);
       return true;
     }
-    await markFailure(env, outboxId, outbox.attempts, "Telegram Bot API rejected the message");
+    await markFailure(env, outboxId, outbox.attempts, "Telegram Bot API rejected the message", db);
     return false;
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown notification error";
-    await markFailure(env, outboxId, outbox.attempts, message);
+    await markFailure(env, outboxId, outbox.attempts, message, db);
     return false;
   }
 }
@@ -157,12 +158,13 @@ export async function processNotificationOutbox(
 export async function dispatchNotificationOutbox(
   env: AppEnv,
   outboxId: string,
+  db: Database,
 ): Promise<void> {
   if (env.NOTIFICATION_QUEUE) {
     await env.NOTIFICATION_QUEUE.send({ outboxId });
     return;
   }
-  await processNotificationOutbox(env, outboxId);
+  await processNotificationOutbox(env, outboxId, db);
 }
 
 /** Enqueues an event or processes it directly when local bindings are absent. */
@@ -170,8 +172,9 @@ export async function dispatchNotificationForEntity(
   env: AppEnv,
   eventType: "request" | "feedback",
   entityId: string,
+  db: Database,
 ): Promise<void> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = eventType === "request"
     ? await sql<Pick<OutboxRow, "id">[]>`
         select id from app_private.notification_outbox
@@ -188,12 +191,12 @@ export async function dispatchNotificationForEntity(
         limit 1
       `;
   if (!row) return;
-  await dispatchNotificationOutbox(env, row.id);
+  await dispatchNotificationOutbox(env, row.id, db);
 }
 
 /** Reconciles events whose enqueue ack was lost; safe to run from cron. */
-export async function reconcileNotificationOutbox(env: AppEnv): Promise<void> {
-  const sql = getIdempotentDb(env);
+export async function reconcileNotificationOutbox(env: AppEnv, db: IdempotentDatabase): Promise<void> {
+  const sql = db.retryIdempotentStandalone;
   const rows = await sql<Pick<OutboxRow, "id">[]>`
     select id from app_private.notification_outbox
     where status = 'pending' and next_attempt_at <= now()
@@ -201,7 +204,7 @@ export async function reconcileNotificationOutbox(env: AppEnv): Promise<void> {
     limit 50
   `;
   for (const row of rows) {
-    await dispatchNotificationOutbox(env, row.id).catch((error) => {
+    await dispatchNotificationOutbox(env, row.id, db).catch((error) => {
       console.error("notification outbox reconcile failed", { outboxId: row.id, error });
     });
   }

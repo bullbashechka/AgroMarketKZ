@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getEnv, type HonoEnv } from "../env";
+import { getDatabase, getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { timingSafeEqual } from "../lib/telegram";
 import { classifyUpdate, getTelegramUpdateId } from "../lib/telegramWebhook";
@@ -25,7 +25,8 @@ telegramRoutes.post("/webhook", async (c) => {
   const updateId = getTelegramUpdateId(update);
   if (updateId === undefined) return c.json({ ok: true });
   const action = classifyUpdate(update, parseAllowlist(env));
-  const accepted = await acceptTelegramUpdate(env, updateId, action);
+  const db = getDatabase(c);
+  const accepted = await acceptTelegramUpdate(env, updateId, action, db);
   if (!accepted) return c.json({ ok: true });
 
   if (env.TELEGRAM_UPDATE_QUEUE) {
@@ -35,7 +36,7 @@ telegramRoutes.post("/webhook", async (c) => {
       throw new HttpError(503, "Временная ошибка очереди вебхука", { retryable: true });
     }
   } else {
-    const completed = await processTelegramUpdate(env, updateId);
+    const completed = await processTelegramUpdate(env, updateId, db);
     if (!completed) throw new HttpError(503, "Временная ошибка обработки вебхука", { retryable: true });
   }
   return c.json({ ok: true });

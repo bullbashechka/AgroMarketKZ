@@ -4,6 +4,16 @@
 **Этап:** 1  
 **Оценка:** M  
 **Зависимости:** нет; должна предшествовать широкому repository-рефакторингу.
+**Статус:** ✅ Выполнено (2026-08-26; финальный code review: 10/10)
+
+## Фактическое выполнение
+
+- DB capability теперь создаётся внутри HTTP request, queue batch или scheduled invocation; module-global client/reconnect state удалён.
+- Обычные standalone-запросы и transaction callback не повторяются после transport failure. Единственный повтор доступен через явно названный `retryIdempotentStandalone`; поздний отказ устаревшего client не создаёт лишний replacement.
+- Локальный Bun lifecycle дожидается зарегистрированных `runInBackground` задач и закрывает принадлежащие invocation clients; Worker оставляет cleanup Hyperdrive/платформе.
+- Добавлены lifecycle, retry, transaction и concurrent-failure regression tests; repository/routes/queue/scheduled consumers переведены на явную DB capability.
+- Проверено: полный unit/contract набор — 249 pass, 17 integration tests skipped без `TEST_DATABASE_URL`, 0 fail; `bun run typecheck` — успешно; `bun run build` — успешно, с уже известным `EPERM` Wrangler при записи локального log-файла.
+- Live Worker/Hyperdrive smoke и origin connection count в эту локальную реализацию не входят и остаются отдельной эксплуатационной проверкой перед rollout.
 
 ## Проблема и доказательства
 

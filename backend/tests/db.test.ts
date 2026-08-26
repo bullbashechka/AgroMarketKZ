@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
+import {
+  POSTGRES_POOL_OPTIONS,
+  createDatabaseInvocation,
+  isConnectionError,
+} from "../src/db";
 import { HttpError } from "../src/lib/errors";
-import { POSTGRES_POOL_OPTIONS, isConnectionError, withReconnect, type ClientHooks } from "../src/db";
 
 function cloudflareSocketWriteError(): Error {
   const error = new Error("");
@@ -16,19 +20,14 @@ function cloudflareSocketWriteError(): Error {
 }
 
 describe("POSTGRES_POOL_OPTIONS", () => {
-  test("задаёт безопасные параметры пула без переопределения max_lifetime", () => {
+  test("держит один логический client на invocation и не переопределяет max_lifetime", () => {
     expect(POSTGRES_POOL_OPTIONS).toEqual({
-      max: 3,
+      max: 1,
       idle_timeout: 20,
       connect_timeout: 10,
       prepare: false,
     });
-    expect(
-      Object.prototype.hasOwnProperty.call(
-        POSTGRES_POOL_OPTIONS,
-        "max_lifetime",
-      ),
-    ).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(POSTGRES_POOL_OPTIONS, "max_lifetime")).toBe(false);
   });
 });
 
@@ -37,7 +36,7 @@ describe("isConnectionError", () => {
     expect(isConnectionError(new HttpError(409, "уже использовано"))).toBe(false);
   });
 
-  test("ошибки самого запроса (PostgresError, напр. constraint violation) не ретраятся", () => {
+  test("ошибки самого запроса (PostgresError, например constraint violation) не ретраятся", () => {
     const pgError = new postgres.PostgresError({
       message: "duplicate key value violates unique constraint",
       code: "23505",
@@ -60,12 +59,12 @@ describe("isConnectionError", () => {
   });
 });
 
-/** Фейковый клиент postgres.js: callable-функция (tagged template) + `.begin`/`.end`. */
+type QueryOutcome = "ok" | "fail" | "cloudflare-write-fail";
+type BeginOutcome = QueryOutcome | "cloudflare-write-fail-after-callback";
+
 function makeFakeClient(
-  queryOutcomes: Array<"ok" | "fail" | "cloudflare-write-fail">,
-  beginOutcomes: Array<
-    "ok" | "fail" | "cloudflare-write-fail" | "cloudflare-write-fail-after-callback"
-  > = [],
+  queryOutcomes: QueryOutcome[],
+  beginOutcomes: BeginOutcome[] = [],
 ) {
   let queryCalls = 0;
   let beginCalls = 0;
@@ -99,108 +98,134 @@ function makeFakeClient(
     },
     end: async () => {
       ended = true;
-    }
+    },
   });
   return {
     target,
     queryCalls: () => queryCalls,
     beginCalls: () => beginCalls,
-    isEnded: () => ended
-  };
-}
-
-function makeHooks(initial: Sql, create: () => Sql): ClientHooks {
-  let current = initial;
-  return {
-    get: () => current,
-    set: (next) => {
-      current = next;
-    },
-    create
+    isEnded: () => ended,
   };
 }
 
 function tag(sql: Sql) {
-  return sql as unknown as (strings: TemplateStringsArray) => Promise<unknown>;
+  return sql as unknown as (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
 }
 
-describe("withReconnect", () => {
-  test("обычный standalone write не ретраится после обрыва, но клиент восстанавливается", async () => {
+describe("createDatabaseInvocation", () => {
+  test("обычный standalone write не ретраится после обрыва, но следующий запрос получает новый client", async () => {
     const first = makeFakeClient(["fail"]);
     const second = makeFakeClient(["ok"]);
-    const hooks = makeHooks(first.target, () => second.target);
+    const clients = [first.target, second.target];
+    let factoryCalls = 0;
+    const db = createDatabaseInvocation({}, {
+      createClient: () => clients[factoryCalls++]!,
+    });
 
-    await expect(tag(withReconnect(hooks))`insert into audit_log default values`).rejects.toThrow(
-      "read ECONNRESET",
-    );
-
+    await expect(tag(db.sql)`insert into audit_log default values`).rejects.toThrow("read ECONNRESET");
     expect(first.queryCalls()).toBe(1);
     expect(second.queryCalls()).toBe(0);
-    expect(hooks.get()).toBe(second.target);
+    expect(factoryCalls).toBe(2);
+
+    await expect(tag(db.sql)`select 1`).resolves.toBe("ok");
+    await db.dispose();
     expect(first.isEnded()).toBe(true);
+    expect(second.isEnded()).toBe(true);
   });
 
-  test("явно идемпотентный запрос ретраится один раз при code-less Cloudflare ошибке", async () => {
+  test("явно идемпотентный tagged-template запрос ретраится ровно один раз", async () => {
     const first = makeFakeClient(["cloudflare-write-fail"]);
     const second = makeFakeClient(["ok"]);
-    const hooks = makeHooks(first.target, () => second.target);
+    let factoryCalls = 0;
+    const db = createDatabaseInvocation({}, {
+      createClient: () => [first.target, second.target][factoryCalls++]!,
+    });
 
-    const result = await tag(withReconnect(hooks, { retryConnectionErrors: true }))`select 1`;
-
-    expect(result).toBe("ok");
+    await expect(db.retryIdempotentStandalone`select 1`).resolves.toBe("ok");
     expect(first.queryCalls()).toBe(1);
     expect(second.queryCalls()).toBe(1);
-    expect(first.isEnded()).toBe(true);
+    expect(factoryCalls).toBe(2);
+    await db.dispose();
   });
 
-  test("code-less Cloudflare ошибка транзакции чинит клиент, но не повторяет callback", async () => {
+  test("транзакция чинит client, но никогда не повторяет callback", async () => {
     const first = makeFakeClient([], ["cloudflare-write-fail-after-callback"]);
     const second = makeFakeClient(["ok"]);
-    const hooks = makeHooks(first.target, () => second.target);
+    let factoryCalls = 0;
+    const db = createDatabaseInvocation({}, {
+      createClient: () => [first.target, second.target][factoryCalls++]!,
+    });
     let callbackCalls = 0;
 
-    await expect(withReconnect(hooks, { retryConnectionErrors: true }).begin(async () => {
+    await expect(db.sql.begin(async () => {
       callbackCalls++;
       return "не должно выполниться";
     })).rejects.toBeDefined();
 
     expect(first.beginCalls()).toBe(1);
     expect(callbackCalls).toBe(1);
-    expect(hooks.get()).toBe(second.target);
     expect(second.beginCalls()).toBe(0);
+    expect(factoryCalls).toBe(2);
+    await db.dispose();
   });
 
-  test("транзакция НЕ ретраится при обрыве, но клиент чинится для следующего getDb()", async () => {
-    const first = makeFakeClient([], ["fail"]);
+  test("два invocation не разделяют client instance", async () => {
+    const first = makeFakeClient(["ok"]);
     const second = makeFakeClient(["ok"]);
-    const hooks = makeHooks(first.target, () => second.target);
+    const invocationA = createDatabaseInvocation({}, { createClient: () => first.target });
+    const invocationB = createDatabaseInvocation({}, { createClient: () => second.target });
 
-    await expect(withReconnect(hooks).begin(async () => "не должно выполниться")).rejects.toThrow(
-      "read ECONNRESET",
-    );
-    expect(first.beginCalls()).toBe(1);
-    expect(hooks.get()).toBe(second.target);
-
-    // Следующий репозиторный вызов получает новый Proxy поверх уже починенного клиента
-    // (как в реальном коде — `getDb(env)` вызывается заново на каждый repo-вызов).
-    const nextResult = await tag(withReconnect(hooks))`select 1`;
-    expect(nextResult).toBe("ok");
+    await expect(tag(invocationA.sql)`select 1`).resolves.toBe("ok");
+    await expect(tag(invocationB.sql)`select 1`).resolves.toBe("ok");
+    expect(first.queryCalls()).toBe(1);
+    expect(second.queryCalls()).toBe(1);
+    await Promise.all([invocationA.dispose(), invocationB.dispose()]);
   });
 
-  test("конкурентные обрывы координируются одним реконнектом с одним end() на старом клиенте", async () => {
+  test("конкурентные запросы используют не более одного replacement client", async () => {
     const first = makeFakeClient(["fail", "fail"]);
     const second = makeFakeClient(["ok", "ok"]);
     let factoryCalls = 0;
-    const hooks = makeHooks(first.target, () => {
-      factoryCalls++;
-      return second.target;
+    const db = createDatabaseInvocation({}, {
+      createClient: () => [first.target, second.target][factoryCalls++]!,
     });
-    const sql = tag(withReconnect(hooks, { retryConnectionErrors: true }));
+    const sql = tag(db.sql);
 
-    const [a, b] = await Promise.all([sql`select 1`, sql`select 1`]);
+    const results = await Promise.allSettled([sql`select 1`, sql`select 1`]);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(2);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(0);
+    expect(factoryCalls).toBe(2);
+    await db.dispose();
+  });
 
-    expect(a).toBe("ok");
-    expect(b).toBe("ok");
-    expect(factoryCalls).toBe(1);
+  test("поздний отказ старого client не создаёт второй replacement", async () => {
+    let queryCalls = 0;
+    let rejectLateQuery!: (error: Error) => void;
+    const firstTarget = ((..._args: unknown[]) => {
+      queryCalls++;
+      if (queryCalls === 1) {
+        return Promise.reject(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }));
+      }
+      return new Promise((_resolve, reject) => {
+        rejectLateQuery = reject;
+      });
+    }) as unknown as Sql;
+    Object.assign(firstTarget, { end: async () => undefined });
+    const second = makeFakeClient(["ok"]);
+    let factoryCalls = 0;
+    const db = createDatabaseInvocation({}, {
+      createClient: () => [firstTarget, second.target][factoryCalls++]!,
+    });
+    const sql = tag(db.sql);
+
+    const firstRequest = sql`select 1`;
+    const lateRequest = sql`select 2`;
+    await expect(firstRequest).rejects.toThrow("read ECONNRESET");
+    expect(factoryCalls).toBe(2);
+
+    rejectLateQuery(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }));
+    await expect(lateRequest).rejects.toThrow("read ECONNRESET");
+    expect(factoryCalls).toBe(2);
+    await db.dispose();
   });
 });

@@ -1,5 +1,5 @@
 import type { CreateFeedbackInput, FeedbackMessage } from "@agromarket/contracts";
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { assertUnderLimit, retryAfterSeconds } from "../lib/rateLimit";
@@ -33,9 +33,10 @@ export function toFeedbackMessage(row: FeedbackRow): FeedbackMessage {
 export async function createFeedback(
   env: AppEnv,
   userId: string,
-  input: CreateFeedbackInput
+  input: CreateFeedbackInput,
+  db: Database,
 ): Promise<FeedbackRow> {
-  const sql = getDb(env);
+  const sql = db.sql;
   return sql.begin(async (tx) => {
     const [user] = await tx<{ verified_phone: string | null }[]>`
       select verified_phone from users where id = ${userId} for update

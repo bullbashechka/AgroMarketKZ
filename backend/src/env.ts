@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { z } from "zod";
+import type { DatabaseInvocation } from "./db";
 
 /** Минимальный structural-контракт нативного Cloudflare Rate Limiting binding. */
 export interface RateLimitBinding {
@@ -81,6 +82,8 @@ export interface AuthUser {
 /** Контекстные переменные Hono. */
 export interface AppVariables {
   env: AppEnv;
+  database: DatabaseInvocation;
+  backgroundTasks: Set<Promise<unknown>>;
   auth: AuthUser;
   requestId: string;
 }
@@ -133,4 +136,9 @@ export function resolveEnv(
 /** Достаёт разрешённое окружение из контекста (его кладёт middleware в `createApp`). */
 export function getEnv(c: Context<HonoEnv>): AppEnv {
   return c.get("env");
+}
+
+/** Доступ к DB capability, принадлежащей текущему request invocation. */
+export function getDatabase(c: Context<HonoEnv>): DatabaseInvocation {
+  return c.get("database");
 }

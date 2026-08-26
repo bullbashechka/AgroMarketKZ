@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { AppEnv } from "../src/env";
+import type { Database } from "../src/db";
 
 type FakeRow = Record<string, unknown>;
 
@@ -23,15 +24,11 @@ function createFakeSql(responses: { select?: FakeRow[]; revoke?: FakeRow[]; regi
 }
 
 let activeSql: ReturnType<typeof createFakeSql>;
-
-// mock.module патчит модуль в реестре Bun на весь процесс (не только для этого файла), поэтому
-// сохраняем остальные экспорты db.ts как есть — иначе сломался бы, например, tests/db.test.ts,
-// который импортирует isConnectionError/withReconnect/POSTGRES_POOL_OPTIONS из того же модуля.
-const realDb = await import("../src/db");
-mock.module("../src/db", () => ({ ...realDb, getDb: () => activeSql }));
-
-// Импорт после mock.module — модуль подменяется в реестре Bun ещё до первого использования.
 const { findAuthUserCached, revokeUserSessions, register } = await import("../src/repos/users");
+
+function activeDb(): Database {
+  return { sql: activeSql as unknown as Database["sql"] };
+}
 
 class KVMock {
   private readonly store = new Map<string, string>();
@@ -78,6 +75,7 @@ describe("findAuthUserCached", () => {
       { AUTH_CACHE_KV: kv, AUTH_CACHE_MODE: "disabled" } as AppEnv,
       USER_ID,
       TELEGRAM_ID,
+      activeDb(),
     );
 
     expect(result).toEqual({ tokenVersion: 4, isRegistered: false });
@@ -90,7 +88,7 @@ describe("findAuthUserCached", () => {
       select: [{ token_version: 999, registered_at: null }], // если вызовется — тест это поймает
     });
 
-    const result = await findAuthUserCached(envWith(kv), USER_ID, TELEGRAM_ID);
+    const result = await findAuthUserCached(envWith(kv), USER_ID, TELEGRAM_ID, activeDb());
 
     expect(result).toEqual({ tokenVersion: 3, isRegistered: true });
     expect(activeSql.calls).toEqual([]);
@@ -101,7 +99,7 @@ describe("findAuthUserCached", () => {
     const kv = new KVMock();
     activeSql = createFakeSql({ select: [{ token_version: 1, registered_at: new Date("2026-01-01") }] });
 
-    const result = await findAuthUserCached(envWith(kv), USER_ID, TELEGRAM_ID);
+    const result = await findAuthUserCached(envWith(kv), USER_ID, TELEGRAM_ID, activeDb());
 
     expect(result).toEqual({ tokenVersion: 1, isRegistered: true });
     expect(activeSql.calls.length).toBe(1);
@@ -113,7 +111,7 @@ describe("findAuthUserCached", () => {
     const kv = new KVMock({ [CACHE_KEY]: { tokenVersion: "oops", isRegistered: true } });
     activeSql = createFakeSql({ select: [{ token_version: 5, registered_at: null }] });
 
-    const result = await findAuthUserCached(envWith(kv), USER_ID, TELEGRAM_ID);
+    const result = await findAuthUserCached(envWith(kv), USER_ID, TELEGRAM_ID, activeDb());
 
     expect(result).toEqual({ tokenVersion: 5, isRegistered: false });
     expect(activeSql.calls.length).toBe(1);
@@ -122,7 +120,7 @@ describe("findAuthUserCached", () => {
   test("без AUTH_CACHE_KV деградирует к прямому SELECT", async () => {
     activeSql = createFakeSql({ select: [{ token_version: 7, registered_at: null }] });
 
-    const result = await findAuthUserCached(envWith(undefined), USER_ID, TELEGRAM_ID);
+    const result = await findAuthUserCached(envWith(undefined), USER_ID, TELEGRAM_ID, activeDb());
 
     expect(result).toEqual({ tokenVersion: 7, isRegistered: false });
   });
@@ -133,7 +131,7 @@ describe("инвалидация кеша", () => {
     const kv = new KVMock({ [CACHE_KEY]: { tokenVersion: 0, isRegistered: true } });
     activeSql = createFakeSql({ revoke: [{ id: USER_ID }] });
 
-    const revoked = await revokeUserSessions(envWith(kv), USER_ID);
+    const revoked = await revokeUserSessions(envWith(kv), USER_ID, activeDb());
 
     expect(revoked).toBe(true);
     expect(kv.deletes).toEqual([CACHE_KEY]);
@@ -143,7 +141,7 @@ describe("инвалидация кеша", () => {
     const kv = new KVMock({ [CACHE_KEY]: { tokenVersion: 0, isRegistered: true } });
     activeSql = createFakeSql({ revoke: [] });
 
-    const revoked = await revokeUserSessions(envWith(kv), USER_ID);
+    const revoked = await revokeUserSessions(envWith(kv), USER_ID, activeDb());
 
     expect(revoked).toBe(false);
     expect(kv.deletes).toEqual([]);
@@ -155,13 +153,13 @@ describe("инвалидация кеша", () => {
       register: [{ id: USER_ID, registered_at: new Date("2026-01-01") } as FakeRow],
     });
 
-    await register(envWith(kv), USER_ID, { contactName: "Аскар", contactPhone: "+77001234567" });
+    await register(envWith(kv), USER_ID, { contactName: "Аскар", contactPhone: "+77001234567" }, activeDb());
 
     expect(kv.deletes).toEqual([CACHE_KEY]);
   });
 
   test("без AUTH_CACHE_KV инвалидация — no-op, не падает", async () => {
     activeSql = createFakeSql({ revoke: [{ id: USER_ID }] });
-    await expect(revokeUserSessions(envWith(undefined), USER_ID)).resolves.toBe(true);
+    await expect(revokeUserSessions(envWith(undefined), USER_ID, activeDb())).resolves.toBe(true);
   });
 });

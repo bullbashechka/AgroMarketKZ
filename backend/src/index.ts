@@ -2,6 +2,7 @@ import { createApp } from "./app";
 import type { AppEnv } from "./env";
 
 const app = createApp({
+  disposeDatabase: true,
   env: {
     APP_ENV: Bun.env.APP_ENV as AppEnv["APP_ENV"],
     WEBAPP_ORIGIN: Bun.env.WEBAPP_ORIGIN,

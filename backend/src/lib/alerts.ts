@@ -1,4 +1,5 @@
 import type { AppEnv } from "../env";
+import type { Database } from "../db";
 import { getAdminChatId } from "../repos/settings";
 import { sendAdminNotification } from "./telegramBot";
 
@@ -82,7 +83,7 @@ async function markSent(env: AppEnv, key: string): Promise<void> {
  * (только *.workers.dev), поэтому счётчики пишет сам app.ts (см. REQUEST_METRICS). Без настроенных
  * REQUEST_METRICS/CF_ANALYTICS_API_TOKEN — молча no-op, не шумит.
  */
-export async function runDbHealthAlertCheck(env: AppEnv): Promise<void> {
+export async function runDbHealthAlertCheck(env: AppEnv, db: Database): Promise<void> {
   if (!env.REQUEST_METRICS || !env.CF_ANALYTICS_API_TOKEN) return;
 
   let window: WindowCounts;
@@ -93,7 +94,7 @@ export async function runDbHealthAlertCheck(env: AppEnv): Promise<void> {
     return;
   }
 
-  const chatId = await getAdminChatId(env);
+  const chatId = await getAdminChatId(env, db);
   if (!chatId) return;
 
   for (const alert of evaluateWindow(window)) {

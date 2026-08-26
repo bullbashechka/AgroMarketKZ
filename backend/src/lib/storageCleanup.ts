@@ -1,4 +1,5 @@
 import type { AppEnv } from "../env";
+import type { Database } from "../db";
 import { findReferencedStoragePaths } from "../repos/cardImages";
 import {
   CARD_IMAGE_PATH_PATTERN,
@@ -89,7 +90,7 @@ export interface CleanupSummary {
  * Идемпотентна: состояние между запусками не хранится, уже удалённые объекты просто не попадут
  * в следующий listing.
  */
-export async function runStorageCleanup(env: AppEnv): Promise<CleanupSummary> {
+export async function runStorageCleanup(env: AppEnv, db: Database): Promise<CleanupSummary> {
   const startedAt = Date.now();
   const dryRun = env.STORAGE_CLEANUP_DRY_RUN !== "false";
   const now = new Date();
@@ -108,7 +109,8 @@ export async function runStorageCleanup(env: AppEnv): Promise<CleanupSummary> {
 
     const referenced = await findReferencedStoragePaths(
       env,
-      page.filter((object) => isCardImagePath(object.storagePath)).map((object) => object.storagePath)
+      page.filter((object) => isCardImagePath(object.storagePath)).map((object) => object.storagePath),
+      db,
     );
     const selection = selectOrphanCandidates(page, referenced, now);
     skippedInvalidPath += selection.skippedInvalidPath.length;
@@ -125,7 +127,7 @@ export async function runStorageCleanup(env: AppEnv): Promise<CleanupSummary> {
 
   if (!dryRun && orphanCandidates.length > 0) {
     for (const batch of chunk(orphanCandidates, CLEANUP_DELETE_BATCH_SIZE)) {
-      const stillReferenced = await findReferencedStoragePaths(env, batch);
+      const stillReferenced = await findReferencedStoragePaths(env, batch, db);
       const confirmed = batch.filter((path) => !stillReferenced.has(path));
       const result = await deleteStorageObjectsStrict(env, confirmed);
       deleted += result.deleted.length;

@@ -1,4 +1,4 @@
-import { getDb, getIdempotentDb } from "../db";
+import type { Database, IdempotentDatabase } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 
@@ -7,8 +7,8 @@ import { HttpError } from "../lib/errors";
  * marketplace aggregates. The retained user row has a non-routable negative
  * Telegram id, so a later Telegram login creates a fresh account.
  */
-export async function deleteAccount(env: AppEnv, userId: string): Promise<void> {
-  const sql = getDb(env);
+export async function deleteAccount(env: AppEnv, userId: string, db: Database): Promise<void> {
+  const sql = db.sql;
   await sql.begin(async (tx) => {
     const [hold] = await tx<{ user_id: string }[]>`
       select user_id from app_private.privacy_holds where user_id = ${userId} for update
@@ -66,20 +66,19 @@ export async function deleteAccount(env: AppEnv, userId: string): Promise<void> 
  * Daily retention job. Legal holds are checked in every destructive predicate;
  * PII is anonymised before deleting an inactive account record's identifiers.
  */
-export async function runPrivacyRetention(env: AppEnv): Promise<void> {
+export async function runPrivacyRetention(env: AppEnv, db: IdempotentDatabase): Promise<void> {
   // Все standalone statements ниже — повторяемые DELETE/absolute anonymisation UPDATE или SELECT.
-  // deleteAccount() использует отдельную транзакцию через обычный getDb() и никогда не ретраится.
-  const sql = getIdempotentDb(env);
-  await sql`
+  // deleteAccount() использует отдельную транзакцию через обычный db.sql и никогда не ретраится.
+  await db.retryIdempotentStandalone`
     delete from app_private.card_image_upload_claims
     where expires_at < now() - interval '1 day'
   `;
-  await sql`
+  await db.retryIdempotentStandalone`
     delete from app_private.user_sessions
     where expires_at < now() - interval '30 days'
        or (revoked_at is not null and revoked_at < now() - interval '30 days')
   `;
-  await sql`
+  await db.retryIdempotentStandalone`
     delete from public.users u
     where u.registered_at is null
       and u.deleted_at is null
@@ -88,7 +87,7 @@ export async function runPrivacyRetention(env: AppEnv): Promise<void> {
       and not exists (select 1 from public.requests r where r.user_id = u.id)
       and not exists (select 1 from public.feedback_messages f where f.user_id = u.id)
   `;
-  await sql`
+  await db.retryIdempotentStandalone`
     update public.requests r
     set contact_name = '[удалено]',
         contact_phone = '[удалено]',
@@ -99,7 +98,7 @@ export async function runPrivacyRetention(env: AppEnv): Promise<void> {
       and r.contact_name <> '[удалено]'
       and not exists (select 1 from app_private.privacy_holds h where h.user_id = r.user_id)
   `;
-  await sql`
+  await db.retryIdempotentStandalone`
     update public.feedback_messages f
     set contact_name = '[удалено]',
         contact_phone = '[удалено]',
@@ -109,7 +108,7 @@ export async function runPrivacyRetention(env: AppEnv): Promise<void> {
       and f.contact_name <> '[удалено]'
       and not exists (select 1 from app_private.privacy_holds h where h.user_id = f.user_id)
   `;
-  const inactive = await sql<{ id: string }[]>`
+  const inactive = await db.retryIdempotentStandalone<{ id: string }[]>`
     select u.id
     from public.users u
     where u.deleted_at is null
@@ -118,5 +117,5 @@ export async function runPrivacyRetention(env: AppEnv): Promise<void> {
     order by u.last_seen_at
     limit 100
   `;
-  for (const user of inactive) await deleteAccount(env, user.id);
+  for (const user of inactive) await deleteAccount(env, user.id, db);
 }

@@ -1,4 +1,4 @@
-import { getDb, getIdempotentDb } from "../db";
+import type { Database, IdempotentDatabase } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 
@@ -20,8 +20,9 @@ export async function consumeWidgetAuthProof(
   proofHash: string,
   telegramId: number,
   authDate: number,
+  db: Database,
 ): Promise<void> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const storedProofHash = await proofDigest(proofHash);
   const [inserted] = await sql`
     insert into app_private.widget_auth_proofs (
@@ -39,10 +40,9 @@ export async function consumeWidgetAuthProof(
 }
 
 /** Удаляет только давно истёкшие одноразовые proofs; вызывается из cron. */
-export async function purgeExpiredWidgetAuthProofs(env: AppEnv): Promise<void> {
+export async function purgeExpiredWidgetAuthProofs(env: AppEnv, db: IdempotentDatabase): Promise<void> {
   // DELETE по фиксированному cutoff идемпотентен; cleanup не публикует неоднозначный row count.
-  const sql = getIdempotentDb(env);
-  await sql`
+  await db.retryIdempotentStandalone`
     delete from app_private.widget_auth_proofs
     where expires_at < now() - interval '1 hour'
   `;

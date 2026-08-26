@@ -11,9 +11,14 @@ function logBackgroundError(err: unknown): void {
  * локально на Bun `executionCtx` недоступен — падает на обычный fire-and-forget.
  */
 export function runInBackground(c: Context<HonoEnv>, task: Promise<unknown>): void {
+  const tracked = task.catch(logBackgroundError);
+  const tasks = c.get("backgroundTasks");
+  tasks.add(tracked);
+  void tracked.finally(() => tasks.delete(tracked));
   try {
-    c.executionCtx.waitUntil(task.catch(logBackgroundError));
+    c.executionCtx.waitUntil(tracked);
   } catch {
-    void task.catch(logBackgroundError);
+    // Bun has no execution context. The request lifecycle awaits the tracked
+    // promise before disposing its invocation-owned DB capability.
   }
 }

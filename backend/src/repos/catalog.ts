@@ -10,7 +10,7 @@ import type {
   VolumeTonnes,
   CommodityGroup
 } from "@agromarket/contracts";
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { paginateRows, type PaginatedResult } from "../lib/pagination";
 import { escapeLike, normalizeCatalogText } from "../lib/search";
@@ -273,9 +273,10 @@ export function toCardDetail(
 export async function listCategories(
   env: AppEnv,
   type: CatalogType,
-  includeEmpty = false
+  db: Database,
+  includeEmpty = false,
 ): Promise<CategoryListItem[]> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const rows = await sql<CategoryListRow[]>`
     select
       cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.is_commodity, cat.required_specs,
@@ -293,8 +294,8 @@ export async function listCategories(
 }
 
 /** Справочник точных территорий для фильтра и административных форм. */
-export async function listTerritories(env: AppEnv): Promise<Territory[]> {
-  const sql = getDb(env);
+export async function listTerritories(env: AppEnv, db: Database): Promise<Territory[]> {
+  const sql = db.sql;
   const rows = await sql<TerritoryRow[]>`
     select code, name, kind, sort_order from territories order by sort_order
   `;
@@ -313,8 +314,8 @@ function territoryCodesForFilter(region: CatalogRegionFilter): string[] | null {
  * Карточки вкладки с фильтрами (категория/поиск/тип цены) и постраничной выдачей.
  * Архивные карточки в список и поиск не попадают.
  */
-export async function listCards(env: AppEnv, query: CardListQuery): Promise<PaginatedResult<CardListItem>> {
-  const sql = getDb(env);
+export async function listCards(env: AppEnv, query: CardListQuery, db: Database): Promise<PaginatedResult<CardListItem>> {
+  const sql = db.sql;
   const searchPattern = query.search ? `%${escapeLike(normalizeCatalogText(query.search))}%` : null;
   const regionCodes = territoryCodesForFilter(query.region);
   const rows = await sql<CardListRow[]>`
@@ -389,8 +390,8 @@ export async function listCards(env: AppEnv, query: CardListQuery): Promise<Pagi
   return paginateRows(items, query.limit, query.offset);
 }
 
-async function getCard(env: AppEnv, id: string, includeDraft: boolean): Promise<CardDetail | undefined> {
-  const sql = getDb(env);
+async function getCard(env: AppEnv, id: string, includeDraft: boolean, db: Database): Promise<CardDetail | undefined> {
+  const sql = db.sql;
   const [row] = await sql<CardRow[]>`
     select id, type, category_id, title, description, price_type, price_amount,
       price_unit, price_reason, location, availability, commodity_group, volume_tonnes,
@@ -426,11 +427,11 @@ async function getCard(env: AppEnv, id: string, includeDraft: boolean): Promise<
 }
 
 /** Публичная деталка: черновики не существуют для пользователя, скрытые дают заглушку. */
-export async function getCardById(env: AppEnv, id: string): Promise<CardDetail | undefined> {
-  return getCard(env, id, false);
+export async function getCardById(env: AppEnv, id: string, db: Database): Promise<CardDetail | undefined> {
+  return getCard(env, id, false, db);
 }
 
 /** Админская деталка: включает серверные черновики. */
-export async function getCardByIdAdmin(env: AppEnv, id: string): Promise<CardDetail | undefined> {
-  return getCard(env, id, true);
+export async function getCardByIdAdmin(env: AppEnv, id: string, db: Database): Promise<CardDetail | undefined> {
+  return getCard(env, id, true, db);
 }

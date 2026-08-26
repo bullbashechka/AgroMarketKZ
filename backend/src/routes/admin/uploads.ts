@@ -1,6 +1,6 @@
 import { completeUploadInput, createUploadUrlInput, uploadUrlResponse } from "@agromarket/contracts";
 import { Hono } from "hono";
-import { getEnv, type HonoEnv } from "../../env";
+import { getDatabase, getEnv, type HonoEnv } from "../../env";
 import { assertUploadedImageSignature, buildCardImagePath, createSignedUploadUrl } from "../../lib/storage";
 import { UPLOAD_CLAIM_TTL_SECONDS, createUploadClaim, markUploadClaimValidated } from "../../repos/uploadClaims";
 
@@ -20,7 +20,7 @@ adminUploadsRoutes.post("/", async (c) => {
     storagePath,
     issuerUserId: c.get("auth").userId,
     contentType,
-  });
+  }, getDatabase(c));
   const { uploadUrl, token } = await createSignedUploadUrl(env, storagePath);
   return c.json(uploadUrlResponse.parse({ storagePath, uploadUrl, token, expiresInSeconds: UPLOAD_CLAIM_TTL_SECONDS }));
 });
@@ -34,6 +34,6 @@ adminUploadsRoutes.post("/complete", async (c) => {
     storagePath: input.storagePath,
     issuerUserId: c.get("auth").userId,
     contentType: input.contentType,
-  });
+  }, getDatabase(c));
   return c.body(null, 204);
 });

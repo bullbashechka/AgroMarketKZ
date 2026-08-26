@@ -1,5 +1,5 @@
 import { createMiddleware } from "hono/factory";
-import { getEnv, type HonoEnv } from "../env";
+import { getDatabase, getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { sessionTokenFromRequest, setSessionCookie } from "../lib/session";
 import { findSessionAuthUser } from "../repos/sessions";
@@ -15,7 +15,7 @@ export function createRequireAuth(authUserLookup: AuthUserLookup = findSessionAu
       throw new HttpError(401, "Требуется авторизация");
     }
 
-    const user = await authUserLookup(getEnv(c), token);
+    const user = await authUserLookup(getEnv(c), token, getDatabase(c));
     if (!user) {
       throw new HttpError(401, "Недействительная или истёкшая сессия");
     }

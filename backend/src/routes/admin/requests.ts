@@ -1,7 +1,7 @@
 import { requestListQuery, requestListResponse, requestSchema, updateRequestStatusInput } from "@agromarket/contracts";
 import { Hono } from "hono";
 import { z } from "zod";
-import { getEnv, type HonoEnv } from "../../env";
+import { getDatabase, getEnv, type HonoEnv } from "../../env";
 import { HttpError } from "../../lib/errors";
 import { getRequestById, listRequests, toRequest, updateRequestStatus } from "../../repos/requests";
 
@@ -11,7 +11,7 @@ export const adminRequestsRoutes = new Hono<HonoEnv>();
 adminRequestsRoutes.get("/", async (c) => {
   const env = getEnv(c);
   const query = requestListQuery.parse(c.req.query());
-  const result = await listRequests(env, query);
+  const result = await listRequests(env, query, getDatabase(c));
   return c.json(requestListResponse.parse(result));
 });
 
@@ -22,8 +22,9 @@ adminRequestsRoutes.get("/:id", async (c) => {
   if (!id.success) {
     throw new HttpError(404, "Заявка не найдена");
   }
-  const row = await getRequestById(env, id.data);
-  return c.json(requestSchema.parse(await toRequest(env, row)));
+  const db = getDatabase(c);
+  const row = await getRequestById(env, id.data, db);
+  return c.json(requestSchema.parse(await toRequest(env, row, db)));
 });
 
 /** Смена статуса заявки. Переходы свободные. */
@@ -34,6 +35,7 @@ adminRequestsRoutes.patch("/:id/status", async (c) => {
     throw new HttpError(404, "Заявка не найдена");
   }
   const { status } = updateRequestStatusInput.parse(await c.req.json());
-  const row = await updateRequestStatus(env, id.data, status);
-  return c.json(requestSchema.parse(await toRequest(env, row)));
+  const db = getDatabase(c);
+  const row = await updateRequestStatus(env, id.data, status, db);
+  return c.json(requestSchema.parse(await toRequest(env, row, db)));
 });

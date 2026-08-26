@@ -4,11 +4,11 @@ import type { AppEnv } from "./env";
 
 const { PostgresError } = postgres;
 
-let client: Sql | undefined;
-let reconnecting: Promise<void> | undefined;
-
 export const POSTGRES_POOL_OPTIONS = Object.freeze({
-  max: 3,
+  // Hyperdrive owns the shared connection pool. A single logical client per
+  // invocation keeps local Bun behavior aligned without adding another pool
+  // in the application layer.
+  max: 1,
   idle_timeout: 20,
   connect_timeout: 10,
   prepare: false,
@@ -37,6 +37,37 @@ const CLOUDFLARE_POSTGRES_WRITE_FRAMES = [
 
 type DatabaseEnv = Pick<AppEnv, "DATABASE_URL" | "HYPERDRIVE">;
 
+/** The only query shape exposed to the explicit idempotent retry capability. */
+export type StandaloneSql = <T = unknown>(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => Promise<T>;
+
+/** A DB capability owned by one request, queue batch, or scheduled invocation. */
+export interface Database {
+  readonly sql: Sql;
+}
+
+/**
+ * Database capability for jobs whose individual standalone statement is
+ * demonstrably safe to repeat after an ambiguous connection failure.
+ */
+export interface IdempotentDatabase extends Database {
+  retryIdempotentStandalone: <T = unknown>(
+    strings: TemplateStringsArray,
+    ...values: unknown[]
+  ) => Promise<T>;
+}
+
+/** Invocation-owned capability. Worker code leaves disposal to the platform. */
+export interface DatabaseInvocation extends IdempotentDatabase {
+  dispose: () => Promise<void>;
+}
+
+export interface DatabaseInvocationDependencies {
+  createClient?: (env: DatabaseEnv) => Sql;
+}
+
 function createClient(env: DatabaseEnv): Sql {
   const url = env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
   if (!url) throw new Error("Не задан Hyperdrive или DATABASE_URL");
@@ -44,11 +75,9 @@ function createClient(env: DatabaseEnv): Sql {
 }
 
 /**
- * Ошибки соединения определяем по кодам postgres.js и сокета. Cloudflare Web Streams иногда
- * отклоняет запись в закрытый postgres.js socket без `code` и даже без полезного `message`, но
- * postgres.js добавляет к stack устойчивую цепочку своего CF socket adapter и Query origin.
- * Требуем все четыре кадра в правильном порядке: одиночное совпадение `nextWrite` не должно
- * превратить произвольную ошибку приложения в безопасный для повтора сетевой сбой.
+ * Errors from postgres.js and the application are not transport errors. A
+ * code-less Cloudflare socket failure is accepted only when all known frames
+ * occur in their expected order.
  */
 export function isConnectionError(err: unknown): boolean {
   if (err instanceof PostgresError || err instanceof HttpError) return false;
@@ -67,138 +96,115 @@ export function isConnectionError(err: unknown): boolean {
   return true;
 }
 
-/**
- * Доступ к текущему клиенту вынесен в хуки (не напрямую к модульному `client`), чтобы
- * `withReconnect` можно было юнит-тестировать с фейковым клиентом без живой БД — тот же приём,
- * что и DI-параметр в `createRequireAuth` (middleware/auth.ts).
- */
-export interface ClientHooks {
-  get: () => Sql;
-  set: (next: Sql) => void;
-  create: () => Sql;
-}
-
-export interface ConnectionRetryOptions {
-  /** Caller guarantees that repeating the standalone query is safe after an ambiguous failure. */
-  retryConnectionErrors?: boolean;
+function isTaggedTemplate(args: unknown[]): boolean {
+  return Array.isArray((args[0] as { raw?: unknown } | undefined)?.raw);
 }
 
 /**
- * Пересоздаёт синглтон-клиента один раз на всех конкурентных вызывающих (single-flight) и явно
- * закрывает вытесняемого клиента. На Workers нельзя полагаться на то, что вытесненный клиент
- * закроется сам через `idle_timeout`: это голый `setTimeout` без `waitUntil`, а платформа не
- * гарантирует довыполнение таких таймеров после ответа на запрос, который завёл клиента.
+ * Creates all mutable DB state inside one invocation closure. The proxy keeps
+ * the existing recovery behavior for the next call, while deliberately
+ * rethrowing the failed query so a transport layer never guesses whether a
+ * write reached PostgreSQL.
  */
-function reconnect(hooks: ClientHooks): Promise<void> {
-  if (!reconnecting) {
-    const stale = hooks.get();
-    reconnecting = Promise.resolve()
-      .then(() => {
-        hooks.set(hooks.create());
-      })
-      .finally(() => {
-        reconnecting = undefined;
-        void stale?.end({ timeout: 0 });
-      });
-  }
-  return reconnecting;
-}
+export function createDatabaseInvocation(
+  env: DatabaseEnv,
+  dependencies: DatabaseInvocationDependencies = {},
+): DatabaseInvocation {
+  let current: Sql | undefined;
+  let reconnecting: Promise<void> | undefined;
+  let disposed = false;
+  const clients = new Set<Sql>();
 
-/**
- * Оборачивает клиента так, что при обрыве соединения он пересоздаётся. На Cloudflare
- * Workers сокет, закешированный в клиенте между запросами, может быть прибит платформой, пока
- * изолят простаивал без активного запроса — Postgres тогда видит на своей стороне «connection
- * reset by peer».
- *
- * По умолчанию standalone-запрос НЕ повторяется: transport-слой не знает, успел ли PostgreSQL
- * применить write до потери ack. Один повтор разрешается только явным opt-in вызывающего слоя,
- * который доказал read-only или идемпотентную семантику конкретной операции.
- *
- * Транзакции (`begin`) НЕ ретраятся: обрыв ровно на COMMIT неотличим от «сервер уже закоммитил,
- * ack потерян» (классическая неоднозначность транзакционного пулинга) — слепой повтор callback'а
- * мог бы продублировать уже применённые side-эффекты (например вставить вторую одинаковую
- * заявку обратной связи). Клиент всё равно чинится для следующего вызова, но сама ошибка
- * транзакции пробрасывается вызывающему коду как раньше — неоднозначность решается на уровне,
- * который знает, дошёл ли ответ (так уже сделано в `repos/requests.ts` через `clientRequestId`).
- */
-export function withReconnect(
-  hooks: ClientHooks,
-  options: ConnectionRetryOptions = {},
-): Sql {
-  const target = hooks.get();
-  return new Proxy(target, {
-    apply(fn, thisArg, args) {
-      // `sql(columns, ...keys)` (helper для динамических списков внутри другого запроса)
-      // синхронный и не должен оборачиваться в Promise — ретраим только настоящие
-      // tagged-template вызовы `sql\`...\`` (у них strings — массив с `.raw`).
-      const isTaggedTemplate = Array.isArray((args[0] as { raw?: unknown } | undefined)?.raw);
-      const result = Reflect.apply(fn, thisArg, args);
-      if (!isTaggedTemplate) return result;
+  const create = (): Sql => {
+    if (disposed) throw new Error("DB invocation уже завершён");
+    const next = dependencies.createClient?.(env) ?? createClient(env);
+    clients.add(next);
+    current = next;
+    return next;
+  };
+
+  const getCurrent = (): Sql => current ?? create();
+
+  const reconnect = (failedClient: Sql): Promise<void> => {
+    if (current !== failedClient) return Promise.resolve();
+    if (!reconnecting) {
+      reconnecting = Promise.resolve()
+        .then(() => {
+          if (current === failedClient) {
+            // Keep the stale client in the invocation-owned set. It is closed
+            // by local disposal after all foreground/background I/O settles;
+            // Workers do not call dispose because Hyperdrive owns cleanup.
+            current = create();
+          }
+        })
+        .finally(() => {
+          reconnecting = undefined;
+        });
+    }
+    return reconnecting;
+  };
+
+  const target = (() => undefined) as unknown as Sql;
+  const sql = new Proxy(target, {
+    apply(_target, thisArg, args) {
+      const client = getCurrent();
+      const result = Reflect.apply(client, thisArg, args);
+      if (!isTaggedTemplate(args)) return result;
       return (async () => {
         try {
           return await result;
         } catch (err) {
           if (!isConnectionError(err)) throw err;
-          await reconnect(hooks);
-          if (!options.retryConnectionErrors) throw err;
-          return await Reflect.apply(hooks.get(), thisArg, args);
+          await reconnect(client);
+          throw err;
         }
       })();
     },
-    get(obj, prop, receiver) {
-      const value = Reflect.get(obj, prop, receiver);
+    get(_target, prop, receiver) {
+      const client = getCurrent();
+      const value = Reflect.get(client, prop, receiver);
       if (prop !== "begin" || typeof value !== "function") return value;
       return async (...args: unknown[]) => {
         try {
-          return await Reflect.apply(value, obj, args);
+          return await Reflect.apply(value, client, args);
         } catch (err) {
-          if (isConnectionError(err)) await reconnect(hooks);
+          if (isConnectionError(err)) await reconnect(client);
+          // A transaction callback is never invoked a second time. An error
+          // at COMMIT is ambiguous and must be resolved by the domain receipt.
           throw err;
         }
       };
-    }
-  });
-}
-
-/**
- * Ленивый синглтон клиента PostgreSQL (postgres.js), обёрнутый прозрачным реконнектом.
- * Работает и на Bun (локальная БД, по `DATABASE_URL`), и на Cloudflare Workers (по `HYPERDRIVE`
- * биндингу, если он есть — иначе тоже `DATABASE_URL`). `prepare: false` совместимо и с
- * transaction-mode Supavisor (локально/fallback), и с Hyperdrive поверх session-mode.
- */
-function getClient(env: DatabaseEnv, options?: ConnectionRetryOptions): Sql {
-  if (!client) {
-    client = createClient(env);
-  }
-  return withReconnect({
-    get: () => client!,
-    set: (next) => {
-      client = next;
     },
-    create: () => createClient(env),
-  }, options);
-}
+  });
 
-/**
- * Обычный DB capability: после connection error чинит singleton для следующего вызова, но
- * никогда скрыто не повторяет текущий standalone SQL.
- */
-export function getDb(env: DatabaseEnv): Sql {
-  return getClient(env);
-}
+  const retryIdempotentStandalone = async <T = unknown>(
+    strings: TemplateStringsArray,
+    ...values: unknown[]
+  ): Promise<T> => {
+    const execute = (client: Sql): Promise<T> =>
+      Reflect.apply(client, client, [strings, ...values]) as Promise<T>;
+    const client = getCurrent();
+    try {
+      return await execute(client);
+    } catch (err) {
+      if (!isConnectionError(err)) throw err;
+      await reconnect(client);
+      // This is the one and only explicit retry. A second failure propagates.
+      return await execute(getCurrent());
+    }
+  };
 
-/**
- * Явный capability только для read-only или идемпотентных standalone SQL. Транзакции даже через
- * этот client не повторяются: неоднозначность COMMIT должен разрешать доменный слой.
- */
-export function getIdempotentDb(env: DatabaseEnv): Sql {
-  return getClient(env, { retryConnectionErrors: true });
-}
-
-/** Завершает локальный singleton (используется только интеграционным harness и graceful shutdown). */
-export async function closeDb(): Promise<void> {
-  const current = client;
-  client = undefined;
-  reconnecting = undefined;
-  if (current) await current.end({ timeout: 0 });
+  return {
+    sql,
+    retryIdempotentStandalone,
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      current = undefined;
+      reconnecting = undefined;
+      const ownedClients = [...clients];
+      clients.clear();
+      await Promise.all(ownedClients.map((client) => client.end({ timeout: 0 })));
+    },
+  };
 }

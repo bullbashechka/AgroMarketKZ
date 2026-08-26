@@ -1,4 +1,5 @@
 import { createApp } from "./app";
+import { createDatabaseInvocation } from "./db";
 import { resolveEnv, type AppEnv } from "./env";
 import { runDbHealthAlertCheck } from "./lib/alerts";
 import {
@@ -22,25 +23,26 @@ function isNotificationMessage(body: WorkerQueueMessage): body is NotificationQu
   return "outboxId" in body && typeof body.outboxId === "string";
 }
 
-const app = createApp();
+const app = createApp({ disposeDatabase: false });
 
 export default {
   fetch: app.fetch,
   async scheduled(event, env: WorkerEnv, ctx) {
     const resolved = resolveEnv(env, undefined);
+    const database = createDatabaseInvocation(resolved);
     if (event.cron === "*/5 * * * *") {
       ctx.waitUntil(Promise.all([
-        runDbHealthAlertCheck(resolved),
-        purgeExpiredWidgetAuthProofs(resolved),
-        reconcileNotificationOutbox(resolved),
+        runDbHealthAlertCheck(resolved, database),
+        purgeExpiredWidgetAuthProofs(resolved, database),
+        reconcileNotificationOutbox(resolved, database),
       ]).catch((error) => {
         console.error("scheduled maintenance failed", error);
       }));
     } else {
       ctx.waitUntil(Promise.all([
-        runStorageCleanup(resolved),
+        runStorageCleanup(resolved, database),
         runStorageBackup(resolved),
-        runPrivacyRetention(resolved),
+        runPrivacyRetention(resolved, database),
       ]).catch((error) => {
         console.error("scheduled storage maintenance failed", error);
       }));
@@ -48,6 +50,7 @@ export default {
   },
   async queue(batch, env) {
     const resolved = resolveEnv(env, undefined);
+    const database = createDatabaseInvocation(resolved);
     for (const message of batch.messages) {
       try {
         if (!message.body) {
@@ -56,7 +59,7 @@ export default {
           continue;
         }
         if (isTelegramUpdateMessage(message.body)) {
-          const processed = await processTelegramUpdate(resolved, message.body.updateId);
+          const processed = await processTelegramUpdate(resolved, message.body.updateId, database);
           if (processed) message.ack();
           else message.retry({ delaySeconds: 60 });
           continue;
@@ -66,7 +69,7 @@ export default {
           message.retry({ delaySeconds: 60 });
           continue;
         }
-        const delivered = await processNotificationOutbox(resolved, message.body.outboxId);
+        const delivered = await processNotificationOutbox(resolved, message.body.outboxId, database);
         if (delivered) {
           message.ack();
         } else {

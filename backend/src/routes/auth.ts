@@ -1,6 +1,6 @@
 import { authResponse, telegramLoginInput, widgetLoginInput } from "@agromarket/contracts";
 import { Hono, type Context } from "hono";
-import { getEnv, type HonoEnv } from "../env";
+import { getDatabase, getEnv, type HonoEnv } from "../env";
 import { clearSessionCookie, sessionTokenFromRequest, setSessionCookie } from "../lib/session";
 import { validateInitData, validateWidgetLogin } from "../lib/telegram";
 import { requireAuth } from "../middleware/auth";
@@ -18,8 +18,9 @@ authRoutes.post("/telegram", async (c) => {
   const env = getEnv(c);
   const { initData } = telegramLoginInput.parse(await c.req.json().catch(() => null));
   const tg = await validateInitData(initData, env.TELEGRAM_BOT_TOKEN);
-  const row = await upsertFromTelegram(env, tg);
-  setSessionCookie(c, await createUserSession(env, row.id));
+  const db = getDatabase(c);
+  const row = await upsertFromTelegram(env, tg, db);
+  setSessionCookie(c, await createUserSession(env, row.id, db));
   return c.json(authResponse.parse({ profile: toProfile(row, env) }));
 });
 
@@ -28,11 +29,12 @@ const widgetLoginHandler = async (c: Context<HonoEnv>) => {
   const env = getEnv(c);
   const data = widgetLoginInput.parse(await c.req.json().catch(() => null));
   const tg = await validateWidgetLogin(data, env.TELEGRAM_BOT_TOKEN);
-  const row = await upsertFromTelegram(env, tg);
+  const db = getDatabase(c);
+  const row = await upsertFromTelegram(env, tg, db);
   // Consume after the idempotent user upsert: a transient DB failure cannot
   // burn the five-minute Telegram proof before the account is usable.
-  await consumeWidgetAuthProof(env, data.hash, tg.id, data.auth_date);
-  setSessionCookie(c, await createUserSession(env, row.id));
+  await consumeWidgetAuthProof(env, data.hash, tg.id, data.auth_date, db);
+  setSessionCookie(c, await createUserSession(env, row.id, db));
   return c.json(authResponse.parse({ profile: toProfile(row, env) }));
 };
 
@@ -43,13 +45,13 @@ authRoutes.post("/widget", widgetLoginHandler);
 
 authRoutes.post("/logout", async (c) => {
   const token = sessionTokenFromRequest(c);
-  if (token) await revokeSession(getEnv(c), token);
+  if (token) await revokeSession(getEnv(c), token, getDatabase(c));
   clearSessionCookie(c);
   return c.body(null, 204);
 });
 
 authRoutes.post("/logout-all", requireAuth, async (c) => {
-  await revokeAllUserSessions(getEnv(c), c.get("auth").userId);
+  await revokeAllUserSessions(getEnv(c), c.get("auth").userId, getDatabase(c));
   clearSessionCookie(c);
   return c.body(null, 204);
 });

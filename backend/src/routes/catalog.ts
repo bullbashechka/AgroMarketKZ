@@ -8,7 +8,7 @@ import {
 } from "@agromarket/contracts";
 import { Hono } from "hono";
 import { z } from "zod";
-import { getEnv, type HonoEnv } from "../env";
+import { getDatabase, getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { requireAuth } from "../middleware/auth";
 import { getCardById, listCards, listCategories, listTerritories } from "../repos/catalog";
@@ -22,21 +22,21 @@ catalogRoutes.use("*", requireAuth);
 catalogRoutes.get("/categories", async (c) => {
   const env = getEnv(c);
   const { type, includeEmpty } = categoryListQuery.parse(c.req.query());
-  const categories = await listCategories(env, type, includeEmpty);
+  const categories = await listCategories(env, type, getDatabase(c), includeEmpty);
   return c.json(categoryListItemResponse.parse(categories));
 });
 
 /** Точные территории для пользовательского фильтра и форм. */
 catalogRoutes.get("/territories", async (c) => {
   const env = getEnv(c);
-  return c.json(territoryListResponse.parse(await listTerritories(env)));
+  return c.json(territoryListResponse.parse(await listTerritories(env, getDatabase(c))));
 });
 
 /** Карточки вкладки с фильтрами и постраничной выдачей (load-more). Архив не попадает. */
 catalogRoutes.get("/cards", async (c) => {
   const env = getEnv(c);
   const query = cardListQuery.parse(c.req.query());
-  const result = await listCards(env, query);
+  const result = await listCards(env, query, getDatabase(c));
   return c.json(cardListResponse.parse(result));
 });
 
@@ -47,7 +47,7 @@ catalogRoutes.get("/cards/:id", async (c) => {
   if (!id.success) {
     throw new HttpError(404, "Карточка не найдена");
   }
-  const card = await getCardById(env, id.data);
+  const card = await getCardById(env, id.data, getDatabase(c));
   if (!card) {
     throw new HttpError(404, "Карточка не найдена");
   }

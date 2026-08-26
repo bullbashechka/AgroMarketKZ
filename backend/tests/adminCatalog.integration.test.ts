@@ -1,18 +1,18 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import postgres from "postgres";
 import type { AppEnv } from "../src/env";
-import { closeDb } from "../src/db";
+import { createDatabaseInvocation } from "../src/db";
 import {
-  createCard,
-  getAdminCardDetail,
-  getAdminCardDetailForMutation,
-  publishCard,
-  updateCard,
-  updateCategory,
+  createCard as createCardRepo,
+  getAdminCardDetail as getAdminCardDetailRepo,
+  getAdminCardDetailForMutation as getAdminCardDetailForMutationRepo,
+  publishCard as publishCardRepo,
+  updateCard as updateCardRepo,
+  updateCategory as updateCategoryRepo,
 } from "../src/repos/adminCatalog";
-import { appendAdminAuditEvent } from "../src/repos/adminAudit";
-import { cleanupE2eRun } from "../src/repos/e2eCleanup";
-import { acceptTelegramUpdate } from "../src/repos/telegramUpdates";
+import { appendAdminAuditEvent as appendAdminAuditEventRepo } from "../src/repos/adminAudit";
+import { cleanupE2eRun as cleanupE2eRunRepo } from "../src/repos/e2eCleanup";
+import { acceptTelegramUpdate as acceptTelegramUpdateRepo } from "../src/repos/telegramUpdates";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIntegration = databaseUrl ? describe : describe.skip;
@@ -38,6 +38,25 @@ const env: AppEnv = {
 
 describeIntegration("admin catalog persistence", () => {
   const sql = postgres(env.DATABASE_URL, { prepare: false, max: 1 });
+  const db = createDatabaseInvocation(env);
+  const createCard = (environment: AppEnv, input: Parameters<typeof createCardRepo>[1], options?: Parameters<typeof createCardRepo>[3]) =>
+    createCardRepo(environment, input, db, options);
+  const updateCard = (environment: AppEnv, id: string, input: Parameters<typeof updateCardRepo>[2], options?: Parameters<typeof updateCardRepo>[4]) =>
+    updateCardRepo(environment, id, input, db, options);
+  const updateCategory = (environment: AppEnv, id: string, input: Parameters<typeof updateCategoryRepo>[2]) =>
+    updateCategoryRepo(environment, id, input, db);
+  const publishCard = (environment: AppEnv, id: string, expectedVersion: number) =>
+    publishCardRepo(environment, id, expectedVersion, db);
+  const getAdminCardDetail = (environment: AppEnv, id: string) =>
+    getAdminCardDetailRepo(environment, id, db);
+  const getAdminCardDetailForMutation = (environment: AppEnv, id: string, mutationId: string) =>
+    getAdminCardDetailForMutationRepo(environment, id, mutationId, db);
+  const appendAdminAuditEvent = (environment: AppEnv, input: Parameters<typeof appendAdminAuditEventRepo>[1]) =>
+    appendAdminAuditEventRepo(environment, input, db);
+  const acceptTelegramUpdate = (environment: AppEnv, updateId: number, action: Parameters<typeof acceptTelegramUpdateRepo>[2]) =>
+    acceptTelegramUpdateRepo(environment, updateId, action, db);
+  const cleanupE2eRun = (environment: Parameters<typeof cleanupE2eRunRepo>[0]) =>
+    cleanupE2eRunRepo(environment, db);
   const realFetch = globalThis.fetch;
   let categoryId: string;
   const auditUserId = crypto.randomUUID();
@@ -67,7 +86,7 @@ describeIntegration("admin catalog persistence", () => {
 
   afterAll(async () => {
     globalThis.fetch = realFetch;
-    await closeDb();
+    await db.dispose();
     await sql`delete from app_private.telegram_updates where update_id = ${telegramUpdateId}`;
     await sql`delete from app_private.admin_audit_events where actor_user_id = ${auditUserId}`;
     await sql`delete from users where id = ${auditUserId}`;

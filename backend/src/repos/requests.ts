@@ -7,7 +7,7 @@ import type {
   CommodityGroup,
   VolumeTonnes
 } from "@agromarket/contracts";
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { paginateRows, type PaginatedResult } from "../lib/pagination";
@@ -72,10 +72,11 @@ function toTerritory(row: TerritoryRow): Territory {
 async function getListingSubmission(
   env: AppEnv,
   row: RequestRow,
+  db: Database,
   prefetchedTerritories?: Territory[]
 ): Promise<ListingSubmission | null> {
   if (!row.listing_submission_type || !row.submission_category_name_snapshot) return null;
-  const sql = getDb(env);
+  const sql = db.sql;
   if (row.listing_submission_type === "product") {
     if (!row.submission_territory_code || !row.submission_ownership_form) {
       return null;
@@ -118,6 +119,7 @@ async function getListingSubmission(
 export async function toRequest(
   env: AppEnv,
   row: RequestRow,
+  db: Database,
   prefetchedTerritories?: Territory[]
 ): Promise<RequestDto> {
   return {
@@ -136,7 +138,7 @@ export async function toRequest(
     contactPhone: row.contact_phone,
     contactPhoneVerified: row.contact_phone_verified,
     comment: row.comment,
-    listingSubmission: await getListingSubmission(env, row, prefetchedTerritories),
+    listingSubmission: await getListingSubmission(env, row, db, prefetchedTerritories),
     status: row.status,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString()
@@ -147,8 +149,9 @@ export async function findRequestByClientId(
   env: AppEnv,
   userId: string,
   clientRequestId: string,
+  db: Database,
 ): Promise<RequestRow | undefined> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = await sql<RequestRow[]>`
     select * from requests
     where user_id = ${userId} and client_request_id = ${clientRequestId}
@@ -168,8 +171,9 @@ export async function createRequest(
   input: CreateRequestInput,
   requestPayloadHash: string,
   verifiedContactPhone: string | null,
+  db: Database,
 ): Promise<{ row: RequestRow; created: boolean }> {
-  const sql = getDb(env);
+  const sql = db.sql;
   return sql.begin(async (tx) => {
     const [existing] = await tx<RequestRow[]>`
       select * from requests
@@ -323,9 +327,10 @@ export async function createRequest(
 /** Список заявок (админ), с фильтром по статусу и постраничной выдачей. */
 export async function listRequests(
   env: AppEnv,
-  query: RequestListQuery
+  query: RequestListQuery,
+  db: Database,
 ): Promise<PaginatedResult<RequestDto>> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const rows = await sql<RequestRow[]>`
     select * from requests
     where (${query.status ?? null}::request_status is null or status = ${query.status ?? null}::request_status)
@@ -365,14 +370,15 @@ export async function listRequests(
   const items = await Promise.all(rows.map((row) => toRequest(
     env,
     row,
+    db,
     row.listing_submission_type ? territoriesByRequest.get(row.id) ?? [] : undefined
   )));
   return paginateRows(items, query.limit, query.offset);
 }
 
 /** Заявка по id (админ, деталка для deep-link из уведомления). 404, если нет. */
-export async function getRequestById(env: AppEnv, id: string): Promise<RequestRow> {
-  const sql = getDb(env);
+export async function getRequestById(env: AppEnv, id: string, db: Database): Promise<RequestRow> {
+  const sql = db.sql;
   const [row] = await sql<RequestRow[]>`select * from requests where id = ${id}`;
   if (!row) {
     throw new HttpError(404, "Заявка не найдена");
@@ -384,9 +390,10 @@ export async function getRequestById(env: AppEnv, id: string): Promise<RequestRo
 export async function updateRequestStatus(
   env: AppEnv,
   id: string,
-  status: "new" | "in_progress" | "closed"
+  status: "new" | "in_progress" | "closed",
+  db: Database,
 ): Promise<RequestRow> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = await sql<RequestRow[]>`
     update requests set status = ${status} where id = ${id} returning *
   `;

@@ -1,5 +1,5 @@
 import type { AppEnv } from "../backend/src/env";
-import { closeDb } from "../backend/src/db";
+import { createDatabaseInvocation } from "../backend/src/db";
 import { cleanupE2eRun } from "../backend/src/repos/e2eCleanup";
 import { API_URL, requireEnv, TELEGRAM_BOT_TOKEN } from "./helpers/env";
 import { loginAsTelegramUser } from "./helpers/telegramAuth";
@@ -37,13 +37,14 @@ export default async function globalTeardown() {
   } catch (error) {
     failures.push(error);
   }
+  const database = createDatabaseInvocation(cleanupEnv);
   try {
-    await cleanupE2eRun(cleanupEnv);
+    await cleanupE2eRun(cleanupEnv, database);
   } catch (error) {
     failures.push(error);
   } finally {
     try {
-      await closeDb();
+      await database.dispose();
     } catch (error) {
       failures.push(error);
     }

@@ -1,4 +1,4 @@
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import {
   createSessionToken,
@@ -27,10 +27,10 @@ interface SessionRow {
   rotated_at: Date | null;
 }
 
-export async function createUserSession(env: AppEnv, userId: string): Promise<string> {
+export async function createUserSession(env: AppEnv, userId: string, db: Database): Promise<string> {
   const token = createSessionToken();
   const tokenHash = await hashSessionToken(token);
-  const sql = getDb(env);
+  const sql = db.sql;
   await sql`
     insert into app_private.user_sessions (user_id, token_hash, expires_at)
     values (${userId}, ${tokenHash}, now() + (${SESSION_TTL_SECONDS} * interval '1 second'))
@@ -41,9 +41,10 @@ export async function createUserSession(env: AppEnv, userId: string): Promise<st
 export async function findSessionAuthUser(
   env: AppEnv,
   token: string,
+  db: Database,
 ): Promise<SessionAuthUser | undefined> {
   const tokenHash = await hashSessionToken(token);
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = await sql<SessionRow[]>`
     select s.id, s.user_id, u.telegram_id, u.registered_at, s.created_at, s.expires_at, s.rotated_at
     from app_private.user_sessions s
@@ -93,9 +94,9 @@ export async function findSessionAuthUser(
   };
 }
 
-export async function revokeSession(env: AppEnv, token: string): Promise<void> {
+export async function revokeSession(env: AppEnv, token: string, db: Database): Promise<void> {
   const tokenHash = await hashSessionToken(token);
-  const sql = getDb(env);
+  const sql = db.sql;
   await sql`
     update app_private.user_sessions
     set revoked_at = now()
@@ -103,8 +104,8 @@ export async function revokeSession(env: AppEnv, token: string): Promise<void> {
   `;
 }
 
-export async function revokeAllUserSessions(env: AppEnv, userId: string): Promise<boolean> {
-  const sql = getDb(env);
+export async function revokeAllUserSessions(env: AppEnv, userId: string, db: Database): Promise<boolean> {
+  const sql = db.sql;
   const rows = await sql<{ id: string }[]>`
     update app_private.user_sessions
     set revoked_at = now()

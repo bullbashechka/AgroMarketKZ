@@ -1,4 +1,5 @@
 import type { AppEnv } from "../env";
+import type { Database } from "../db";
 import { sendTelegramMessage, sendTelegramPhoto, type InlineKeyboardMarkup } from "./telegramBot";
 import type { WebhookAction } from "./telegramWebhook";
 import { getAdminChatId, updateSettings } from "../repos/settings";
@@ -36,10 +37,10 @@ async function sendWelcomeMessage(env: AppEnv, chatId: string): Promise<void> {
   await sendTelegramMessage(env, chatId, WELCOME_CAPTION, button);
 }
 
-export async function applyWebhookAction(env: AppEnv, action: WebhookAction): Promise<void> {
+export async function applyWebhookAction(env: AppEnv, action: WebhookAction, db: Database): Promise<void> {
   switch (action.type) {
     case "save_chat": {
-      const current = await getAdminChatId(env);
+      const current = await getAdminChatId(env, db);
       if (current && current !== String(action.chatId)) {
         await sendTelegramMessage(
           env,
@@ -48,19 +49,19 @@ export async function applyWebhookAction(env: AppEnv, action: WebhookAction): Pr
         );
         return;
       }
-      await updateSettings(env, { adminChatId: String(action.chatId) });
+      await updateSettings(env, { adminChatId: String(action.chatId) }, db);
       await sendTelegramMessage(env, String(action.chatId), "Уведомления подключены.");
       return;
     }
     case "clear_chat": {
-      if (await getAdminChatId(env) === String(action.chatId)) {
-        await updateSettings(env, { adminChatId: null });
+      if (await getAdminChatId(env, db) === String(action.chatId)) {
+        await updateSettings(env, { adminChatId: null }, db);
       }
       return;
     }
     case "migrate_chat": {
-      if (await getAdminChatId(env) === String(action.fromChatId)) {
-        await updateSettings(env, { adminChatId: String(action.toChatId) });
+      if (await getAdminChatId(env, db) === String(action.fromChatId)) {
+        await updateSettings(env, { adminChatId: String(action.toChatId) }, db);
       }
       return;
     }

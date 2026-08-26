@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createApp } from "../src/app";
+import type { Database } from "../src/db";
 import type { AppEnv } from "../src/env";
 import { applyWebhookAction } from "../src/lib/telegramActions";
 import { classifyUpdate } from "../src/lib/telegramWebhook";
@@ -146,7 +147,7 @@ describe("POST /telegram/webhook (секрет)", () => {
       return new Response("{}", { status: 200 });
     }) as typeof fetch;
 
-    await applyWebhookAction(env as AppEnv, { type: "greet", chatId: 777 });
+    await applyWebhookAction(env as AppEnv, { type: "greet", chatId: 777 }, {} as Database);
 
     expect(requestedUrl).toBe("https://api.telegram.org/bottest-token/sendPhoto");
     expect(body).toEqual({

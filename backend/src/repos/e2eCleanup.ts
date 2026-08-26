@@ -1,4 +1,4 @@
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { deleteStorageObjectsStrict, listStorageObjects } from "../lib/storage";
 
@@ -44,11 +44,11 @@ async function listE2eRunObjects(env: E2ECleanupEnv, prefix: string): Promise<st
 }
 
 /** Удаляет только данные текущего E2E-прогона; без E2E_RUN_ID операция невозможна. */
-export async function cleanupE2eRun(env: E2ECleanupEnv): Promise<void> {
+export async function cleanupE2eRun(env: E2ECleanupEnv, db: Database): Promise<void> {
   if (!env.E2E_RUN_ID) throw new Error("E2E cleanup is unavailable without E2E_RUN_ID");
   const prefix = e2eLikePrefix(env.E2E_RUN_ID);
   const storagePrefix = e2eStoragePrefix(env.E2E_RUN_ID);
-  const sql = getDb(env);
+  const sql = db.sql;
 
   const runStoragePaths = await listE2eRunObjects(env, storagePrefix);
   const storageResult = await deleteStorageObjectsStrict(env, runStoragePaths, {

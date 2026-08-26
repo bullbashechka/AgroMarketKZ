@@ -4,7 +4,7 @@ import type {
   PlatformSettings,
   UpdateSettingsInput,
 } from "@agromarket/contracts";
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 
 export interface SettingsRow {
@@ -32,19 +32,19 @@ function toAdminPlatformSettings(row: SettingsRow | undefined): AdminPlatformSet
   };
 }
 
-async function getSettingsRow(env: AppEnv): Promise<SettingsRow | undefined> {
-  const sql = getDb(env);
+async function getSettingsRow(env: AppEnv, db: Database): Promise<SettingsRow | undefined> {
+  const sql = db.sql;
   const [row] = await sql<SettingsRow[]>`select * from platform_settings where id = 1`;
   return row;
 }
 
 /** Публичные контакты площадки. Доступны без авторизации — нужны в браузере до входа. */
-export async function getSettings(env: AppEnv): Promise<PlatformSettings> {
-  return toPlatformSettings(await getSettingsRow(env));
+export async function getSettings(env: AppEnv, db: Database): Promise<PlatformSettings> {
+  return toPlatformSettings(await getSettingsRow(env, db));
 }
 
-export async function getContactCapabilities(env: AppEnv): Promise<ContactCapabilities> {
-  const row = await getSettingsRow(env);
+export async function getContactCapabilities(env: AppEnv, db: Database): Promise<ContactCapabilities> {
+  const row = await getSettingsRow(env, db);
   return {
     phone: Boolean(row?.contact_phone),
     whatsapp: Boolean(row?.whatsapp_phone),
@@ -54,13 +54,13 @@ export async function getContactCapabilities(env: AppEnv): Promise<ContactCapabi
 }
 
 /** Настройки площадки для админа (включает `adminChatId`). */
-export async function getAdminSettings(env: AppEnv): Promise<AdminPlatformSettings> {
-  return toAdminPlatformSettings(await getSettingsRow(env));
+export async function getAdminSettings(env: AppEnv, db: Database): Promise<AdminPlatformSettings> {
+  return toAdminPlatformSettings(await getSettingsRow(env, db));
 }
 
 /** Чат для Telegram-уведомлений о заявках/обратной связи, если задан. */
-export async function getAdminChatId(env: AppEnv): Promise<string | null> {
-  const row = await getSettingsRow(env);
+export async function getAdminChatId(env: AppEnv, db: Database): Promise<string | null> {
+  const row = await getSettingsRow(env, db);
   return row?.admin_chat_id ?? null;
 }
 
@@ -68,7 +68,7 @@ export async function getAdminChatId(env: AppEnv): Promise<string | null> {
  * Обновляет только переданные поля (upsert строки `id = 1`). Непереданные поля
  * не трогаются; `null` явно очищает значение.
  */
-export async function updateSettings(env: AppEnv, patch: UpdateSettingsInput): Promise<AdminPlatformSettings> {
+export async function updateSettings(env: AppEnv, patch: UpdateSettingsInput, db: Database): Promise<AdminPlatformSettings> {
   const columns: Record<string, string | null> = {};
   if ("contactPhone" in patch) columns.contact_phone = patch.contactPhone ?? null;
   if ("whatsappPhone" in patch) columns.whatsapp_phone = patch.whatsappPhone ?? null;
@@ -78,10 +78,10 @@ export async function updateSettings(env: AppEnv, patch: UpdateSettingsInput): P
 
   const keys = Object.keys(columns);
   if (keys.length === 0) {
-    return getAdminSettings(env);
+    return getAdminSettings(env, db);
   }
 
-  const sql = getDb(env);
+  const sql = db.sql;
   const [row] = await sql<SettingsRow[]>`
     insert into platform_settings (id, contact_phone, whatsapp_phone, telegram_contact, email, admin_chat_id)
     values (

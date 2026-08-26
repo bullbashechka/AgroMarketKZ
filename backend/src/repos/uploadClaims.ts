@@ -1,6 +1,6 @@
 import type { UploadContentType } from "@agromarket/contracts";
 import type { TransactionSql } from "postgres";
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 
@@ -9,8 +9,9 @@ export const UPLOAD_CLAIM_TTL_SECONDS = 15 * 60;
 export async function createUploadClaim(
   env: AppEnv,
   input: { storagePath: string; issuerUserId: string; contentType: UploadContentType },
+  db: Database,
 ): Promise<void> {
-  const sql = getDb(env);
+  const sql = db.sql;
   await sql`
     insert into app_private.card_image_upload_claims (
       storage_path, issuer_user_id, content_type, expires_at
@@ -24,8 +25,9 @@ export async function createUploadClaim(
 export async function markUploadClaimValidated(
   env: AppEnv,
   input: { storagePath: string; issuerUserId: string; contentType: UploadContentType },
+  db: Database,
 ): Promise<void> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const rows = await sql`
     update app_private.card_image_upload_claims
     set validated_at = now()

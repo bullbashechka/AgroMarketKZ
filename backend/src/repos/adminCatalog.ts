@@ -13,7 +13,7 @@ import type {
 } from "@agromarket/contracts";
 import { getPublicationIssues, getPublicationStatus } from "@agromarket/contracts";
 import type { TransactionSql } from "postgres";
-import { getDb } from "../db";
+import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { consumeUploadClaims } from "./uploadClaims";
@@ -239,10 +239,10 @@ export function cardMatchesCreateInput(
     && sameCardSpecInputs(detail, input);
 }
 
-async function legacyLocationForInput(env: AppEnv, input: CreateCardInput): Promise<string | null> {
+async function legacyLocationForInput(env: AppEnv, input: CreateCardInput, db: Database): Promise<string | null> {
   if (input.type === "product") {
     if (!input.territoryCode) return input.location ?? null;
-    const sql = getDb(env);
+    const sql = db.sql;
     const [territory] = await sql<{ name: string }[]>`
       select name from territories where code = ${input.territoryCode}
     `;
@@ -251,7 +251,7 @@ async function legacyLocationForInput(env: AppEnv, input: CreateCardInput): Prom
 
   if (input.serviceAllKazakhstan) return "Весь Казахстан";
   if (input.serviceTerritoryCodes.length === 0) return input.location ?? null;
-  const sql = getDb(env);
+  const sql = db.sql;
   const rows = await sql<{ code: string; name: string }[]>`
     select code, name from territories where code = any(${input.serviceTerritoryCodes}::text[])
   `;
@@ -278,8 +278,8 @@ function toAdminCategory(row: AdminCategoryRow): AdminCategory {
 }
 
 /** Все категории вкладки (включая неактивные) — со счётчиками карточек для админ-списка. */
-export async function listCategoriesAdmin(env: AppEnv, type: CatalogType): Promise<AdminCategory[]> {
-  const sql = getDb(env);
+export async function listCategoriesAdmin(env: AppEnv, type: CatalogType, db: Database): Promise<AdminCategory[]> {
+  const sql = db.sql;
   const rows = await sql<AdminCategoryRow[]>`
     select
       cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.is_commodity, cat.created_at, cat.updated_at,
@@ -298,8 +298,8 @@ export async function listCategoriesAdmin(env: AppEnv, type: CatalogType): Promi
 }
 
 /** Создание категории. 409, если активная категория с таким названием уже есть. */
-export async function createCategory(env: AppEnv, input: CreateCategoryInput): Promise<Category> {
-  const sql = getDb(env);
+export async function createCategory(env: AppEnv, input: CreateCategoryInput, db: Database): Promise<Category> {
+  const sql = db.sql;
   const name = normalizeCatalogText(input.name);
   try {
     const [row] = await sql<CategoryRow[]>`
@@ -320,9 +320,10 @@ export async function createCategory(env: AppEnv, input: CreateCategoryInput): P
 export async function updateCategory(
   env: AppEnv,
   id: string,
-  input: UpdateCategoryInput
+  input: UpdateCategoryInput,
+  db: Database,
 ): Promise<Category> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const columns: Record<string, string | number | boolean | string[]> = {};
   if (input.name !== undefined) columns.name = normalizeCatalogText(input.name);
   if (input.sortOrder !== undefined) columns.sort_order = input.sortOrder;
@@ -376,8 +377,8 @@ export async function updateCategory(
 }
 
 /** Удаление категории. Запрещено, пока в ней есть карточки. */
-export async function deleteCategory(env: AppEnv, id: string): Promise<void> {
-  const sql = getDb(env);
+export async function deleteCategory(env: AppEnv, id: string, db: Database): Promise<void> {
+  const sql = db.sql;
   const [row] = await sql<{ count: string }[]>`
     select count(*) from cards where category_id = ${id}
   `;
@@ -450,9 +451,10 @@ function toAdminCardListItem(row: AdminCardListRow, env: AppEnv): AdminCardListI
 /** Список карточек (админ) — как публичный каталог, но без фильтра по видимости. */
 export async function adminListCards(
   env: AppEnv,
-  query: AdminCardListQuery
+  query: AdminCardListQuery,
+  db: Database,
 ): Promise<PaginatedResult<AdminCardListItem>> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const searchPattern = query.search ? `%${escapeLike(normalizeCatalogText(query.search))}%` : null;
   const archivedFilter = query.archived === "active" ? false : query.archived === "archived" ? true : null;
   const rows = await sql<AdminCardListRow[]>`
@@ -540,8 +542,8 @@ function toAdminCardDetailWithRequiredSpecs(
   };
 }
 
-async function toAdminCardDetail(env: AppEnv, detail: CardDetail): Promise<AdminCardDetail> {
-  const sql = getDb(env);
+async function toAdminCardDetail(env: AppEnv, detail: CardDetail, db: Database): Promise<AdminCardDetail> {
+  const sql = db.sql;
   const [category] = await sql<{ required_specs: string[]; is_commodity: boolean }[]>`
     select required_specs, is_commodity from categories where id = ${detail.categoryId}
   `;
@@ -596,9 +598,9 @@ async function getAdminCardDetailInTransaction(
   );
 }
 
-export async function getAdminCardDetail(env: AppEnv, id: string): Promise<AdminCardDetail | undefined> {
-  const detail = await getCardByIdAdmin(env, id);
-  return detail ? toAdminCardDetail(env, detail) : undefined;
+export async function getAdminCardDetail(env: AppEnv, id: string, db: Database): Promise<AdminCardDetail | undefined> {
+  const detail = await getCardByIdAdmin(env, id, db);
+  return detail ? toAdminCardDetail(env, detail, db) : undefined;
 }
 
 /**
@@ -610,8 +612,9 @@ export async function getAdminCardDetailForMutation(
   env: AppEnv,
   id: string,
   mutationId: string,
+  db: Database,
 ): Promise<AdminCardDetail | undefined> {
-  const sql = getDb(env);
+  const sql = db.sql;
   return sql.begin(async (tx) => {
     const [receipt] = await tx<{ card_id: string; result_version: number }[]>`
       select card_id, result_version
@@ -641,11 +644,12 @@ export async function getAdminCardDetailForMutation(
 export async function createCard(
   env: AppEnv,
   input: CreateCardInput,
+  db: Database,
   options: { actorUserId?: string } = {},
 ): Promise<AdminCardDetail> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const normalizedInput = normalizeCardInput(input);
-  const legacyLocation = await legacyLocationForInput(env, normalizedInput);
+  const legacyLocation = await legacyLocationForInput(env, normalizedInput, db);
   const cardId = normalizedInput.clientRequestId ?? crypto.randomUUID();
   let replayedCardId: string | undefined;
   try {
@@ -757,7 +761,7 @@ export async function createCard(
       );
     });
     if (replayedCardId) {
-      const existing = await getAdminCardDetail(env, replayedCardId);
+      const existing = await getAdminCardDetail(env, replayedCardId, db);
       if (!existing || !cardMatchesCreateInput(existing, normalizedInput, legacyLocation)) {
         throw new HttpError(409, "Эта попытка создания уже использована для другой карточки", {
           code: "CARD_CREATE_REQUEST_REUSED",
@@ -783,11 +787,12 @@ export async function updateCard(
   env: AppEnv,
   id: string,
   input: UpdateCardInput,
+  db: Database,
   options: { actorUserId?: string } = {},
 ): Promise<{ detail: AdminCardDetail; removedPaths: string[] }> {
-  const sql = getDb(env);
+  const sql = db.sql;
   const normalizedInput = normalizeCardInput(input);
-  const legacyLocation = await legacyLocationForInput(env, normalizedInput);
+  const legacyLocation = await legacyLocationForInput(env, normalizedInput, db);
   const mutationId = input.mutationId ?? crypto.randomUUID();
   const mutationPayload = cardUpdatePayload(normalizedInput, input.expectedVersion);
   try {
@@ -994,7 +999,7 @@ export async function updateCard(
       };
     });
     if ("replayed" in result && result.replayed) {
-      const replayedDetail = await getAdminCardDetailForMutation(env, id, mutationId);
+      const replayedDetail = await getAdminCardDetailForMutation(env, id, mutationId, db);
       if (!replayedDetail) {
         throw new HttpError(409, "Карточка уже изменена после этого сохранения. Обновите данные перед публикацией", {
           code: "CARD_CHANGED_AFTER_REPLAY",
@@ -1012,8 +1017,8 @@ export async function updateCard(
 }
 
 /** Удаление карточки (каскадно чистит фото/характеристики/избранное). 404, если не найдена. */
-export async function deleteCard(env: AppEnv, id: string, expectedVersion: number): Promise<string[]> {
-  const sql = getDb(env);
+export async function deleteCard(env: AppEnv, id: string, expectedVersion: number, db: Database): Promise<string[]> {
+  const sql = db.sql;
   return sql.begin(async (tx) => {
     const images = await tx<{ storage_path: string }[]>`
       select storage_path from card_images where card_id = ${id}
@@ -1031,8 +1036,8 @@ export async function deleteCard(env: AppEnv, id: string, expectedVersion: numbe
 }
 
 /** Публикует черновик или повторно открывает скрытую карточку после серверной проверки. */
-export async function publishCard(env: AppEnv, id: string, expectedVersion: number): Promise<AdminCardDetail> {
-  const sql = getDb(env);
+export async function publishCard(env: AppEnv, id: string, expectedVersion: number, db: Database): Promise<AdminCardDetail> {
+  const sql = db.sql;
   await sql.begin(async (tx) => {
     const [card] = await tx<CardRow[]>`
       select
@@ -1100,12 +1105,12 @@ export async function publishCard(env: AppEnv, id: string, expectedVersion: numb
       where id = ${id}
     `;
   });
-  return (await getAdminCardDetail(env, id))!;
+  return (await getAdminCardDetail(env, id, db))!;
 }
 
 /** Скрывает опубликованную карточку, не превращая её обратно в черновик. */
-export async function archiveCard(env: AppEnv, id: string, expectedVersion: number): Promise<AdminCardDetail> {
-  const sql = getDb(env);
+export async function archiveCard(env: AppEnv, id: string, expectedVersion: number, db: Database): Promise<AdminCardDetail> {
+  const sql = db.sql;
   const [row] = await sql<{ id: string }[]>`
     update cards set archived_at = now()
     where id = ${id} and published_at is not null and version = ${expectedVersion}
@@ -1122,5 +1127,5 @@ export async function archiveCard(env: AppEnv, id: string, expectedVersion: numb
     }
     throw new HttpError(409, "Черновик ещё не опубликован");
   }
-  return (await getAdminCardDetail(env, id))!;
+  return (await getAdminCardDetail(env, id, db))!;
 }

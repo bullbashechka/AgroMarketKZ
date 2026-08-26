@@ -7,7 +7,7 @@ import {
   verifyContactResponse
 } from "@agromarket/contracts";
 import { Hono } from "hono";
-import { getEnv, type HonoEnv } from "../env";
+import { getDatabase, getEnv, type HonoEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { tryValidateContactPhoneForUser, validateContactPhoneForUser } from "../lib/contact";
 import { requireAuth } from "../middleware/auth";
@@ -23,7 +23,7 @@ profileRoutes.use("*", requireAuth);
 profileRoutes.get("/", async (c) => {
   const env = getEnv(c);
   const { telegramId } = c.get("auth");
-  const row = await findByTelegramId(env, telegramId);
+  const row = await findByTelegramId(env, telegramId, getDatabase(c));
   if (!row) {
     throw new HttpError(404, "Пользователь не найден");
   }
@@ -36,7 +36,7 @@ profileRoutes.post("/register", async (c) => {
   const { userId, telegramId } = c.get("auth");
   const data = registerInput.parse(await c.req.json());
   const verifiedPhone = await tryValidateContactPhoneForUser(data.contactResponse, telegramId, env);
-  const row = await register(env, userId, data, verifiedPhone);
+  const row = await register(env, userId, data, getDatabase(c), verifiedPhone);
   return c.json(profileSchema.parse(toProfile(row, env)));
 });
 
@@ -59,14 +59,14 @@ profileRoutes.put("/", async (c) => {
   const env = getEnv(c);
   const { userId } = c.get("auth");
   const data = updateProfileInput.parse(await c.req.json());
-  const row = await updateContacts(env, userId, data);
+  const row = await updateContacts(env, userId, data, getDatabase(c));
   return c.json(profileSchema.parse(toProfile(row, env)));
 });
 
 /** Самообслуживаемое удаление: PII обезличивается, все сессии отзываются. */
 profileRoutes.delete("/", async (c) => {
   deleteAccountInput.parse(await c.req.json());
-  await deleteAccount(getEnv(c), c.get("auth").userId);
+  await deleteAccount(getEnv(c), c.get("auth").userId, getDatabase(c));
   clearSessionCookie(c);
   return c.body(null, 204);
 });
