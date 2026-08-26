@@ -114,6 +114,13 @@ export function createApp(options: AppOptions = {}) {
       if (!env.PAGES_PROXY_SECRET || !timingSafeEqual(proxySecret, env.PAGES_PROXY_SECRET)) {
         throw new HttpError(401, "Запрос должен пройти через приложение");
       }
+      // Pages and Worker can deploy independently. Legacy Pages omit the
+      // version while the current proxy sends version 1; reject only an
+      // explicitly incompatible protocol rather than failing open.
+      const proxyVersion = c.req.header("X-Agromarket-Proxy-Version");
+      if (proxyVersion !== undefined && proxyVersion !== "1") {
+        throw new HttpError(401, "Неподдерживаемая версия proxy-протокола");
+      }
       if (["POST", "PUT", "PATCH", "DELETE"].includes(c.req.method)) {
         const origin = c.req.header("Origin");
         const forwardedOrigin = c.req.header("X-Forwarded-Origin");

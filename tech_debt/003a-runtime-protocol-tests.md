@@ -1,6 +1,27 @@
 # TD-003A — Contract tests для Pages, Worker и scheduled runtime
 
 **Приоритет:** P0 · **Оценка:** S–M · **Зависимости:** нет.
+**Статус:** ✅ Выполнено (2026-08-26; финальный независимый Sol high review: 9.5/10, замечаний нет).
+
+## Фактическое выполнение
+
+- Pages proxy получил небольшую pure policy/fetch seam: fail-closed для отсутствующих secrets,
+  same-origin JSON mutation, запрет клиентских internal proxy headers и сохранение пути/query.
+- Добавлен additive Pages↔Worker protocol `X-Agromarket-Proxy-Version: 1`; Worker временно
+  принимает legacy-запросы без version или version `1`, но отклоняет несовместимые версии.
+- Queue dispatch теперь опирается на точное имя очереди и strict Zod envelope, а каждая message
+  получает собственный `ack`/`retry`; ошибка одной message не прерывает batch.
+- Scheduled runtime сопоставляет только два известных cron, регистрирует один fully-tracked
+  `waitUntil` и ждёт outcome всех запущенных jobs; неизвестный cron не запускает fallback jobs.
+- Добавлены injected contract tests для Pages и Worker, включая паритет Queue/cron с
+  `backend/wrangler.toml`; Pages proxy test включён в `release:verify`.
+
+## Проверка выполнения
+
+- `bun test backend/tests/worker.test.ts webapp/functions/api/proxy.test.ts` — 12 pass.
+- `bun test backend/tests packages/contracts/tests webapp/tests webapp/functions/api/proxy.test.ts` — проходит; DB integration tests пропускаются без тестовой БД.
+- `bun run typecheck` — успешно.
+- `bun run build` — успешно; Wrangler dry-run не может записать sandbox debug-log, а Vite сохраняет известное предупреждение о chunk >500 kB.
 
 ## Проблема
 
