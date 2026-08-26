@@ -111,9 +111,10 @@ describeIntegration("admin audit durability", () => {
   function databaseUnavailableAfterCommit(env: AppEnv): DatabaseInvocation {
     const real = createDatabaseInvocation(env);
     let unavailable = false;
+    const outage = () => Object.assign(new Error("simulated outage after mutation commit"), { code: "ECONNRESET" });
     const sql = new Proxy(real.sql, {
       apply(target, thisArg, args) {
-        if (unavailable) throw new Error("simulated outage after mutation commit");
+        if (unavailable) throw outage();
         return Reflect.apply(target, thisArg, args);
       },
       get(target, property, receiver) {
@@ -122,7 +123,7 @@ describeIntegration("admin audit durability", () => {
         return async (...args: unknown[]) => {
           await Reflect.apply(value, target, args);
           unavailable = true;
-          throw new Error("simulated process termination after mutation commit");
+          throw outage();
         };
       },
     });
@@ -132,7 +133,7 @@ describeIntegration("admin audit durability", () => {
         strings: TemplateStringsArray,
         ...values: unknown[]
       ): Promise<T> => {
-        if (unavailable) throw new Error("simulated outage after mutation commit");
+        if (unavailable) throw outage();
         return real.retryIdempotentStandalone<T>(strings, ...values);
       },
       dispose: real.dispose,
@@ -361,7 +362,7 @@ describeIntegration("admin audit durability", () => {
 
   test("keeps the business commit and audit intent across a post-commit outage", async () => {
     const actor = await createActor("post-commit outage");
-    const categoryName = `[td-003b] crash boundary ${crypto.randomUUID()}`;
+    const categoryName = `td003b-${crypto.randomUUID()}`;
     let categoryId: string | undefined;
     let recoveryDb: DatabaseInvocation | undefined;
     try {
@@ -372,6 +373,7 @@ describeIntegration("admin audit durability", () => {
       }, {
         createDatabaseInvocation: databaseUnavailableAfterCommit,
       });
+      // The client cannot safely infer a rollback after a post-commit outage.
       expect(response.status).toBe(500);
       categoryId = (await sql<{ id: string }[]>`
         select id from public.categories where name = ${categoryName}

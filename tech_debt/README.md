@@ -18,7 +18,7 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 | 001 | P0 | ✅ [Безопасное владение DB-клиентом и явные ретраи](001-db-client-lifecycle-and-retries.md) | Убрать module-global pool и прозрачный повтор неоднозначных write-запросов. |
 | 002 | P0 | ✅ [Атомарные сессии и полноценный отзыв credentials](002-session-rotation-and-revocation.md) | Закрыть race ротации, write amplification и повторный вход по старому Telegram proof. |
 | 003A | P0 | ✅ [Contract tests для Pages/Worker/scheduled runtime](003a-runtime-protocol-tests.md) | Защитить security/dispatch protocol на production entrypoints. |
-| 003B | P0 | [Durability tests для outbox/audit/privacy](003b-persistence-durability-tests.md) | Сделать executable критичные DB recovery и audit outcomes. |
+| 003B | P0 | ✅ [Durability tests для outbox/audit/privacy](003b-persistence-durability-tests.md) | Сделать executable критичные DB recovery и audit outcomes. |
 | 012 | P0 gate | [Единый и безопасный migration workflow](012-migration-workflow-convergence.md) | Обязательно до следующей production migration: убрать конкуренцию custom ledger и Supabase history. |
 | 010 | P0 gate / P1 | [Наблюдаемость, DLQ и operational closure](010-observability-dlq-and-operations.md) | Перед canary включить monitoring preflight; затем закрыть операторский контур. |
 | 004 | P1 | [Верификация телефона при редактировании профиля](004-profile-phone-verification.md) | Реальная пользовательская функция сейчас теряет подписанный Telegram contact proof. |
@@ -63,6 +63,6 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 - `bun test e2e/helpers e2e/scripts` — 29 pass, 0 fail.
 - `bun audit --audit-level high` — уязвимости не найдены.
 - `bun run build` — успешно; main webapp chunk 532.68 kB minified / 151.75 kB gzip, Vite выдал предупреждение >500 kB.
-- `bun run test:integration` — не стартовал даже вне sandbox: macOS исчерпал shared-memory IDs (`initdb: No space left on device`). Это ограничение текущей машины, не зелёный и не красный сигнал кода.
+- `bun run test:integration` — успешно: isolated PostgreSQL применил migrations и выполнил catalog/session/outbox/audit/privacy persistence suites без пропусков.
 - Полный GitLeaks/TruffleHog scan не выполнен: инструмент отсутствует. Path-only эвристика истории нашла только кандидаты в example/docs, но не заменяет redacted secret scanner.
 - E2E journeys не запускались: они требуют изолированные `E2E_*` DB/Storage/Telegram ресурсы и намеренно блокируют production baseline.

@@ -18,17 +18,27 @@ function run(command: string[], options: Parameters<typeof Bun.spawnSync>[1] = {
 const initdb = executable("initdb");
 const pgCtl = executable("pg_ctl");
 const psql = executable("psql");
-const dataDir = mkdtempSync(join(tmpdir(), "agromarketkz-pg-"));
-const port = await findFreePort();
-const databaseUrl = `postgresql://127.0.0.1:${port}/postgres`;
 const migrationsDir = resolve(import.meta.dir, "../../database/migrations");
-const integrationTests = [
+const testNamePattern = process.env.INTEGRATION_TEST_NAME_PATTERN;
+const allIntegrationTests = [
   "backend/tests/adminCatalog.integration.test.ts",
   "backend/tests/sessions.integration.test.ts",
   "backend/tests/notificationOutbox.test.ts",
   "backend/tests/adminAudit.test.ts",
   "backend/tests/privacy.test.ts",
 ];
+const requestedIntegrationTests = process.env.INTEGRATION_TEST_FILES
+  ?.split(",")
+  .map((path) => path.trim())
+  .filter(Boolean);
+const integrationTests = requestedIntegrationTests?.length ? requestedIntegrationTests : allIntegrationTests;
+const unsupportedIntegrationTests = integrationTests.filter((path) => !allIntegrationTests.includes(path));
+if (unsupportedIntegrationTests.length > 0) {
+  throw new Error(`Unsupported integration test files: ${unsupportedIntegrationTests.join(", ")}`);
+}
+const dataDir = mkdtempSync(join(tmpdir(), "agromarketkz-pg-"));
+const port = await findFreePort();
+const databaseUrl = `postgresql://127.0.0.1:${port}/postgres`;
 let serverStarted = false;
 
 try {
@@ -54,7 +64,9 @@ try {
   }
 
   for (const integrationTest of integrationTests) {
-    run([process.execPath, "test", integrationTest], {
+    const command = [process.execPath, "test", integrationTest];
+    if (testNamePattern) command.push("--test-name-pattern", testNamePattern);
+    run(command, {
       env: {
         ...process.env,
         TEST_DATABASE_URL: databaseUrl,

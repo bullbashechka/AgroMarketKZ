@@ -87,6 +87,8 @@ export async function runAdminMutation<T>(
     metadata: { status: successStatus },
   });
 
+  // A connection failure after this point can be an ambiguous COMMIT.
+  c.set("adminMutationMayHaveCommitted", true);
   const result = await mutate(audit);
   c.set("adminAuditCommitted", true);
   try {

@@ -213,7 +213,7 @@ describeIntegration("privacy retention and legal holds", () => {
           count(*) filter (where deleted_at is null)::text as live,
           count(*) filter (where deleted_at is not null)::text as deleted
         from public.users
-        where id = any(${sql.array(fixtures.map((fixture) => fixture.id))})
+        where id = any(${sql.array(fixtures.map((fixture) => fixture.id))}::uuid[])
       `;
       expect(firstPass).toEqual({ live: "5", deleted: "100" });
 
@@ -223,7 +223,7 @@ describeIntegration("privacy retention and legal holds", () => {
           count(*) filter (where deleted_at is null)::text as live,
           count(*) filter (where deleted_at is not null)::text as deleted
         from public.users
-        where id = any(${sql.array(fixtures.map((fixture) => fixture.id))})
+        where id = any(${sql.array(fixtures.map((fixture) => fixture.id))}::uuid[])
       `;
       expect(secondPass).toEqual({ live: "0", deleted: "105" });
     } finally {
@@ -254,7 +254,7 @@ describeIntegration("privacy retention and legal holds", () => {
     });
 
     try {
-      await holdInserted;
+      await inserted;
       const retention = runPrivacyRetention(integrationEnv, db);
       await new Promise((resolve) => setTimeout(resolve, 50));
       releaseHold();

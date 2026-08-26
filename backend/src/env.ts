@@ -87,6 +87,7 @@ export interface AppVariables {
   auth: AuthUser;
   requestId: string;
   adminAuditCommitted: boolean;
+  adminMutationMayHaveCommitted: boolean;
 }
 
 /** Тип окружения Hono для всего backend (Bindings + Variables). */

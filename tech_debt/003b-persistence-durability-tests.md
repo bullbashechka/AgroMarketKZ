@@ -2,6 +2,20 @@
 
 **Приоритет:** P0 · **Оценка:** M · **Зависимости:** isolated Postgres harness; согласовать DB scope с TD-001.
 
+**Статус:** ✅ Выполнено (2026-08-26; финальный независимый code review: 9/10, actionable замечаний нет).
+
+## Фактическое выполнение
+
+- Изолированный PostgreSQL runner создаёт временный кластер, накатывает все migrations и теперь умеет безопасно выбрать только allowlisted persistence suite через `INTEGRATION_TEST_FILES`.
+- Реальные DB tests подтверждают outbox lease fencing, retry/DLQ, reconciliation и ограничение batch; audit success/denied/failed/PII policy и post-commit recovery; privacy hold, retention boundaries, 100-row batch и resume после race.
+- Исправлены fixtures, скрывавшие доказательство: UUID-массивы явно приводятся к `uuid[]`, session timestamps сохраняют DB constraint `expires_at > created_at`, а legal-hold race ждёт фактический INSERT перед retention.
+
+### Проверка выполнения
+
+- `bun run test:integration` — успешно: catalog 15, sessions 9, notification outbox 9, admin audit 9, privacy 5.
+- `bun run typecheck` — успешно.
+- `git diff --check` — успешно.
+
 ## Проблема
 
 Coverage snapshot: `notificationOutbox.ts` 7.24%, `privacy.ts` 2.86%, `sessions.ts` 6.33%. Audit middleware запускается после admin guard и записывает после `await next()`: denied/failed outcomes не фиксируются, а audit INSERT после committed mutation может превратить успех в неоднозначный 500. Обычный suite пропускает 17 DB tests без `TEST_DATABASE_URL`.

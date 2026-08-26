@@ -371,7 +371,7 @@ describeIntegration("notification outbox durability", () => {
       await sql`
         update app_private.notification_outbox
         set next_attempt_at = now() - interval '1 second'
-        where id = any(${sql.array(fixtures.map((fixture) => fixture.outboxId))})
+        where id = any(${sql.array(fixtures.map((fixture) => fixture.outboxId))}::uuid[])
       `;
       await reconcileNotificationOutbox(queueEnv, db);
       expect(messages).toHaveLength(50);

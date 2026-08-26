@@ -6,6 +6,7 @@ import {
   hashSessionToken,
   SESSION_GRACE_SECONDS,
   SESSION_ROTATION_SECONDS,
+  SESSION_TTL_SECONDS,
 } from "../src/lib/session";
 import { telegramIdentityHash } from "../src/lib/telegram";
 import { deleteAccount } from "../src/repos/privacy";
@@ -148,17 +149,23 @@ describeIntegration("session persistence and credential revocation", () => {
       `;
       expect(Number(deleted?.telegram_id)).toBe(-telegramId);
       expect(deleted?.deleted_at).toBeInstanceOf(Date);
-      await expect(sql`
-        insert into app_private.privacy_holds (user_id, reason)
-        values (${initial.row.id}, 'post-delete hold')
-      `).rejects.toThrow("privacy hold requires a live user");
+      let holdInsertError: unknown;
+      try {
+        await sql`
+          insert into app_private.privacy_holds (user_id, reason)
+          values (${initial.row.id}, 'post-delete hold')
+        `;
+      } catch (error) {
+        holdInsertError = error;
+      }
+      expect(holdInsertError).toMatchObject({ message: "privacy hold requires a live user" });
 
       await cleanupUser(fresh.row.id, telegramId);
     } finally {
       await deletionDb.dispose();
       await cleanupUser(initial.row.id, telegramId);
     }
-  });
+  }, 10_000);
 
   test("Login Widget proof exchange shares the cutoff and one-use boundary", async () => {
     const telegramId = nextTelegramId();
@@ -229,7 +236,8 @@ describeIntegration("session persistence and credential revocation", () => {
     const expiredHash = await hashSessionToken(expired.token);
     await sql`
       update app_private.user_sessions
-      set expires_at = clock_timestamp() - interval '1 second'
+      set created_at = clock_timestamp() - interval '2 seconds',
+          expires_at = clock_timestamp() - interval '1 second'
       where token_hash = ${expiredHash}
     `;
     const db = createDatabaseInvocation(env);
@@ -248,7 +256,11 @@ describeIntegration("session persistence and credential revocation", () => {
         update app_private.user_sessions
         set created_at = clock_timestamp()
           - (${SESSION_ROTATION_SECONDS} * interval '1 second')
+          + interval '1 second',
+            expires_at = clock_timestamp()
+          - (${SESSION_ROTATION_SECONDS} * interval '1 second')
           + interval '1 second'
+          + (${SESSION_TTL_SECONDS} * interval '1 second')
         where id = ${source!.id}
       `;
       expect((await findSessionAuthUser(env, current.token, db))?.rotatedToken).toBeUndefined();

@@ -24,11 +24,18 @@ function errorStatus(error: unknown): number {
 
 adminRoutes.use("*", async (c, next) => {
   c.set("adminAuditCommitted", false);
+  c.set("adminMutationMayHaveCommitted", false);
   try {
     await next();
   } catch (error) {
+    if (c.get("adminMutationMayHaveCommitted") && isConnectionError(error)) {
+      throw new HttpError(500, "Результат административного изменения требует проверки");
+    }
     if (!c.get("adminAuditCommitted")) await auditAdminRequest(c, errorStatus(error));
     throw error;
+  }
+  if (c.get("adminMutationMayHaveCommitted") && c.res.status === 503) {
+    throw new HttpError(500, "Результат административного изменения требует проверки");
   }
   if (!c.get("adminAuditCommitted")) await auditAdminRequest(c, c.res.status);
 });
