@@ -10,11 +10,12 @@ const baselineVersion = Bun.env.MIGRATION_BASELINE_VERSION;
 if (!databaseUrl) {
   throw new Error("MIGRATION_DATABASE_URL обязателен; DATABASE_URL намеренно не используется миграционным runner");
 }
-if (targetEnv !== "development" && targetEnv !== "staging" && targetEnv !== "production") {
-  throw new Error("TARGET_ENV должен быть development, staging или production");
+if (targetEnv !== "development") {
+  throw new Error("Legacy migration runner разрешён только для disposable TARGET_ENV=development; production использует db:migrate:production:preflight");
 }
-if (targetEnv === "production" && Bun.env.MIGRATION_CONFIRM !== "APPLY") {
-  throw new Error("Для production укажите MIGRATION_CONFIRM=APPLY в отдельной подтверждённой команде");
+const migrationHost = new URL(databaseUrl).hostname;
+if (migrationHost !== "127.0.0.1" && migrationHost !== "localhost" && migrationHost !== "::1") {
+  throw new Error("Legacy migration runner принимает только loopback MIGRATION_DATABASE_URL; linked Supabase использует production preflight");
 }
 if (baselineVersion && !/^\d{4}$/.test(baselineVersion)) {
   throw new Error("MIGRATION_BASELINE_VERSION должен иметь формат NNNN, например 0013");

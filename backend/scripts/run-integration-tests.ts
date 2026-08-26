@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { checkMigrations } from "./checkMigrations";
 import { findFreePort } from "./integrationPort";
 
 function executable(name: string): string {
@@ -19,6 +20,13 @@ const initdb = executable("initdb");
 const pgCtl = executable("pg_ctl");
 const psql = executable("psql");
 const migrationsDir = resolve(import.meta.dir, "../../database/migrations");
+
+function applyMigrations(databaseUrl: string, migrations: string[]) {
+  for (const migration of migrations) {
+    run([psql, databaseUrl, "-v", "ON_ERROR_STOP=1", "-f", join(migrationsDir, migration)]);
+  }
+}
+
 const testNamePattern = process.env.INTEGRATION_TEST_NAME_PATTERN;
 const allIntegrationTests = [
   "backend/tests/adminCatalog.integration.test.ts",
@@ -42,6 +50,11 @@ const databaseUrl = `postgresql://127.0.0.1:${port}/postgres`;
 let serverStarted = false;
 
 try {
+  const manifest = checkMigrations();
+  const latestManagedMigration = manifest.migrations.at(-1);
+  if (!latestManagedMigration?.verificationSql) {
+    throw new Error("Latest migration must define a verification query");
+  }
   run([
     initdb,
     "-D",
@@ -59,9 +72,14 @@ try {
   serverStarted = true;
 
   const migrations = Array.from(new Bun.Glob("*.sql").scanSync({ cwd: migrationsDir })).sort();
-  for (const migration of migrations) {
-    run([psql, databaseUrl, "-v", "ON_ERROR_STOP=1", "-f", join(migrationsDir, migration)]);
-  }
+  applyMigrations(databaseUrl, migrations);
+
+  const upgradeDatabase = "migration_upgrade";
+  const upgradeDatabaseUrl = `postgresql://127.0.0.1:${port}/${upgradeDatabase}`;
+  run([psql, databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", `create database ${upgradeDatabase}`]);
+  applyMigrations(upgradeDatabaseUrl, migrations.slice(0, -1));
+  applyMigrations(upgradeDatabaseUrl, migrations.slice(-1));
+  run([psql, upgradeDatabaseUrl, "-v", "ON_ERROR_STOP=1", "-c", latestManagedMigration.verificationSql]);
 
   for (const integrationTest of integrationTests) {
     const command = [process.execPath, "test", integrationTest];

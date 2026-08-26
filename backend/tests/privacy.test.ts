@@ -61,6 +61,27 @@ describeIntegration("privacy retention and legal holds", () => {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   }
 
+  async function waitForHolderTransactionLock(holderPid: number): Promise<void> {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const [waiting] = await sql<{ blocked: boolean }[]>`
+        select exists (
+          select 1
+          from pg_locks waiter
+          join pg_locks holder
+            on holder.locktype = 'transactionid'
+           and waiter.locktype = holder.locktype
+           and waiter.transactionid = holder.transactionid
+          where holder.pid = ${holderPid}
+            and holder.granted
+            and not waiter.granted
+        ) as blocked
+      `;
+      if (waiting?.blocked) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error("Deletion never reached the transaction lock held by the concurrent legal hold");
+  }
+
   afterAll(async () => {
     await sql.end({ timeout: 0 });
   });
@@ -71,9 +92,12 @@ describeIntegration("privacy retention and legal holds", () => {
     const holdSql = postgres(integrationEnv.DATABASE_URL!, { prepare: false, max: 1 });
     let releaseHold!: () => void;
     let holdInserted!: () => void;
+    let holderPid!: number;
     const release = new Promise<void>((resolve) => { releaseHold = resolve; });
     const inserted = new Promise<void>((resolve) => { holdInserted = resolve; });
     const holder = holdSql.begin(async (tx) => {
+      const [connection] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+      holderPid = connection!.pid;
       await tx`
         insert into app_private.privacy_holds (user_id, reason)
         values (${fixture.id}, 'integration legal hold')
@@ -83,9 +107,9 @@ describeIntegration("privacy retention and legal holds", () => {
     });
 
     try {
-      await holdInserted;
+      await inserted;
       const deletion = deleteAccount(integrationEnv, fixture.id, deletionDb);
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitForHolderTransactionLock(holderPid);
       releaseHold();
       await expect(deletion).rejects.toMatchObject({ status: 409 });
       await holder;
@@ -242,9 +266,12 @@ describeIntegration("privacy retention and legal holds", () => {
     const db = openIntegrationDatabase();
     let releaseHold!: () => void;
     let holdInserted!: () => void;
+    let holderPid!: number;
     const release = new Promise<void>((resolve) => { releaseHold = resolve; });
     const inserted = new Promise<void>((resolve) => { holdInserted = resolve; });
     const holder = holdSql.begin(async (tx) => {
+      const [connection] = await tx<{ pid: number }[]>`select pg_backend_pid() as pid`;
+      holderPid = connection!.pid;
       await tx`
         insert into app_private.privacy_holds (user_id, reason)
         values (${fixture.id}, 'resume failure')
@@ -256,7 +283,7 @@ describeIntegration("privacy retention and legal holds", () => {
     try {
       await inserted;
       const retention = runPrivacyRetention(integrationEnv, db);
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitForHolderTransactionLock(holderPid);
       releaseHold();
       await expect(retention).rejects.toMatchObject({ status: 409 });
       await holder;

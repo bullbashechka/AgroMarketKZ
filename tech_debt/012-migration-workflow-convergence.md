@@ -5,6 +5,12 @@
 **Оценка:** S–M  
 **Зависимости:** нет; выполнить до следующей production schema change.
 
+**Статус:** ✅ закрыта 26.08.2026. Production inventory снят read-only: native
+`supabase_migrations.schema_migrations` и historical `app_private.schema_migrations` согласованы
+до `0019`; `0020` и `0021` остаются pending и этой задачей не применялись. Disposable development
+путь покрыт isolated zero/N−1 upgrade test без production secrets. Финальный независимый review:
+**8/10**, actionable P0–P2 нет.
+
 ## Проблема
 
 Canonical SQL находится в `database/migrations`, Supabase CLI видит symlinks в `supabase/migrations`, а старый root `db:migrate` ведёт собственный `app_private.schema_migrations`. Три представления одной истории могут разойтись; root command способен повторно рассматривать уже применённые native Supabase migrations. Runbook предупреждает об этом, но automation не запрещает ошибочный путь.
@@ -36,3 +42,20 @@ bun run test:integration
 ## Вероятные файлы
 
 `database/migrations`, `supabase/migrations`, migration scripts, root `package.json`, `database/README.md`, `DEPLOYMENT.md`.
+
+## Выполнено
+
+- `database/migrations/manifest.json` стал проверяемым source map: SHA-256, version mapping,
+  compatibility, forward recovery, rollback note и verification SQL.
+- `bun run db:migrations:sync` создаёт только отсутствующие deterministic symlink, а
+  `bun run db:migrations:check` ловит checksum drift, missing/extra/copy/dangling mappings.
+  Восемь fetched historical files сохранены как immutable evidence, без переписывания applied SQL.
+- Root bulk commands удалены. Legacy runner принимает только loopback `TARGET_ENV=development`;
+  production wrapper требует explicit version, project-ref guard, ledger preflight и confirmation.
+  Он использует temporary curated migration-set, поэтому следующая pending migration не может
+  быть случайно применена batch-ом.
+- `test:integration` теперь проверяет миграции от нуля и upgrade с предыдущего migration prefix;
+  privacy concurrency checks используют transaction-lock barrier вместо sleep.
+- Проверки: `bun run db:migrations:sync`, `bun run db:migrations:check`,
+  `bun test backend/tests/checkMigrations.test.ts`, `bun run typecheck`, `bun run test:integration`,
+  read-only production preflight для `20260826055721` — успешно.

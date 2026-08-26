@@ -7,24 +7,65 @@ Supabase CLI project; runtime-подключение Worker должно исп�
 ## Commands
 
 ```sh
+bun run db:migrations:check
 supabase migration list --linked
-bun run db:migrate:supabase:dry-run
-bun run db:migrate:supabase
 ```
 
-`database/migrations` остаётся каноническим источником SQL. `supabase/migrations` содержит
-загруженную через `supabase migration fetch` удалённую историю и symlink-файлы на прикладные
-миграции `0011+`, поэтому один и тот же SQL проходит локальную проверку и production `db push`.
-Перед production-применением dry-run должен перечислять только ожидаемые новые версии.
+`database/migrations` — единственный source of truth. `manifest.json` фиксирует SHA-256,
+Supabase version, compatibility, forward recovery, rollback note и read-only verification query
+для каждой управляемой migration. `bun run db:migrations:check` блокирует drift: canonical catalog
+и manifest должны быть полной упорядоченной bijection; управляемые файлы в `supabase/migrations`
+должны быть ровно детерминированными symlink на canonical SQL, без missing, dangling или extra
+файлов.
+
+Восемь regular-файлов в `supabase/migrations` — immutable fetched evidence исторического remote
+prefix до cutover. Они сознательно не переписываются в symlink: remote history собирался из
+нескольких ранних файлов и не является byte-to-byte представлением современного canonical catalog.
+Их SHA-256 также проверяется manifest-ом. Не использовать `migration repair` или менять этот
+prefix без отдельного forensic решения.
+
+Новая migration: добавить canonical SQL, отдельной записью добавить SHA-256 и все recovery notes
+в manifest, выполнить `bun run db:migrations:sync`, затем `bun run db:migrations:check`. Для
+destructive change в manifest ставится `requiresPitr: true`; до preflight нужен подтверждённый
+PITR/backup и restore drill. Expand сначала добавляет совместимую схему, code rollout читает обе
+формы, contract/remove выполняется только следующей migration после проверки данных. Ошибки
+исправляются только forward migration, не изменением применённого SQL.
+
+Production-путь всегда ровно для одной explicit version:
+
+```sh
+MIGRATION_TARGET_ENV=production \
+MIGRATION_EXPECT_VERSION=20260826055721 \
+bun run db:migrate:production:preflight
+
+MIGRATION_TARGET_ENV=production \
+MIGRATION_EXPECT_VERSION=20260826055721 \
+MIGRATION_CONFIRM=APPLY:20260826055721 \
+bun run db:migrate:production
+```
+
+Preflight выполняет только read-only native-ledger query и Supabase dry-run, требует выбранную
+первую не применённую версию и блокирует любую unknown/missing/out-of-order историю. Для dry-run
+и apply он строит во временной директории curated migration-set только до этой версии, поэтому
+поздние pending файлы не могут попасть в `db push`. Production apply повторяет preflight
+непосредственно перед push; default bulk команды нет.
+После apply выполнить verification query из manifest и `supabase migration list --linked`.
+
+Старый runner доступен только для disposable loopback DB:
+
+```sh
+TARGET_ENV=development MIGRATION_DATABASE_URL=postgresql://127.0.0.1:54322/postgres \
+  bun run db:migrate:local
+```
+
 Supabase CLI выполняет migration-файлы в pipeline/транзакционном режиме, поэтому в этих файлах
-нельзя использовать `CREATE INDEX CONCURRENTLY`; обычный `CREATE INDEX` безопасен для новых
-пустых таблиц и проходит тем же путём, что production `db push`.
+нельзя использовать `CREATE INDEX CONCURRENTLY`.
 
 `app_private.schema_migrations` — исторический checksum-ledger старого runner. В production он
 сверен с файлами до `0019`; версии `0011–0014` однократно зарегистрированы в нативной истории
 Supabase через `migration repair --status applied`, а `0015`–`0019` применены через `db push`.
-Production source of truth — `supabase_migrations.schema_migrations`. Старый
-`bun run db:migrate` не использовать против production.
+Production source of truth — `supabase_migrations.schema_migrations`. Старый local runner не
+использовать против production.
 
 Migration `0021_admin_audit_outbox.sql` is prepared but not applied here. It makes administrator
 audit intent transactional with the business mutation, fences notification and audit outbox

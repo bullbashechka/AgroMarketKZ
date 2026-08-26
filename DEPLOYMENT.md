@@ -205,30 +205,33 @@ CLOUDFLARE_API_TOKEN="$(security find-generic-password -s agromarketkz-cloudflar
 
 ## Миграции БД
 
-Production-миграции выполняются через Supabase CLI linked project. Канонический SQL лежит в
-`database/migrations`, а `supabase/migrations` содержит fetched remote history и symlink-файлы
-на `0011+`. Исторический `app_private.schema_migrations` сверяется read-only, но старый runner
-против production больше не запускается.
+Production-миграции выполняются только через explicit-version wrapper. Перед каждой операцией
+`bun run db:migrations:check` должен подтвердить SHA-256 manifest-а, immutable historic remote
+prefix и детерминированные symlink. Исторический `app_private.schema_migrations` сверяется
+read-only; `migration repair` и legacy runner в production запрещены.
 
-Однократный переход: после совпадения SHA-256 для `0001–0014` отметить уже существующие
-`0011–0014` в нативной истории Supabase без повторного SQL:
-
-```bash
-supabase migration repair --linked --status applied \
-  20260825000111 20260825000112 20260825000113 20260825000114
-```
-
-После этого dry-run обязан показать только `20260825000115`–`20260825000119`,
-`20260826055721` и `20260826080000`; затем отдельной
-production-операцией применить их:
+Current inventory от 26.08.2026: native Supabase ledger содержит версии до
+`20260825000119`; `20260826055721` и `20260826080000` pending. Не применять их этой задачей.
+Следующая production migration разрешается только одной явно указанной версией и только когда
+она является первой не применённой в порядке ledger:
 
 ```bash
-bun run db:migrate:supabase:dry-run
-bun run db:migrate:supabase
+MIGRATION_TARGET_ENV=production \
+MIGRATION_EXPECT_VERSION=<14-digit-version> \
+  bun run db:migrate:production:preflight
+
+MIGRATION_TARGET_ENV=production \
+MIGRATION_EXPECT_VERSION=<same-version> \
+MIGRATION_CONFIRM=APPLY:<same-version> \
+  bun run db:migrate:production
 ```
 
-`supabase migration list --linked` после применения должен показывать Local = Remote для всех
-версий до `20260826080000`. Если dry-run показывает другой набор, release блокируется.
+Preflight читает `supabase_migrations.schema_migrations`, rejects missing/unknown/out-of-order
+drift и запускает `supabase db push --linked --dry-run` с временным curated migration-set только
+до выбранной версии; apply повторяет preflight непосредственно перед push. Для destructive migration дополнительно нужна включённая PITR, успешный restore drill
+и `MIGRATION_PITR_CONFIRMED=PITR:<same-version>`. После применения выполнить verification SQL
+из `database/migrations/manifest.json` и убедиться, что `supabase migration list --linked`
+показывает Local = Remote.
 
 ### Runtime DB role (обязательный blocker до canary)
 

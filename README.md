@@ -31,8 +31,8 @@ bun install
 # 2. Переменные окружения
 cp .env.example .env          # заполнить значения (см. ниже), включая DATABASE_URL от Supabase
 
-# 3. База данных (Supabase, миграции применяются один раз на проект)
-bun run db:migrate             # применить SQL-миграции
+# 3. Локальная disposable БД (production workflow — в database/README.md)
+TARGET_ENV=development MIGRATION_DATABASE_URL=postgresql://127.0.0.1:54322/postgres bun run db:migrate:local
 bun run db:seed:dev            # демо-категории и карточки (опционально)
 
 # 4. Dev-серверы (contracts watch + backend + webapp)
@@ -188,11 +188,10 @@ Storage удаляется до SQL-зачистки: при временном 
 ## Доработка каталога: территории и предложения
 
 Миграции `0011`–`0019` применены в production и зарегистрированы в нативной истории Supabase.
-Production обновляется только через linked Supabase CLI: сначала
-`bun run db:migrate:supabase:dry-run`, затем отдельной согласованной операцией
-`bun run db:migrate:supabase`. Корневой `bun run db:migrate` против production запрещён:
-это старый runner, который не использует нативный журнал Supabase. Подробный порядок и проверки
-описаны в [DEPLOYMENT.md](./DEPLOYMENT.md).
+Перед любой production migration запускать `bun run db:migrations:check`, затем explicit-version
+`db:migrate:production:preflight`; только после него доступен подтверждённый apply. Корневого
+bulk command больше нет: legacy runner принимает только loopback development DB. Подробный
+порядок, recovery и verification queries описаны в [database/README.md](./database/README.md).
 
 Миграция [`0011_territories_and_listing_data.sql`](./database/migrations/0011_territories_and_listing_data.sql)
 добавляет справочник из 20 территорий и структурированную географию карточек и предложений.

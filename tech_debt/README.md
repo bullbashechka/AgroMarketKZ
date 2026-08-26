@@ -19,7 +19,7 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 | 002 | P0 | ✅ [Атомарные сессии и полноценный отзыв credentials](002-session-rotation-and-revocation.md) | Закрыть race ротации, write amplification и повторный вход по старому Telegram proof. |
 | 003A | P0 | ✅ [Contract tests для Pages/Worker/scheduled runtime](003a-runtime-protocol-tests.md) | Защитить security/dispatch protocol на production entrypoints. |
 | 003B | P0 | ✅ [Durability tests для outbox/audit/privacy](003b-persistence-durability-tests.md) | Сделать executable критичные DB recovery и audit outcomes. |
-| 012 | P0 gate | [Единый и безопасный migration workflow](012-migration-workflow-convergence.md) | Обязательно до следующей production migration: убрать конкуренцию custom ledger и Supabase history. |
+| 012 | P0 gate | ✅ [Единый и безопасный migration workflow](012-migration-workflow-convergence.md) | Canonical manifest/checks, explicit-version production preflight и local zero/N−1 upgrade test. |
 | 010 | P0 gate / P1 | [Наблюдаемость, DLQ и operational closure](010-observability-dlq-and-operations.md) | Перед canary включить monitoring preflight; затем закрыть операторский контур. |
 | 004 | P1 | [Верификация телефона при редактировании профиля](004-profile-phone-verification.md) | Реальная пользовательская функция сейчас теряет подписанный Telegram contact proof. |
 | 005 | P1 | [Единая политика публикации и видимости карточек](005-publication-policy-single-source.md) | Устранить две application-level реализации одного бизнес-решения. |
@@ -64,5 +64,7 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 - `bun audit --audit-level high` — уязвимости не найдены.
 - `bun run build` — успешно; main webapp chunk 532.68 kB minified / 151.75 kB gzip, Vite выдал предупреждение >500 kB.
 - `bun run test:integration` — успешно: isolated PostgreSQL применил migrations и выполнил catalog/session/outbox/audit/privacy persistence suites без пропусков.
+- TD-012: `bun run db:migrations:check` и read-only production preflight для первой pending
+  `20260826055721` успешны; production SQL не применялся.
 - Полный GitLeaks/TruffleHog scan не выполнен: инструмент отсутствует. Path-only эвристика истории нашла только кандидаты в example/docs, но не заменяет redacted secret scanner.
 - E2E journeys не запускались: они требуют изолированные `E2E_*` DB/Storage/Telegram ресурсы и намеренно блокируют production baseline.
