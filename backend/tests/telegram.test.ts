@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { WidgetLoginInput } from "@agromarket/contracts";
-import { validateContactResponse, validateInitData, validateWidgetLogin } from "../src/lib/telegram";
+import {
+  telegramIdentityHash,
+  validateContactResponse,
+  validateInitData,
+  validateWidgetLogin,
+} from "../src/lib/telegram";
 
 const BOT_TOKEN = "123456:TEST-BOT-TOKEN";
 const encoder = new TextEncoder();
@@ -61,9 +66,13 @@ const now = () => Math.floor(Date.now() / 1000);
 
 describe("validateInitData", () => {
   test("принимает валидную подпись и возвращает пользователя", async () => {
-    const initData = await buildInitData(now());
-    const user = await validateInitData(initData, BOT_TOKEN);
-    expect(user).toEqual({ id: 777, username: "aidos", firstName: "Aidos", lastName: null });
+    const authDate = now();
+    const initData = await buildInitData(authDate);
+    const result = await validateInitData(initData, BOT_TOKEN);
+    expect(result).toEqual({
+      user: { id: 777, username: "aidos", firstName: "Aidos", lastName: null },
+      authDate,
+    });
   });
 
   test("отклоняет подделанную подпись", async () => {
@@ -85,6 +94,19 @@ describe("validateInitData", () => {
   test("отклоняет auth_date из далёкого будущего", async () => {
     const initData = await buildInitData(now() + 31);
     await expect(validateInitData(initData, BOT_TOKEN)).rejects.toThrow();
+  });
+});
+
+describe("telegramIdentityHash", () => {
+  test("не раскрывает Telegram id и стабилен для одного bot token", async () => {
+    const first = await telegramIdentityHash(777, BOT_TOKEN);
+    const second = await telegramIdentityHash(777, BOT_TOKEN);
+
+    expect(first).toHaveLength(64);
+    expect(first).toBe(second);
+    expect(first).not.toContain("777");
+    expect(await telegramIdentityHash(778, BOT_TOKEN)).not.toBe(first);
+    expect(await telegramIdentityHash(777, "999:OTHER")).not.toBe(first);
   });
 });
 
@@ -165,6 +187,11 @@ describe("validateWidgetLogin", () => {
 
   test("отклоняет Widget proof старше пяти минут", async () => {
     const data = await buildWidget(now() - 6 * 60);
+    await expect(validateWidgetLogin(data, BOT_TOKEN)).rejects.toThrow();
+  });
+
+  test("отклоняет Widget auth_date из будущего", async () => {
+    const data = await buildWidget(now() + 5);
     await expect(validateWidgetLogin(data, BOT_TOKEN)).rejects.toThrow();
   });
 });

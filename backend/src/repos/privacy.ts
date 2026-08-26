@@ -1,6 +1,11 @@
 import type { Database, IdempotentDatabase } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
+import { telegramIdentityHash } from "../lib/telegram";
+import {
+  advanceTelegramAuthCutoff,
+  lockTelegramIdentity,
+} from "./telegramAuthCutoff";
 
 /**
  * Irreversibly removes direct identifiers while preserving only anonymised
@@ -9,22 +14,40 @@ import { HttpError } from "../lib/errors";
  */
 export async function deleteAccount(env: AppEnv, userId: string, db: Database): Promise<void> {
   const sql = db.sql;
-  await sql.begin(async (tx) => {
-    const [hold] = await tx<{ user_id: string }[]>`
-      select user_id from app_private.privacy_holds where user_id = ${userId} for update
-    `;
-    if (hold) {
-      throw new HttpError(409, "Удаление временно недоступно из-за юридического хранения данных");
-    }
+  const [hold] = await sql<{ user_id: string }[]>`
+    select user_id from app_private.privacy_holds where user_id = ${userId}
+  `;
+  if (hold) {
+    throw new HttpError(409, "Удаление временно недоступно из-за юридического хранения данных");
+  }
+  const [candidate] = await sql<{ telegram_id: string }[]>`
+    select telegram_id
+    from public.users
+    where id = ${userId} and deleted_at is null
+  `;
+  if (!candidate) throw new HttpError(404, "Пользователь не найден");
+  const identityHash = await telegramIdentityHash(Number(candidate.telegram_id), env.TELEGRAM_BOT_TOKEN);
 
+  await sql.begin(async (tx) => {
+    // Locking the parent row serializes this transaction with a concurrent
+    // privacy_holds insert, whose foreign-key check takes a KEY SHARE lock.
     const [user] = await tx<{ id: string }[]>`
       select id from public.users where id = ${userId} and deleted_at is null for update
     `;
     if (!user) throw new HttpError(404, "Пользователь не найден");
 
+    const [lockedHold] = await tx<{ user_id: string }[]>`
+      select user_id from app_private.privacy_holds where user_id = ${userId} for update
+    `;
+    if (lockedHold) {
+      throw new HttpError(409, "Удаление временно недоступно из-за юридического хранения данных");
+    }
+
+    await lockTelegramIdentity(tx, identityHash);
+    await advanceTelegramAuthCutoff(tx, identityHash);
     await tx`
       update app_private.user_sessions
-      set revoked_at = now()
+      set revoked_at = clock_timestamp()
       where user_id = ${userId} and revoked_at is null
     `;
     await tx`delete from public.favorites where user_id = ${userId}`;
@@ -77,6 +100,10 @@ export async function runPrivacyRetention(env: AppEnv, db: IdempotentDatabase): 
     delete from app_private.user_sessions
     where expires_at < now() - interval '30 days'
        or (revoked_at is not null and revoked_at < now() - interval '30 days')
+  `;
+  await db.retryIdempotentStandalone`
+    delete from app_private.telegram_auth_cutoffs
+    where expires_at < now()
   `;
   await db.retryIdempotentStandalone`
     delete from public.users u

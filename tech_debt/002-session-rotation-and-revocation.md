@@ -5,6 +5,25 @@
 **Оценка:** M суммарно, поставлять тремя независимыми milestones.  
 **Зависимости:** security cutoff не зависит от TD-001; rotation согласовать с TD-001.
 
+**Статус:** ✅ Выполнено (2026-08-26; финальный независимый code review: 8/10, P0/P1 и блокирующих P2 не найдено).
+
+## Фактическое выполнение
+
+- **A:** добавлена additive migration `0020_session_credential_cutoffs.sql` и Supabase symlink; cutoff хранит только HMAC-derived identity, живёт 25 часов, сравнивается с DB epoch, а Mini App и Login Widget exchange атомарно проверяют cutoff и создают session. `logout-all`, admin revoke, delete и одиночный logout отзывают соответствующие credentials; legal hold защищён от обеих сторон гонки через parent-row lock и DB trigger.
+- **B:** rotation INSERT + link выполняются в одной транзакции с lock order user → source session; replacement token детерминированно восстанавливается в grace-окне после неоднозначного COMMIT, orphan rows не создаются.
+- **C:** `last_seen_at` обновляется условно не чаще одного раза в час для session и user.
+- Добавлены unit/integration tests для cutoff, Widget proof, legal hold, TTL/rotation/grace, concurrent rotation, revoke-vs-rotation, linked logout и activity cadence; integration runner запускает session suite вместе с catalog suite.
+- Runtime runbook обновлён: `telegram_auth_cutoffs` добавлена в grants/preflight, `admin_audit_events` остаётся append-only (только `INSERT`). Production migration/deploy в рамках задачи не выполнялись.
+
+### Проверка выполнения
+
+- `bun run typecheck` — успешно.
+- `bun test backend/tests/telegram.test.ts backend/tests/session.test.ts backend/tests/appSecurity.test.ts backend/tests/users.test.ts` — 45 pass, 0 fail.
+- `bun test backend/tests packages/contracts/tests webapp/tests` — 253 pass, 27 DB integration tests skipped, 0 fail.
+- `bun run build` — exit 0; остаются известные предупреждения о невозможности записи Wrangler debug log и webapp chunk >500 kB.
+- `git diff --check` и parity двух копий migration 0020 — успешно.
+- `bun run test:integration` — не прошёл до миграций/тестов: локальный `initdb` не получил SysV shared-memory segment (`shmget: No space left on device`). Нужен зелёный isolated PostgreSQL прогон перед merge/release.
+
 ## Проблема и доказательства
 
 Ротация opaque session выполняет INSERT replacement (`backend/src/repos/sessions.ts:62-70`), а затем отдельный compare-and-set UPDATE исходной сессии (`:71-80`) без транзакции. Два конкурентных request могут создать два replacement rows; только один будет связан и возвращён, второй останется активным недоступным мусором до expiry.

@@ -8,6 +8,14 @@ const INIT_DATA_MAX_AUTH_AGE_SEC = 24 * 60 * 60;
 /** Login Widget redirect — одноразовый короткоживущий proof, не bearer-сессия. */
 const WIDGET_MAX_AUTH_AGE_SEC = 5 * 60;
 const MAX_FUTURE_SKEW_SEC = 30;
+/**
+ * Cutoff compares integer Telegram seconds. Keeping Mini App auth_date
+ * non-future-dated prevents a pre-revocation proof accepted only by the
+ * generic clock-skew allowance from bypassing the cutoff.
+ */
+const INIT_DATA_MAX_FUTURE_SKEW_SEC = 0;
+/** Credential cutoffs use the same strict seconds policy for Widget proofs. */
+const WIDGET_MAX_FUTURE_SKEW_SEC = 0;
 
 const encoder = new TextEncoder();
 
@@ -43,6 +51,24 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+/** Проверенный результат Mini App: user и исходный seconds-level auth_date. */
+export interface ValidatedInitData {
+  user: TelegramUser;
+  authDate: number;
+}
+
+/**
+ * Делает стабильный opaque-идентификатор Telegram для короткого cutoff-реестра.
+ * Сырой Telegram id в БД не сохраняется; смена bot token намеренно создаёт
+ * новый namespace, а старые proofs при этом уже не проходят HMAC-проверку.
+ */
+export async function telegramIdentityHash(telegramId: number, botToken: string): Promise<string> {
+  return toHex(await hmacSha256(
+    encoder.encode(botToken),
+    `agromarketkz:telegram-auth-cutoff:v1:${telegramId}`,
+  ));
+}
+
 function buildDataCheckString(entries: [string, string][]): string {
   return entries
     .filter(([key]) => key !== "hash")
@@ -51,11 +77,12 @@ function buildDataCheckString(entries: [string, string][]): string {
     .join("\n");
 }
 
-function assertFresh(authDate: number, maxAgeSec: number): void {
+function assertFresh(authDate: number, maxAgeSec: number, maxFutureSkewSec = MAX_FUTURE_SKEW_SEC): void {
   const now = Math.floor(Date.now() / 1000);
   if (
     !Number.isFinite(authDate)
-    || authDate > now + MAX_FUTURE_SKEW_SEC
+    || !Number.isInteger(authDate)
+    || authDate > now + maxFutureSkewSec
     || now - authDate > maxAgeSec
   ) {
     throw new HttpError(401, "Данные авторизации устарели, попробуйте ещё раз");
@@ -67,7 +94,7 @@ function assertFresh(authDate: number, maxAgeSec: number): void {
  * `TELEGRAM_BOT_TOKEN`, сверяет с `hash`, проверяет свежесть `auth_date`.
  * Возвращает данные пользователя или бросает `HttpError(401)`.
  */
-export async function validateInitData(initData: string, botToken: string): Promise<TelegramUser> {
+export async function validateInitData(initData: string, botToken: string): Promise<ValidatedInitData> {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
   if (!hash) {
@@ -85,7 +112,8 @@ export async function validateInitData(initData: string, botToken: string): Prom
     throw new HttpError(401, "Не удалось подтвердить личность Telegram");
   }
 
-  assertFresh(Number(params.get("auth_date")), INIT_DATA_MAX_AUTH_AGE_SEC);
+  const authDate = Number(params.get("auth_date"));
+  assertFresh(authDate, INIT_DATA_MAX_AUTH_AGE_SEC, INIT_DATA_MAX_FUTURE_SKEW_SEC);
 
   const userRaw = params.get("user");
   if (!userRaw) {
@@ -109,10 +137,13 @@ export async function validateInitData(initData: string, botToken: string): Prom
   }
 
   return {
-    id: user.id,
-    username: user.username ?? null,
-    firstName: user.first_name ?? null,
-    lastName: user.last_name ?? null
+    user: {
+      id: user.id,
+      username: user.username ?? null,
+      firstName: user.first_name ?? null,
+      lastName: user.last_name ?? null,
+    },
+    authDate,
   };
 }
 
@@ -206,7 +237,7 @@ export async function validateWidgetLogin(
     throw new HttpError(401, "Не удалось подтвердить вход через Telegram");
   }
 
-  assertFresh(data.auth_date, WIDGET_MAX_AUTH_AGE_SEC);
+  assertFresh(data.auth_date, WIDGET_MAX_AUTH_AGE_SEC, WIDGET_MAX_FUTURE_SKEW_SEC);
   if (!isPlausibleTelegramId(data.id)) {
     throw new HttpError(401, "Некорректный идентификатор Telegram");
   }

@@ -64,8 +64,9 @@ bun run release:verify
   consumer должен быть только у двух основных очередей, а не у DLQ.
 - Supabase Security и Performance Advisors — ноль `ERROR`/`WARN`; тринадцать
   `INFO rls_enabled_no_policy` для закрытых backend-only таблиц ожидаемы после применения 0012.
-- После 0015–0019 проверить `app_private.schema_migrations`, `user_sessions`, `telegram_updates`,
-  `card_image_upload_claims` и `notification_outbox`; Queue backlog/DLQ должны быть нулевыми на canary и после каждой волны.
+- После 0015–0020 проверить `app_private.schema_migrations`, `user_sessions`,
+  `telegram_auth_cutoffs`, `telegram_updates`, `card_image_upload_claims` и `notification_outbox`;
+  Queue backlog/DLQ должны быть нулевыми на canary и после каждой волны.
 - В Workers Observability создать email alerts на `5xx > 1%` (минимум 20 ответов/5 минут),
   DB connection errors `>0`, Queue backlog `>100` и DLQ `>0`. Проверить получение тестового
   webhook/уведомления до включения следующей волны.
@@ -215,7 +216,8 @@ supabase migration repair --linked --status applied \
   20260825000111 20260825000112 20260825000113 20260825000114
 ```
 
-После этого dry-run обязан показать только `20260825000115`–`20260825000119`; затем отдельной
+После этого dry-run обязан показать только `20260825000115`–`20260825000119` и
+`20260826055721`; затем отдельной
 production-операцией применить их:
 
 ```bash
@@ -224,7 +226,7 @@ bun run db:migrate:supabase
 ```
 
 `supabase migration list --linked` после применения должен показывать Local = Remote для всех
-версий до `20260825000119`. Если dry-run показывает другой набор, release блокируется.
+версий до `20260826055721`. Если dry-run показывает другой набор, release блокируется.
 
 ### Runtime DB role (обязательный blocker до canary)
 
@@ -246,11 +248,13 @@ grant select, insert, update, delete on all tables in schema public to agromarke
 grant select, insert, update, delete on table
   app_private.widget_auth_proofs,
   app_private.user_sessions,
-  app_private.admin_audit_events,
+  app_private.telegram_auth_cutoffs,
   app_private.telegram_updates,
   app_private.card_image_upload_claims,
   app_private.notification_outbox
 to agromarket_runtime;
+grant insert on table app_private.admin_audit_events to agromarket_runtime;
+grant select on table app_private.privacy_holds to agromarket_runtime;
 grant usage, select on all sequences in schema public to agromarket_runtime;
 grant execute on function pg_catalog.gen_random_uuid() to agromarket_runtime;
 grant execute on function extensions.gen_random_uuid() to agromarket_runtime;
@@ -265,7 +269,7 @@ alter default privileges for role <SCHEMA_OWNER_ROLE> in schema public
 -- ledger schema_migrations runtime-роли не нужен.
 ```
 
-После применения 0014–0019 выдать этой роли grants для созданных `app_private` таблиц. Затем
+После применения 0014–0020 выдать этой роли grants для созданных `app_private` таблиц. Затем
 обновить origin credentials у production Hyperdrive `2a6a43b891504d61af053a17ca5aa598`
 на эту роль. После успешного Hyperdrive smoke удалить legacy Worker secret `DATABASE_URL`:
 production runtime не использует прямой fallback, а migration URL в Worker передавать нельзя.
@@ -277,11 +281,25 @@ from pg_roles where rolname = 'agromarket_runtime';
 
 select has_table_privilege('agromarket_runtime', 'public.users', 'select') as can_read_users,
        has_table_privilege('agromarket_runtime', 'app_private.notification_outbox', 'insert')
-         as can_write_outbox;
+         as can_write_outbox,
+       has_table_privilege('agromarket_runtime', 'app_private.telegram_auth_cutoffs', 'select')
+         as can_read_auth_cutoffs,
+       has_table_privilege('agromarket_runtime', 'app_private.telegram_auth_cutoffs', 'insert')
+         as can_insert_auth_cutoffs,
+       has_table_privilege('agromarket_runtime', 'app_private.telegram_auth_cutoffs', 'update')
+         as can_update_auth_cutoffs,
+       has_table_privilege('agromarket_runtime', 'app_private.telegram_auth_cutoffs', 'delete')
+         as can_delete_auth_cutoffs,
+       has_table_privilege('agromarket_runtime', 'app_private.privacy_holds', 'select')
+         as can_read_privacy_holds,
+       has_table_privilege('agromarket_runtime', 'app_private.admin_audit_events', 'insert')
+         as can_append_audit,
+       has_table_privilege('agromarket_runtime', 'app_private.admin_audit_events', 'delete')
+         as can_delete_audit;
 ```
 
 Ожидается `rolsuper=false`, `rolcreaterole=false`, `rolcreatedb=false`, `rolbypassrls=true` и
-`true/true` для двух проверок. Если проект не позволяет создать такую роль, canary блокируется:
+`true/true/true/true/true/true/true/false` для восьми проверок. Если проект не позволяет создать такую роль, canary блокируется:
 оставлять `postgres` в Worker нельзя.
 
 Перед baseline обязательны read-only проверки RLS/grants ниже. На staging сначала выполняется

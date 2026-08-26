@@ -46,7 +46,7 @@ try {
     run([psql, databaseUrl, "-v", "ON_ERROR_STOP=1", "-f", join(migrationsDir, migration)]);
   }
 
-  run([process.execPath, "test", "backend/tests/adminCatalog.integration.test.ts"], {
+  run([process.execPath, "test", "backend/tests/adminCatalog.integration.test.ts", "backend/tests/sessions.integration.test.ts"], {
     env: {
       ...process.env,
       TEST_DATABASE_URL: databaseUrl,

@@ -16,7 +16,7 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 | № | Приоритет | Задача | Зачем сейчас |
 |---|---|---|---|
 | 001 | P0 | ✅ [Безопасное владение DB-клиентом и явные ретраи](001-db-client-lifecycle-and-retries.md) | Убрать module-global pool и прозрачный повтор неоднозначных write-запросов. |
-| 002 | P0 | [Атомарные сессии и полноценный отзыв credentials](002-session-rotation-and-revocation.md) | Закрыть race ротации, write amplification и повторный вход по старому Telegram proof. |
+| 002 | P0 | ✅ [Атомарные сессии и полноценный отзыв credentials](002-session-rotation-and-revocation.md) | Закрыть race ротации, write amplification и повторный вход по старому Telegram proof. |
 | 003A | P0 | [Contract tests для Pages/Worker/scheduled runtime](003a-runtime-protocol-tests.md) | Защитить security/dispatch protocol на production entrypoints. |
 | 003B | P0 | [Durability tests для outbox/audit/privacy](003b-persistence-durability-tests.md) | Сделать executable критичные DB recovery и audit outcomes. |
 | 012 | P0 gate | [Единый и безопасный migration workflow](012-migration-workflow-convergence.md) | Обязательно до следующей production migration: убрать конкуренцию custom ledger и Supabase history. |

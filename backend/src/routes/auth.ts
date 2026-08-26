@@ -5,36 +5,37 @@ import { clearSessionCookie, sessionTokenFromRequest, setSessionCookie } from ".
 import { validateInitData, validateWidgetLogin } from "../lib/telegram";
 import { requireAuth } from "../middleware/auth";
 import { enforceAuthRateLimit } from "../middleware/rateLimit";
-import { consumeWidgetAuthProof } from "../repos/authProofs";
-import { createUserSession, revokeAllUserSessions, revokeSession } from "../repos/sessions";
-import { toProfile, upsertFromTelegram } from "../repos/users";
+import {
+  exchangeTelegramSession,
+  exchangeWidgetTelegramSession,
+  revokeAllUserSessions,
+  revokeSession,
+} from "../repos/sessions";
+import { toProfile } from "../repos/users";
 
 export const authRoutes = new Hono<HonoEnv>();
 
 authRoutes.use("*", enforceAuthRateLimit);
 
-/** Вход из Telegram Mini App: валидация `initData` → upsert пользователя → JWT. */
+/** Вход из Telegram Mini App: валидация `initData` → атомарный upsert + opaque session. */
 authRoutes.post("/telegram", async (c) => {
   const env = getEnv(c);
   const { initData } = telegramLoginInput.parse(await c.req.json().catch(() => null));
-  const tg = await validateInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  const { user: tg, authDate } = await validateInitData(initData, env.TELEGRAM_BOT_TOKEN);
   const db = getDatabase(c);
-  const row = await upsertFromTelegram(env, tg, db);
-  setSessionCookie(c, await createUserSession(env, row.id, db));
+  const { row, token } = await exchangeTelegramSession(env, tg, authDate, db);
+  setSessionCookie(c, token);
   return c.json(authResponse.parse({ profile: toProfile(row, env) }));
 });
 
-/** Вход в браузере через Telegram Login Widget: proof → upsert → JWT. */
+/** Вход в браузере через Telegram Login Widget: proof + upsert + session atomically. */
 const widgetLoginHandler = async (c: Context<HonoEnv>) => {
   const env = getEnv(c);
   const data = widgetLoginInput.parse(await c.req.json().catch(() => null));
   const tg = await validateWidgetLogin(data, env.TELEGRAM_BOT_TOKEN);
   const db = getDatabase(c);
-  const row = await upsertFromTelegram(env, tg, db);
-  // Consume after the idempotent user upsert: a transient DB failure cannot
-  // burn the five-minute Telegram proof before the account is usable.
-  await consumeWidgetAuthProof(env, data.hash, tg.id, data.auth_date, db);
-  setSessionCookie(c, await createUserSession(env, row.id, db));
+  const { row, token } = await exchangeWidgetTelegramSession(env, tg, data.hash, data.auth_date, db);
+  setSessionCookie(c, token);
   return c.json(authResponse.parse({ profile: toProfile(row, env) }));
 };
 

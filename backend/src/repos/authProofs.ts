@@ -1,3 +1,4 @@
+import type { Sql, TransactionSql } from "postgres";
 import type { Database, IdempotentDatabase } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
@@ -22,7 +23,25 @@ export async function consumeWidgetAuthProof(
   authDate: number,
   db: Database,
 ): Promise<void> {
-  const sql = db.sql;
+  await consumeWidgetAuthProofWithSql(db.sql, proofHash, telegramId, authDate);
+}
+
+/** Same one-use proof operation for a transaction that also creates the session. */
+export async function consumeWidgetAuthProofInTransaction(
+  proofHash: string,
+  telegramId: number,
+  authDate: number,
+  tx: TransactionSql,
+): Promise<void> {
+  await consumeWidgetAuthProofWithSql(tx, proofHash, telegramId, authDate);
+}
+
+async function consumeWidgetAuthProofWithSql(
+  sql: Sql | TransactionSql,
+  proofHash: string,
+  telegramId: number,
+  authDate: number,
+): Promise<void> {
   const storedProofHash = await proofDigest(proofHash);
   const [inserted] = await sql`
     insert into app_private.widget_auth_proofs (
