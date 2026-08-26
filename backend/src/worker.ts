@@ -3,6 +3,7 @@ import { createApp } from "./app";
 import { createDatabaseInvocation, type DatabaseInvocation } from "./db";
 import { resolveEnv, type AppEnv } from "./env";
 import { runDbHealthAlertCheck } from "./lib/alerts";
+import { reconcileAdminAuditOutbox } from "./lib/adminAuditOutbox";
 import {
   processNotificationOutbox,
   reconcileNotificationOutbox,
@@ -49,6 +50,7 @@ export type WorkerDependencies = {
   processTelegramUpdate: (env: AppEnv, updateId: number, db: DatabaseInvocation) => Promise<boolean>;
   runDbHealthAlertCheck: (env: AppEnv, db: DatabaseInvocation) => Promise<void>;
   purgeExpiredWidgetAuthProofs: (env: AppEnv, db: DatabaseInvocation) => Promise<void>;
+  reconcileAdminAuditOutbox: (env: AppEnv, db: DatabaseInvocation) => Promise<void>;
   reconcileNotificationOutbox: (env: AppEnv, db: DatabaseInvocation) => Promise<void>;
   runStorageCleanup: (env: AppEnv, db: DatabaseInvocation) => Promise<unknown>;
   runStorageBackup: (env: AppEnv) => Promise<unknown>;
@@ -62,6 +64,7 @@ const productionDependencies: WorkerDependencies = {
   processTelegramUpdate,
   runDbHealthAlertCheck,
   purgeExpiredWidgetAuthProofs,
+  reconcileAdminAuditOutbox,
   reconcileNotificationOutbox,
   runStorageCleanup,
   runStorageBackup,
@@ -139,6 +142,7 @@ export function handleScheduled(
     jobs = [
       ["db-health-alert", () => dependencies.runDbHealthAlertCheck(resolved, database)],
       ["widget-auth-proof-retention", () => dependencies.purgeExpiredWidgetAuthProofs(resolved, database)],
+      ["admin-audit-outbox-reconcile", () => dependencies.reconcileAdminAuditOutbox(resolved, database)],
       ["notification-outbox-reconcile", () => dependencies.reconcileNotificationOutbox(resolved, database)],
     ];
   } else if (event.cron === DAILY_STORAGE_CRON) {

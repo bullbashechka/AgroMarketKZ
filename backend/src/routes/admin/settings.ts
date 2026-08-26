@@ -1,6 +1,7 @@
 import { adminPlatformSettingsSchema, updateSettingsInput } from "@agromarket/contracts";
 import { Hono } from "hono";
 import { getDatabase, getEnv, type HonoEnv } from "../../env";
+import { runAdminMutation } from "../../lib/adminAuditRequest";
 import { HttpError } from "../../lib/errors";
 import { getAdminSettings, updateSettings } from "../../repos/settings";
 
@@ -23,6 +24,6 @@ adminSettingsRoutes.patch("/", async (c) => {
       throw new HttpError(403, "Только владелец может менять чат уведомлений");
     }
   }
-  const settings = await updateSettings(env, input, getDatabase(c));
+  const settings = await runAdminMutation(c, 200, (audit) => updateSettings(env, input, getDatabase(c), audit));
   return c.json(adminPlatformSettingsSchema.parse(settings));
 });

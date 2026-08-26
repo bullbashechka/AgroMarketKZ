@@ -8,6 +8,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import { getDatabase, getEnv, type HonoEnv } from "../../env";
+import { runAdminMutation } from "../../lib/adminAuditRequest";
 import { HttpError } from "../../lib/errors";
 import { createCategory, deleteCategory, listCategoriesAdmin, updateCategory } from "../../repos/adminCatalog";
 
@@ -24,7 +25,7 @@ adminCategoriesRoutes.get("/", async (c) => {
 adminCategoriesRoutes.post("/", async (c) => {
   const env = getEnv(c);
   const input = createCategoryInput.parse(await c.req.json());
-  const category = await createCategory(env, input, getDatabase(c));
+  const category = await runAdminMutation(c, 201, (audit) => createCategory(env, input, getDatabase(c), audit));
   return c.json(categorySchema.parse(category), 201);
 });
 
@@ -35,7 +36,7 @@ adminCategoriesRoutes.patch("/:id", async (c) => {
     throw new HttpError(404, "Категория не найдена");
   }
   const input = updateCategoryInput.parse(await c.req.json());
-  const category = await updateCategory(env, id.data, input, getDatabase(c));
+  const category = await runAdminMutation(c, 200, (audit) => updateCategory(env, id.data, input, getDatabase(c), audit));
   return c.json(categorySchema.parse(category));
 });
 
@@ -46,6 +47,6 @@ adminCategoriesRoutes.delete("/:id", async (c) => {
   if (!id.success) {
     throw new HttpError(404, "Категория не найдена");
   }
-  await deleteCategory(env, id.data, getDatabase(c));
+  await runAdminMutation(c, 204, (audit) => deleteCategory(env, id.data, getDatabase(c), audit));
   return c.body(null, 204);
 });

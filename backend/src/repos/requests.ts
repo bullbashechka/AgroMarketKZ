@@ -12,6 +12,7 @@ import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { paginateRows, type PaginatedResult } from "../lib/pagination";
 import { assertUnderLimit, retryAfterSeconds } from "../lib/rateLimit";
+import { appendAdminAuditIntent, type AdminAuditInput } from "./adminAudit";
 
 export interface RequestRow {
   id: string;
@@ -392,13 +393,15 @@ export async function updateRequestStatus(
   id: string,
   status: "new" | "in_progress" | "closed",
   db: Database,
+  audit?: AdminAuditInput,
 ): Promise<RequestRow> {
   const sql = db.sql;
-  const [row] = await sql<RequestRow[]>`
-    update requests set status = ${status} where id = ${id} returning *
-  `;
-  if (!row) {
-    throw new HttpError(404, "Заявка не найдена");
-  }
-  return row;
+  return sql.begin(async (tx) => {
+    const [row] = await tx<RequestRow[]>`
+      update requests set status = ${status} where id = ${id} returning *
+    `;
+    if (!row) throw new HttpError(404, "Заявка не найдена");
+    if (audit) await appendAdminAuditIntent(tx, audit);
+    return row;
+  });
 }

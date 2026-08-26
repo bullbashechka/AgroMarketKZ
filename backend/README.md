@@ -32,7 +32,8 @@ src/
     telegramId.ts   # общий допустимый диапазон реальных и синтетических Telegram id
     errors.ts       # HttpError (статус + сообщение)
     storage*.ts     # signed URL, cleanup и versioned R2 backup snapshots
-    notificationOutbox.ts # durable at-least-once Telegram delivery через Queue/DLQ
+    notificationOutbox.ts # durable at-least-once Telegram delivery через Queue/DLQ; stale lease recovery
+    adminAuditOutbox.ts   # scheduled recovery, bounded retries и operator-visible dead letters
     telegram*.ts    # webhook, requestContact и уведомления в Telegram
   middleware/
     auth.ts         # requireAuth — проверка Bearer JWT
@@ -82,7 +83,12 @@ JWT выпускается на 24 часа с claims `sub`, `tgId`, `ver`, `iat
 | Telegram | `POST /telegram/webhook` с заголовком `X-Telegram-Bot-Api-Secret-Token` |
 | Администрирование | категории, карточки, загрузки, заявки, пользователи и настройки под `/admin/*` |
 
-`/catalog/*` доступен сразу после подтверждения Telegram-личности. Реальные контакты из `GET /settings`, избранное, обратная связь и личные разделы требуют заполненного профиля. `POST /requests` принимает первую заявку вместе с контактами и атомарно завершает регистрацию. Заявки и feedback в той же транзакции записывают `app_private.notification_outbox`; Worker Queue доставляет Telegram at-least-once, а повтор с тем же `clientRequestId` не создаёт второе событие. В уведомление добавляется `outboxId` для дедупликации.
+`/catalog/*` доступен сразу после подтверждения Telegram-личности. Реальные контакты из `GET /settings`, избранное, обратная связь и личные разделы требуют заполненного профиля. `POST /requests` принимает первую заявку вместе с контактами и атомарно завершает регистрацию. Заявки и feedback в той же транзакции записывают `app_private.notification_outbox`; Worker Queue доставляет Telegram at-least-once, восстанавливает stale `processing` rows и подтверждает Queue-сообщение только после fenced terminal state. Повтор с тем же `clientRequestId` не создаёт второе событие. В уведомление добавляется `outboxId` для дедупликации.
+
+Админские изменения записывают PII-free audit intent в `app_private.admin_audit_outbox` внутри той же
+транзакции, что и бизнес-изменение. Финальная запись в append-only `admin_audit_events` выполняется
+после commit и восстанавливается пятиминутным cron; после 20 неудач intent становится `dead_letter`
+и требует явного операторского requeue.
 
 `contactPhone` принимается только как казахстанский мобильный (`+7 7xx`), нормализуется к `+77XXXXXXXXX`; иначе `400`. Ошибки используют единый JSON `{ error, issues? }` со статусами `400/401/403/404/409/413/429/500`.
 

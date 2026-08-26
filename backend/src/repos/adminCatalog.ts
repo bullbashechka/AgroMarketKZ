@@ -16,6 +16,7 @@ import type { TransactionSql } from "postgres";
 import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
+import { appendAdminAuditIntent, type AdminAuditInput } from "./adminAudit";
 import { consumeUploadClaims } from "./uploadClaims";
 import { paginateRows, type PaginatedResult } from "../lib/pagination";
 import { escapeLike, normalizeCatalogText } from "../lib/search";
@@ -298,16 +299,24 @@ export async function listCategoriesAdmin(env: AppEnv, type: CatalogType, db: Da
 }
 
 /** Создание категории. 409, если активная категория с таким названием уже есть. */
-export async function createCategory(env: AppEnv, input: CreateCategoryInput, db: Database): Promise<Category> {
+export async function createCategory(
+  env: AppEnv,
+  input: CreateCategoryInput,
+  db: Database,
+  audit?: AdminAuditInput,
+): Promise<Category> {
   const sql = db.sql;
   const name = normalizeCatalogText(input.name);
   try {
-    const [row] = await sql<CategoryRow[]>`
-      insert into categories (type, name, sort_order, is_commodity, required_specs)
-      values (${input.type}, ${name}, ${input.sortOrder}, ${input.type === "product" && input.isCommodity}, ${input.requiredSpecs.map(normalizeCatalogText)})
-      returning id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
-    `;
-    return toCategory(row!);
+    return await sql.begin(async (tx) => {
+      const [row] = await tx<CategoryRow[]>`
+        insert into categories (type, name, sort_order, is_commodity, required_specs)
+        values (${input.type}, ${name}, ${input.sortOrder}, ${input.type === "product" && input.isCommodity}, ${input.requiredSpecs.map(normalizeCatalogText)})
+        returning id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
+      `;
+      if (audit) await appendAdminAuditIntent(tx, audit);
+      return toCategory(row!);
+    });
   } catch (err) {
     if (isPgError(err, "23505")) {
       throw new HttpError(409, "Категория с таким названием уже есть");
@@ -322,6 +331,7 @@ export async function updateCategory(
   id: string,
   input: UpdateCategoryInput,
   db: Database,
+  audit?: AdminAuditInput,
 ): Promise<Category> {
   const sql = db.sql;
   const columns: Record<string, string | number | boolean | string[]> = {};
@@ -332,12 +342,15 @@ export async function updateCategory(
 
   const keys = Object.keys(columns);
   if (keys.length === 0) {
-    const [row] = await sql<CategoryRow[]>`
-      select id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
-      from categories where id = ${id}
-    `;
-    if (!row) throw new HttpError(404, "Категория не найдена");
-    return toCategory(row);
+    return sql.begin(async (tx) => {
+      const [row] = await tx<CategoryRow[]>`
+        select id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
+        from categories where id = ${id}
+      `;
+      if (!row) throw new HttpError(404, "Категория не найдена");
+      if (audit) await appendAdminAuditIntent(tx, audit);
+      return toCategory(row);
+    });
   }
 
   try {
@@ -366,6 +379,7 @@ export async function updateCategory(
         returning id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
       `;
       if (!row) throw new HttpError(404, "Категория не найдена");
+      if (audit) await appendAdminAuditIntent(tx, audit);
       return toCategory(row);
     });
   } catch (err) {
@@ -377,19 +391,25 @@ export async function updateCategory(
 }
 
 /** Удаление категории. Запрещено, пока в ней есть карточки. */
-export async function deleteCategory(env: AppEnv, id: string, db: Database): Promise<void> {
+export async function deleteCategory(
+  env: AppEnv,
+  id: string,
+  db: Database,
+  audit?: AdminAuditInput,
+): Promise<void> {
   const sql = db.sql;
-  const [row] = await sql<{ count: string }[]>`
-    select count(*) from cards where category_id = ${id}
-  `;
-  if (Number(row?.count ?? 0) > 0) {
-    throw new HttpError(409, "Нельзя удалить категорию, пока в ней есть карточки");
-  }
   try {
-    const [row] = await sql<{ id: string }[]>`delete from categories where id = ${id} returning id`;
-    if (!row) {
-      throw new HttpError(404, "Категория не найдена");
-    }
+    await sql.begin(async (tx) => {
+      const [count] = await tx<{ count: string }[]>`
+        select count(*) from cards where category_id = ${id}
+      `;
+      if (Number(count?.count ?? 0) > 0) {
+        throw new HttpError(409, "Нельзя удалить категорию, пока в ней есть карточки");
+      }
+      const [row] = await tx<{ id: string }[]>`delete from categories where id = ${id} returning id`;
+      if (!row) throw new HttpError(404, "Категория не найдена");
+      if (audit) await appendAdminAuditIntent(tx, audit);
+    });
   } catch (err) {
     if (err instanceof HttpError) throw err;
     if (isPgError(err, "23503")) {
@@ -645,7 +665,7 @@ export async function createCard(
   env: AppEnv,
   input: CreateCardInput,
   db: Database,
-  options: { actorUserId?: string } = {},
+  options: { actorUserId?: string; audit?: AdminAuditInput } = {},
 ): Promise<AdminCardDetail> {
   const sql = db.sql;
   const normalizedInput = normalizeCardInput(input);
@@ -754,6 +774,7 @@ export async function createCard(
       const [category] = await tx<{ required_specs: string[]; is_commodity: boolean }[]>`
         select required_specs, is_commodity from categories where id = ${detailRow.category_id}
       `;
+      if (options.audit) await appendAdminAuditIntent(tx, options.audit);
       return toAdminCardDetailWithRequiredSpecs(
         toCardDetail(detailRow, images, specs, env, serviceTerritories.map(toTerritory)),
         category?.required_specs ?? [],
@@ -788,7 +809,7 @@ export async function updateCard(
   id: string,
   input: UpdateCardInput,
   db: Database,
-  options: { actorUserId?: string } = {},
+  options: { actorUserId?: string; audit?: AdminAuditInput } = {},
 ): Promise<{ detail: AdminCardDetail; removedPaths: string[] }> {
   const sql = db.sql;
   const normalizedInput = normalizeCardInput(input);
@@ -989,6 +1010,8 @@ export async function updateCard(
         values (${mutationId}, ${id}, ${input.expectedVersion}, ${card.version}, ${mutationPayload})
       `;
 
+      if (options.audit) await appendAdminAuditIntent(tx, options.audit);
+
       return {
         detail: toAdminCardDetailWithRequiredSpecs(
           toCardDetail(detailRow, images, specs, env, serviceTerritories.map(toTerritory)),
@@ -1017,7 +1040,13 @@ export async function updateCard(
 }
 
 /** Удаление карточки (каскадно чистит фото/характеристики/избранное). 404, если не найдена. */
-export async function deleteCard(env: AppEnv, id: string, expectedVersion: number, db: Database): Promise<string[]> {
+export async function deleteCard(
+  env: AppEnv,
+  id: string,
+  expectedVersion: number,
+  db: Database,
+  audit?: AdminAuditInput,
+): Promise<string[]> {
   const sql = db.sql;
   return sql.begin(async (tx) => {
     const images = await tx<{ storage_path: string }[]>`
@@ -1031,12 +1060,19 @@ export async function deleteCard(env: AppEnv, id: string, expectedVersion: numbe
       if (!exists) throw new HttpError(404, "Карточка не найдена");
       throw new HttpError(409, "Карточка была изменена в другом окне. Обновите данные перед удалением");
     }
+    if (audit) await appendAdminAuditIntent(tx, audit);
     return images.map((image) => image.storage_path);
   });
 }
 
 /** Публикует черновик или повторно открывает скрытую карточку после серверной проверки. */
-export async function publishCard(env: AppEnv, id: string, expectedVersion: number, db: Database): Promise<AdminCardDetail> {
+export async function publishCard(
+  env: AppEnv,
+  id: string,
+  expectedVersion: number,
+  db: Database,
+  audit?: AdminAuditInput,
+): Promise<AdminCardDetail> {
   const sql = db.sql;
   await sql.begin(async (tx) => {
     const [card] = await tx<CardRow[]>`
@@ -1104,28 +1140,38 @@ export async function publishCard(env: AppEnv, id: string, expectedVersion: numb
         archived_at = null
       where id = ${id}
     `;
+    if (audit) await appendAdminAuditIntent(tx, audit);
   });
   return (await getAdminCardDetail(env, id, db))!;
 }
 
 /** Скрывает опубликованную карточку, не превращая её обратно в черновик. */
-export async function archiveCard(env: AppEnv, id: string, expectedVersion: number, db: Database): Promise<AdminCardDetail> {
+export async function archiveCard(
+  env: AppEnv,
+  id: string,
+  expectedVersion: number,
+  db: Database,
+  audit?: AdminAuditInput,
+): Promise<AdminCardDetail> {
   const sql = db.sql;
-  const [row] = await sql<{ id: string }[]>`
-    update cards set archived_at = now()
-    where id = ${id} and published_at is not null and version = ${expectedVersion}
-    returning id
-  `;
-  if (!row) {
-    const [exists] = await sql<{ id: string }[]>`select id from cards where id = ${id}`;
-    if (!exists) throw new HttpError(404, "Карточка не найдена");
-    const [current] = await sql<{ version: number; published_at: Date | null }[]>`
-      select version, published_at from cards where id = ${id}
+  await sql.begin(async (tx) => {
+    const [row] = await tx<{ id: string }[]>`
+      update cards set archived_at = now()
+      where id = ${id} and published_at is not null and version = ${expectedVersion}
+      returning id
     `;
-    if (current?.version !== expectedVersion) {
-      throw new HttpError(409, "Карточка была изменена в другом окне. Обновите данные перед скрытием");
+    if (!row) {
+      const [exists] = await tx<{ id: string }[]>`select id from cards where id = ${id}`;
+      if (!exists) throw new HttpError(404, "Карточка не найдена");
+      const [current] = await tx<{ version: number; published_at: Date | null }[]>`
+        select version, published_at from cards where id = ${id}
+      `;
+      if (current?.version !== expectedVersion) {
+        throw new HttpError(409, "Карточка была изменена в другом окне. Обновите данные перед скрытием");
+      }
+      throw new HttpError(409, "Черновик ещё не опубликован");
     }
-    throw new HttpError(409, "Черновик ещё не опубликован");
-  }
+    if (audit) await appendAdminAuditIntent(tx, audit);
+  });
   return (await getAdminCardDetail(env, id, db))!;
 }

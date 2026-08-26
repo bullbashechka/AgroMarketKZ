@@ -64,9 +64,11 @@ bun run release:verify
   consumer должен быть только у двух основных очередей, а не у DLQ.
 - Supabase Security и Performance Advisors — ноль `ERROR`/`WARN`; тринадцать
   `INFO rls_enabled_no_policy` для закрытых backend-only таблиц ожидаемы после применения 0012.
-- После 0015–0020 проверить `app_private.schema_migrations`, `user_sessions`,
-  `telegram_auth_cutoffs`, `telegram_updates`, `card_image_upload_claims` и `notification_outbox`;
-  Queue backlog/DLQ должны быть нулевыми на canary и после каждой волны.
+- После 0015–0021 проверить `app_private.schema_migrations`, `user_sessions`,
+  `telegram_auth_cutoffs`, `telegram_updates`, `card_image_upload_claims`, `notification_outbox` и
+  `admin_audit_outbox`; pending/processing rows должны быть нулевыми после recovery, а
+  `dead_letter` audit rows — отдельно посчитаны и разобраны оператором. Queue backlog/DLQ должны
+  быть нулевыми на canary и после каждой волны.
 - В Workers Observability создать email alerts на `5xx > 1%` (минимум 20 ответов/5 минут),
   DB connection errors `>0`, Queue backlog `>100` и DLQ `>0`. Проверить получение тестового
   webhook/уведомления до включения следующей волны.
@@ -114,9 +116,9 @@ DB connection errors = 0, outbox sent/delivered = 100%, DLQ = 0.
 
 ## Rollout release-hardening
 
-1. Заморозить административные записи, применить 0015–0019 через Supabase CLI, выдать
+1. Заморозить административные записи, применить 0015–0021 через Supabase CLI, выдать
    `agromarket_runtime` grants для `app_private`, обновить Hyperdrive credentials и затем
-   read-only проверить RLS, grants, ledger и `notification_outbox`.
+   read-only проверить RLS, grants, ledger, `notification_outbox` и `admin_audit_outbox`.
 2. Развернуть Worker и выполнить 0% smoke: `/health`, Mini App auth, Widget exchange, каталог,
    заявка, feedback, админский список и одно Telegram-событие.
 3. Включить gradual deployment `5% → 25% → 100%`; на каждой волне ждать минимум 15 минут и
@@ -216,8 +218,8 @@ supabase migration repair --linked --status applied \
   20260825000111 20260825000112 20260825000113 20260825000114
 ```
 
-После этого dry-run обязан показать только `20260825000115`–`20260825000119` и
-`20260826055721`; затем отдельной
+После этого dry-run обязан показать только `20260825000115`–`20260825000119`,
+`20260826055721` и `20260826080000`; затем отдельной
 production-операцией применить их:
 
 ```bash
@@ -226,7 +228,7 @@ bun run db:migrate:supabase
 ```
 
 `supabase migration list --linked` после применения должен показывать Local = Remote для всех
-версий до `20260826055721`. Если dry-run показывает другой набор, release блокируется.
+версий до `20260826080000`. Если dry-run показывает другой набор, release блокируется.
 
 ### Runtime DB role (обязательный blocker до canary)
 
@@ -250,9 +252,10 @@ grant select, insert, update, delete on table
   app_private.user_sessions,
   app_private.telegram_auth_cutoffs,
   app_private.telegram_updates,
-  app_private.card_image_upload_claims,
-  app_private.notification_outbox
+  app_private.card_image_upload_claims
 to agromarket_runtime;
+grant select, insert, update on table app_private.notification_outbox to agromarket_runtime;
+grant select, insert, update on table app_private.admin_audit_outbox to agromarket_runtime;
 grant insert on table app_private.admin_audit_events to agromarket_runtime;
 grant select on table app_private.privacy_holds to agromarket_runtime;
 grant usage, select on all sequences in schema public to agromarket_runtime;
@@ -269,7 +272,7 @@ alter default privileges for role <SCHEMA_OWNER_ROLE> in schema public
 -- ledger schema_migrations runtime-роли не нужен.
 ```
 
-После применения 0014–0020 выдать этой роли grants для созданных `app_private` таблиц. Затем
+После применения 0014–0021 выдать этой роли grants для созданных `app_private` таблиц. Затем
 обновить origin credentials у production Hyperdrive `2a6a43b891504d61af053a17ca5aa598`
 на эту роль. После успешного Hyperdrive smoke удалить legacy Worker secret `DATABASE_URL`:
 production runtime не использует прямой fallback, а migration URL в Worker передавать нельзя.
@@ -294,13 +297,46 @@ select has_table_privilege('agromarket_runtime', 'public.users', 'select') as ca
          as can_read_privacy_holds,
        has_table_privilege('agromarket_runtime', 'app_private.admin_audit_events', 'insert')
          as can_append_audit,
+       has_table_privilege('agromarket_runtime', 'app_private.admin_audit_outbox', 'insert')
+         as can_write_audit_outbox,
+       has_table_privilege('agromarket_runtime', 'app_private.admin_audit_outbox', 'update')
+         as can_update_audit_outbox,
        has_table_privilege('agromarket_runtime', 'app_private.admin_audit_events', 'delete')
          as can_delete_audit;
 ```
 
 Ожидается `rolsuper=false`, `rolcreaterole=false`, `rolcreatedb=false`, `rolbypassrls=true` и
-`true/true/true/true/true/true/true/false` для восьми проверок. Если проект не позволяет создать такую роль, canary блокируется:
+`true/true/true/true/true/true/true/true/true/true/false` для одиннадцати проверок. Если проект не позволяет создать такую роль, canary блокируется:
 оставлять `postgres` в Worker нельзя.
+
+Для контроля admin-audit recovery использовать read-only запрос:
+
+```sql
+select status, count(*)
+from app_private.admin_audit_outbox
+group by status
+order by status;
+
+select id, request_id, attempts, last_error, dead_lettered_at
+from app_private.admin_audit_outbox
+where status = 'dead_letter'
+order by dead_lettered_at;
+```
+
+`dead_letter` — намеренно терминальное состояние, а не тихо отброшенное событие. После устранения
+причины оператор может переоткрыть конкретную строку и запустить recovery:
+
+```sql
+update app_private.admin_audit_outbox
+set status = 'pending', attempts = 0, next_attempt_at = now(),
+    processing_at = null, processing_token = null, dead_lettered_at = null,
+    last_error = null, sent_at = null
+where id = '<OUTBOX-UUID>' and status = 'dead_letter';
+```
+
+Нельзя редактировать или удалять строки `app_private.admin_audit_events`; при retention ссылка на
+физически удалённого пользователя очищается через `ON DELETE SET NULL`, а append-only история и
+скалярные PII-free metadata сохраняются.
 
 Перед baseline обязательны read-only проверки RLS/grants ниже. На staging сначала выполняется
 полный прогон `0001`→latest; повторный запуск уже применённых файлов не выполняется.

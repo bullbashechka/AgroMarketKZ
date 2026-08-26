@@ -26,6 +26,12 @@ Supabase через `migration repair --status applied`, а `0015`–`0019` пр
 Production source of truth — `supabase_migrations.schema_migrations`. Старый
 `bun run db:migrate` не использовать против production.
 
+Migration `0021_admin_audit_outbox.sql` is prepared but not applied here. It makes administrator
+audit intent transactional with the business mutation, fences notification and audit outbox
+leases with processing tokens, and changes audit actor foreign keys to `ON DELETE SET NULL`.
+Final audit rows remain append-only; `dead_letter` is an operator-visible terminal state and must
+be explicitly requeued only after the underlying poison condition is understood.
+
 Seed принимает только отдельный `DEV_DATABASE_URL` и `TARGET_ENV=development`, поэтому корневой
 `.env`, указывающий на production, больше не может случайно наполнить демо-данными.
 

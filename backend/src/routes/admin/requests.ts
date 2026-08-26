@@ -2,6 +2,7 @@ import { requestListQuery, requestListResponse, requestSchema, updateRequestStat
 import { Hono } from "hono";
 import { z } from "zod";
 import { getDatabase, getEnv, type HonoEnv } from "../../env";
+import { runAdminMutation } from "../../lib/adminAuditRequest";
 import { HttpError } from "../../lib/errors";
 import { getRequestById, listRequests, toRequest, updateRequestStatus } from "../../repos/requests";
 
@@ -36,6 +37,6 @@ adminRequestsRoutes.patch("/:id/status", async (c) => {
   }
   const { status } = updateRequestStatusInput.parse(await c.req.json());
   const db = getDatabase(c);
-  const row = await updateRequestStatus(env, id.data, status, db);
+  const row = await runAdminMutation(c, 200, (audit) => updateRequestStatus(env, id.data, status, db, audit));
   return c.json(requestSchema.parse(await toRequest(env, row, db)));
 });

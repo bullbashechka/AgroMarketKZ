@@ -6,6 +6,7 @@ import type {
 } from "@agromarket/contracts";
 import type { Database } from "../db";
 import type { AppEnv } from "../env";
+import { appendAdminAuditIntent, type AdminAuditInput } from "./adminAudit";
 
 export interface SettingsRow {
   id: number;
@@ -68,7 +69,12 @@ export async function getAdminChatId(env: AppEnv, db: Database): Promise<string 
  * Обновляет только переданные поля (upsert строки `id = 1`). Непереданные поля
  * не трогаются; `null` явно очищает значение.
  */
-export async function updateSettings(env: AppEnv, patch: UpdateSettingsInput, db: Database): Promise<AdminPlatformSettings> {
+export async function updateSettings(
+  env: AppEnv,
+  patch: UpdateSettingsInput,
+  db: Database,
+  audit?: AdminAuditInput,
+): Promise<AdminPlatformSettings> {
   const columns: Record<string, string | null> = {};
   if ("contactPhone" in patch) columns.contact_phone = patch.contactPhone ?? null;
   if ("whatsappPhone" in patch) columns.whatsapp_phone = patch.whatsappPhone ?? null;
@@ -78,22 +84,30 @@ export async function updateSettings(env: AppEnv, patch: UpdateSettingsInput, db
 
   const keys = Object.keys(columns);
   if (keys.length === 0) {
-    return getAdminSettings(env, db);
+    if (!audit) return getAdminSettings(env, db);
+    return db.sql.begin(async (tx) => {
+      const [row] = await tx<SettingsRow[]>`select * from platform_settings where id = 1`;
+      await appendAdminAuditIntent(tx, audit);
+      return toAdminPlatformSettings(row);
+    });
   }
 
   const sql = db.sql;
-  const [row] = await sql<SettingsRow[]>`
-    insert into platform_settings (id, contact_phone, whatsapp_phone, telegram_contact, email, admin_chat_id)
-    values (
-      1,
-      ${columns.contact_phone ?? null},
-      ${columns.whatsapp_phone ?? null},
-      ${columns.telegram_contact ?? null},
-      ${columns.email ?? null},
-      ${columns.admin_chat_id ?? null}
-    )
-    on conflict (id) do update set ${sql(columns, ...keys)}
-    returning *
-  `;
-  return toAdminPlatformSettings(row);
+  return sql.begin(async (tx) => {
+    const [row] = await tx<SettingsRow[]>`
+      insert into platform_settings (id, contact_phone, whatsapp_phone, telegram_contact, email, admin_chat_id)
+      values (
+        1,
+        ${columns.contact_phone ?? null},
+        ${columns.whatsapp_phone ?? null},
+        ${columns.telegram_contact ?? null},
+        ${columns.email ?? null},
+        ${columns.admin_chat_id ?? null}
+      )
+      on conflict (id) do update set ${tx(columns, ...keys)}
+      returning *
+    `;
+    if (audit) await appendAdminAuditIntent(tx, audit);
+    return toAdminPlatformSettings(row);
+  });
 }

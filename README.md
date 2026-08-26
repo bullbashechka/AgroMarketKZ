@@ -147,7 +147,7 @@ Backend и webapp развёрнуты на Cloudflare (Workers + Pages), Telegr
 ```sh
 bun run typecheck   # типы во всех воркспейсах (contracts собирается первым)
 bun test backend packages/contracts webapp # юнит-тесты без Playwright-спеков
-bun run test:integration # временный локальный PostgreSQL: create → update → publish
+bun run test:integration # изолированный PostgreSQL + миграции и persistence-тесты
 bun run test:e2e    # Playwright; нужны изолированные E2E_* DB/Storage/Telegram/JWT из .env.e2e
 bun run build       # production-сборка всех пакетов
 ```
@@ -209,8 +209,12 @@ Production обновляется только через linked Supabase CLI: �
 уже применена в production. Старые товары, скрытые до заполнения новых обязательных полей,
 нужно проверять, заполнять и публиковать как контентную операцию — повторно выполнять SQL нельзя.
 
-Миграции `0015`–`0019` добавляют opaque HttpOnly-сессии, audit trail, durable Telegram updates,
-upload claims, notification outbox и database hardening. Они применены через Supabase CLI;
-runtime Worker подключается отдельной ролью `agromarket_runtime`, а не ролью миграций.
+Миграции `0015`–`0021` добавляют opaque HttpOnly-сессии, audit trail, durable Telegram updates,
+upload claims, notification outbox, durable transactional admin-audit recovery и database hardening.
+`0021` записывает audit intent атомарно с админской мутацией, восстанавливает stale leases,
+ограничивает poison retries состоянием `dead_letter` и переводит audit actor-ссылки на
+`ON DELETE SET NULL`, сохраняя append-only историю. Она подготовлена для отдельной согласованной
+операции и в рамках текущей задачи не применялась; runtime Worker подключается отдельной ролью
+`agromarket_runtime`, а не ролью миграций.
 
 Текущий план запуска и оставшиеся задачи описаны в [TASKS.md](./TASKS.md).

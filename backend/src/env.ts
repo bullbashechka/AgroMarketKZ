@@ -86,6 +86,7 @@ export interface AppVariables {
   backgroundTasks: Set<Promise<unknown>>;
   auth: AuthUser;
   requestId: string;
+  adminAuditCommitted: boolean;
 }
 
 /** Тип окружения Hono для всего backend (Bindings + Variables). */

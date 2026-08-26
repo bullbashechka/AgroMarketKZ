@@ -18,8 +18,8 @@ enabled = true
 head_sampling_rate = 1
 
 # "0 3 * * *" — ежедневная уборка orphaned-файлов card-images/cards/* (storageCleanup.ts).
-# "*/5 * * * *" — проверка здоровья БД/5xx через Analytics Engine (lib/alerts.ts); scheduled()
-# в worker.ts ветвится по event.cron.
+# "*/5 * * * *" — проверка здоровья БД/5xx через Analytics Engine, recovery admin-audit и
+# reconciliation notification outbox; scheduled() в worker.ts ветвится по event.cron.
 [triggers]
 crons = ["0 3 * * *", "*/5 * * * *"]
 

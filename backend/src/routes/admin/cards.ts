@@ -9,6 +9,7 @@ import {
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { getDatabase, getEnv, type HonoEnv } from "../../env";
+import { runAdminMutation } from "../../lib/adminAuditRequest";
 import { runInBackground } from "../../lib/background";
 import { HttpError } from "../../lib/errors";
 import { deleteStorageObjects } from "../../lib/storage";
@@ -66,7 +67,12 @@ adminCardsRoutes.get("/:id", async (c) => {
 adminCardsRoutes.post("/", async (c) => {
   const env = getEnv(c);
   const input = createCardInput.parse(await c.req.json());
-  const card = await createCard(env, input, getDatabase(c), { actorUserId: c.get("auth").userId });
+  const card = await runAdminMutation(c, 201, (audit) => createCard(
+    env,
+    input,
+    getDatabase(c),
+    { actorUserId: c.get("auth").userId, audit },
+  ));
   return c.json(adminCardDetailSchema.parse(card), 201);
 });
 
@@ -76,7 +82,13 @@ adminCardsRoutes.put("/:id", async (c) => {
   const id = requireCardId(c);
   const input = updateCardInput.parse(await c.req.json());
   const db = getDatabase(c);
-  const { detail, removedPaths } = await updateCard(env, id, input, db, { actorUserId: c.get("auth").userId });
+  const { detail, removedPaths } = await runAdminMutation(c, 200, (audit) => updateCard(
+    env,
+    id,
+    input,
+    db,
+    { actorUserId: c.get("auth").userId, audit },
+  ));
   if (removedPaths.length > 0) {
     runInBackground(c, (async () => {
       const referenced = await findReferencedStoragePaths(env, removedPaths, db);
@@ -92,7 +104,7 @@ adminCardsRoutes.delete("/:id", async (c) => {
   const id = requireCardId(c);
   const { expectedVersion } = cardVersionInput.parse(await c.req.json());
   const db = getDatabase(c);
-  const removedPaths = await deleteCard(env, id, expectedVersion, db);
+  const removedPaths = await runAdminMutation(c, 204, (audit) => deleteCard(env, id, expectedVersion, db, audit));
   if (removedPaths.length > 0) {
     runInBackground(c, (async () => {
       const referenced = await findReferencedStoragePaths(env, removedPaths, db);
@@ -106,7 +118,7 @@ adminCardsRoutes.post("/:id/archive", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
   const { expectedVersion } = cardVersionInput.parse(await c.req.json());
-  const card = await archiveCard(env, id, expectedVersion, getDatabase(c));
+  const card = await runAdminMutation(c, 200, (audit) => archiveCard(env, id, expectedVersion, getDatabase(c), audit));
   return c.json(adminCardDetailSchema.parse(card));
 });
 
@@ -114,7 +126,7 @@ adminCardsRoutes.post("/:id/publish", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
   const { expectedVersion } = cardVersionInput.parse(await c.req.json());
-  const card = await publishCard(env, id, expectedVersion, getDatabase(c));
+  const card = await runAdminMutation(c, 200, (audit) => publishCard(env, id, expectedVersion, getDatabase(c), audit));
   return c.json(adminCardDetailSchema.parse(card));
 });
 
@@ -123,6 +135,6 @@ adminCardsRoutes.post("/:id/unarchive", async (c) => {
   const env = getEnv(c);
   const id = requireCardId(c);
   const { expectedVersion } = cardVersionInput.parse(await c.req.json());
-  const card = await publishCard(env, id, expectedVersion, getDatabase(c));
+  const card = await runAdminMutation(c, 200, (audit) => publishCard(env, id, expectedVersion, getDatabase(c), audit));
   return c.json(adminCardDetailSchema.parse(card));
 });

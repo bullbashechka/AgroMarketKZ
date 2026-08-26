@@ -1,6 +1,7 @@
 import type { Sql, TransactionSql } from "postgres";
 import type { Database } from "../db";
 import type { AppEnv } from "../env";
+import { appendAdminAuditIntent, type AdminAuditInput } from "./adminAudit";
 import { telegramIdentityHash } from "../lib/telegram";
 import {
   createSessionToken,
@@ -329,14 +330,24 @@ export async function revokeSession(env: AppEnv, token: string, db: Database): P
   });
 }
 
-export async function revokeAllUserSessions(env: AppEnv, userId: string, db: Database): Promise<boolean> {
+export async function revokeAllUserSessions(
+  env: AppEnv,
+  userId: string,
+  db: Database,
+  audit?: AdminAuditInput,
+): Promise<boolean> {
   const sql = db.sql;
   const [candidate] = await sql<{ telegram_id: string }[]>`
     select telegram_id
     from public.users
     where id = ${userId} and deleted_at is null
   `;
-  if (!candidate) return false;
+  if (!candidate) {
+    if (audit) {
+      await sql.begin(async (tx) => appendAdminAuditIntent(tx, audit));
+    }
+    return false;
+  }
 
   const identityHash = await telegramIdentityHash(Number(candidate.telegram_id), env.TELEGRAM_BOT_TOKEN);
   return sql.begin(async (tx) => {
@@ -346,7 +357,10 @@ export async function revokeAllUserSessions(env: AppEnv, userId: string, db: Dat
       where id = ${userId} and deleted_at is null
       for update
     `;
-    if (!user) return false;
+    if (!user) {
+      if (audit) await appendAdminAuditIntent(tx, audit);
+      return false;
+    }
 
     await lockTelegramIdentity(tx, identityHash);
     await advanceTelegramAuthCutoff(tx, identityHash);
@@ -356,6 +370,7 @@ export async function revokeAllUserSessions(env: AppEnv, userId: string, db: Dat
       where user_id = ${userId} and revoked_at is null
       returning id
     `;
+    if (audit) await appendAdminAuditIntent(tx, audit);
     return rows.length > 0;
   });
 }

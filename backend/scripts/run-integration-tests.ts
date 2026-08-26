@@ -22,6 +22,13 @@ const dataDir = mkdtempSync(join(tmpdir(), "agromarketkz-pg-"));
 const port = await findFreePort();
 const databaseUrl = `postgresql://127.0.0.1:${port}/postgres`;
 const migrationsDir = resolve(import.meta.dir, "../../database/migrations");
+const integrationTests = [
+  "backend/tests/adminCatalog.integration.test.ts",
+  "backend/tests/sessions.integration.test.ts",
+  "backend/tests/notificationOutbox.test.ts",
+  "backend/tests/adminAudit.test.ts",
+  "backend/tests/privacy.test.ts",
+];
 let serverStarted = false;
 
 try {
@@ -46,12 +53,14 @@ try {
     run([psql, databaseUrl, "-v", "ON_ERROR_STOP=1", "-f", join(migrationsDir, migration)]);
   }
 
-  run([process.execPath, "test", "backend/tests/adminCatalog.integration.test.ts", "backend/tests/sessions.integration.test.ts"], {
-    env: {
-      ...process.env,
-      TEST_DATABASE_URL: databaseUrl,
-    },
-  });
+  for (const integrationTest of integrationTests) {
+    run([process.execPath, "test", integrationTest], {
+      env: {
+        ...process.env,
+        TEST_DATABASE_URL: databaseUrl,
+      },
+    });
+  }
 } finally {
   try {
     if (serverStarted) run([pgCtl, "-D", dataDir, "-w", "stop", "-m", "immediate"]);

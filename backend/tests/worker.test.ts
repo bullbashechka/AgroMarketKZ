@@ -47,6 +47,7 @@ function dependencies(overrides: Partial<WorkerDependencies> = {}): WorkerDepend
     processTelegramUpdate: async () => true,
     runDbHealthAlertCheck: async () => {},
     purgeExpiredWidgetAuthProofs: async () => {},
+    reconcileAdminAuditOutbox: async () => {},
     reconcileNotificationOutbox: async () => {},
     runStorageCleanup: async () => {},
     runStorageBackup: async () => {},
@@ -137,6 +138,21 @@ describe("Worker Queue contract", () => {
     expect(processed).toEqual([11, 12]);
   });
 
+  test("retries a queue message when its database row is still leased", async () => {
+    const leased = message("leased", { outboxId });
+    let processed = 0;
+
+    await handleQueueBatch({ queue: NOTIFICATION_QUEUE_NAME, messages: [leased] }, env, dependencies({
+      processNotification: async () => {
+        processed += 1;
+        return false;
+      },
+    }));
+
+    expect(processed).toBe(1);
+    expect(leased.actions).toEqual(["retry:60"]);
+  });
+
   test("retries unknown queue identities without creating a database invocation", async () => {
     const unknown = message("unknown", { outboxId });
     let created = false;
@@ -221,6 +237,7 @@ describe("Worker scheduled contract", () => {
     const deps = dependencies({
       runDbHealthAlertCheck: async () => { calls.push("health"); },
       purgeExpiredWidgetAuthProofs: async () => { calls.push("proofs"); },
+      reconcileAdminAuditOutbox: async () => { calls.push("audit"); },
       reconcileNotificationOutbox: async () => { calls.push("outbox"); },
       runStorageCleanup: async () => { calls.push("cleanup"); },
       runStorageBackup: async () => { calls.push("backup"); },
@@ -229,7 +246,7 @@ describe("Worker scheduled contract", () => {
     const frequent = scheduledContext();
     handleScheduled({ cron: FIVE_MINUTE_CRON }, env, frequent, deps);
     await frequent.promises[0];
-    expect(calls).toEqual(["health", "proofs", "outbox"]);
+    expect(calls).toEqual(["health", "proofs", "audit", "outbox"]);
 
     calls.length = 0;
     const daily = scheduledContext();
@@ -252,6 +269,7 @@ describe("Worker scheduled contract", () => {
         calls.push("proofs");
         throw new Error("proof cleanup failed");
       },
+      reconcileAdminAuditOutbox: async () => { calls.push("audit"); },
       reconcileNotificationOutbox: async () => { calls.push("outbox"); },
     }));
 
@@ -264,7 +282,7 @@ describe("Worker scheduled contract", () => {
     expect(settled).toBe(false);
     release?.();
     await expect(ctx.promises[0]).rejects.toThrow("widget-auth-proof-retention: proof cleanup failed");
-    expect(calls).toEqual(["health", "proofs", "outbox"]);
+    expect(calls).toEqual(["health", "proofs", "audit", "outbox"]);
   });
 
   test("rejects an unknown cron without running fallback maintenance", async () => {
