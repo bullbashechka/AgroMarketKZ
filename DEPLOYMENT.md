@@ -94,7 +94,7 @@ bun run release:verify
   «Управление», посторонний аккаунт получает `403`; в `wrangler tail` нет предупреждений
   про синтетические id.
 - `bun run test:e2e` запускается только с отдельными `E2E_DATABASE_URL`, `E2E_SUPABASE_URL`,
-  Storage bucket/service key и Telegram/JWT secrets из `.env.e2e`. Корневой `.env` не
+  Storage bucket/service key и Telegram bot token из `.env.e2e`. Корневой `.env` не
   наследуется и читается только как production baseline: для удалённых E2E-БД/Supabase он
   обязателен, а полностью локальная конфигурация может работать без него. Конфигурация с
   production URL/секретом отклоняется до старта серверов, а уже запущенные dev-серверы не

@@ -19,7 +19,7 @@ const app = createApp({
     SUPABASE_SERVICE_ROLE_KEY: Bun.env.SUPABASE_SERVICE_ROLE_KEY,
     STORAGE_CLEANUP_DRY_RUN: Bun.env.STORAGE_CLEANUP_DRY_RUN,
     E2E_RUN_ID: Bun.env.E2E_RUN_ID,
-    AUTH_CACHE_MODE: Bun.env.AUTH_CACHE_MODE as "disabled" | "read-through" | undefined,
+    AUTH_CACHE_MODE: Bun.env.AUTH_CACHE_MODE,
   }
 });
 

@@ -53,7 +53,8 @@ src/
 ## Вход и регистрация
 
 1. В Telegram приложение отправляет `initData` на `POST /auth/telegram`; backend создаёт opaque
-   сессию и выставляет `Secure; HttpOnly; SameSite=Lax` cookie. Токены в `localStorage` не хранятся.
+   сессию и выставляет `HttpOnly; SameSite=Strict` cookie (`Secure` на HTTPS). Токены в
+   `localStorage` не хранятся.
 2. В браузере `LoginScreen` показывает Telegram Login Widget и обменивает одноразовый proof на
    такую же HttpOnly-сессию через `/auth/widget/exchange`.
 3. После подтверждения Telegram-личности каталог доступен без телефона. Регистрация открывается перед избранным, личными разделами и прямой связью.

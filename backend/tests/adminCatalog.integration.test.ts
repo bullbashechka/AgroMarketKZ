@@ -45,7 +45,6 @@ function deferred() {
 
 const env: AppEnv = {
   WEBAPP_ORIGIN: "http://127.0.0.1:5173",
-  JWT_SECRET: "integration-only-jwt-secret",
   TELEGRAM_BOT_TOKEN: "integration-only-bot-token",
   ADMIN_ALLOWLIST: "",
   DATABASE_URL: databaseUrl ?? "postgresql://127.0.0.1:1/disabled",

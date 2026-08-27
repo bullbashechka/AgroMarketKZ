@@ -80,13 +80,11 @@ export interface E2ESafetyInput {
   supabaseUrl?: string;
   storageBucket?: string;
   telegramBotToken?: string;
-  jwtSecret?: string;
   storageServiceKey?: string;
   productionApiUrl?: string;
   productionDatabaseUrl?: string;
   productionSupabaseUrl?: string;
   productionTelegramBotToken?: string;
-  productionJwtSecret?: string;
   productionStorageServiceKey?: string;
 }
 
@@ -102,7 +100,6 @@ export function assertSafeE2EEnvironment(input: E2ESafetyInput): void {
   const supabaseUrl = parseUrl("E2E_SUPABASE_URL", input.supabaseUrl ?? "", ["http:", "https:"]);
   requireValue("E2E_SUPABASE_STORAGE_BUCKET", input.storageBucket);
   requireValue("E2E_TELEGRAM_BOT_TOKEN", input.telegramBotToken);
-  requireValue("E2E_JWT_SECRET", input.jwtSecret);
   requireValue("E2E_SUPABASE_SERVICE_ROLE_KEY", input.storageServiceKey);
 
   const productionApiUrl = input.productionApiUrl;
@@ -113,7 +110,6 @@ export function assertSafeE2EEnvironment(input: E2ESafetyInput): void {
       && productionDatabaseUrl
       && productionSupabaseUrl
       && input.productionTelegramBotToken
-      && input.productionJwtSecret
       && input.productionStorageServiceKey,
   );
   const usesRemoteDatabase = !LOOPBACK_HOSTS.has(databaseUrl.hostname);
@@ -141,9 +137,6 @@ export function assertSafeE2EEnvironment(input: E2ESafetyInput): void {
   }
   if (input.productionTelegramBotToken && sameCredential(input.telegramBotToken!, input.productionTelegramBotToken)) {
     throw new Error("E2E_TELEGRAM_BOT_TOKEN must not reuse the production bot token");
-  }
-  if (input.productionJwtSecret && sameCredential(input.jwtSecret!, input.productionJwtSecret)) {
-    throw new Error("E2E_JWT_SECRET must not reuse the production JWT secret");
   }
   const productionProject = productionSupabaseUrl ? supabaseProjectIdentity(productionSupabaseUrl) : null;
   const e2eKeyProject = jwtProjectRef(input.storageServiceKey);

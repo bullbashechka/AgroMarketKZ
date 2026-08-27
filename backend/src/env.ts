@@ -49,8 +49,8 @@ export interface AppEnv {
   E2E_RUN_ID?: string;
   /** Кеш {tokenVersion, isRegistered} по userId, TTL 60с. Отсутствует локально на Bun — тогда findAuthUserCached деградирует к прямому SELECT. */
   AUTH_CACHE_KV?: KVNamespace;
-  /** `disabled` (рекомендуется для строгого отзыва) отключает чтение auth-кеша; `read-through` включает его явно. */
-  AUTH_CACHE_MODE?: "disabled" | "read-through";
+  /** `disabled` (рекомендуется для строгого отзыва) отключает чтение auth-кеша; `read-through` включает его явно. Env bindings приходят как строки. */
+  AUTH_CACHE_MODE?: string;
   /** Отсутствуют при локальном запуске без Wrangler и тогда являются no-op. */
   API_READ_RATE_LIMITER?: RateLimitBinding;
   API_MUTATION_RATE_LIMITER?: RateLimitBinding;
@@ -106,6 +106,9 @@ export function resolveEnv(
   override: Partial<AppEnv> | undefined
 ): AppEnv {
   const env = { ...(bindings ?? {}), ...(override ?? {}) } as AppEnv;
+  if (env.AUTH_CACHE_MODE !== undefined && env.AUTH_CACHE_MODE !== "disabled" && env.AUTH_CACHE_MODE !== "read-through") {
+    throw new Error("AUTH_CACHE_MODE must be disabled or read-through");
+  }
   if (env.APP_ENV !== "production") return env;
 
   const scalar = z.object({

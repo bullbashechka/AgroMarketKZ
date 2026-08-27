@@ -10,11 +10,25 @@
 
 | Пакет | Технологии | Назначение |
 |-------|-----------|------------|
-| `backend/` | Hono + Cloudflare Workers + Supabase PostgreSQL + кастомный JWT + Zod | REST API, авторизация, уведомления |
+| `backend/` | Hono + Cloudflare Workers + Supabase PostgreSQL + opaque-сессии + Zod | REST API, авторизация, уведомления |
 | `webapp/` | React + Vite + TanStack Query | Telegram Mini App (CSR за авторизацией) |
 | `packages/contracts/` | Zod + TypeScript | Общие схемы и типы (единый источник правды) |
 
 Инфраструктура: Supabase PostgreSQL (dev + prod) + Storage, Cloudflare Pages/Workers (прод).
+
+## Авторизация и границы развёртывания
+
+Telegram Mini App передаёт `initData`, а браузер — одноразовый proof Login Widget. Backend
+проверяет Telegram-подпись и атомарно создаёт opaque-сессию в PostgreSQL. Браузер получает только
+`HttpOnly; SameSite=Strict` cookie (`Secure` на HTTPS); access token не возвращается и не хранится
+в `localStorage`. Все browser-запросы идут на same-origin `/api` с `credentials: "include"`.
+Подробный протокол и logout описаны в [backend/README.md](./backend/README.md).
+
+Pages автоматически собирает preview на каждый push и production при push в `main`; Worker
+деплоится вручную. Операционный источник правды, включая secret ownership, preflight и BotFather,
+— [DEPLOYMENT.md](./DEPLOYMENT.md). Единственный реестр текущего технического долга —
+[tech_debt/README.md](./tech_debt/README.md); [TASKS.md](./TASKS.md) сохраняет продуктовую
+хронологию и ручные пункты.
 
 ## Требования
 
@@ -148,7 +162,7 @@ Backend и webapp развёрнуты на Cloudflare (Workers + Pages), Telegr
 bun run typecheck   # типы во всех воркспейсах (contracts собирается первым)
 bun test backend packages/contracts webapp # юнит-тесты без Playwright-спеков
 bun run test:integration # изолированный PostgreSQL + миграции и persistence-тесты
-bun run test:e2e    # Playwright; нужны изолированные E2E_* DB/Storage/Telegram/JWT из .env.e2e
+bun run test:e2e    # Playwright; нужны изолированные E2E_* DB/Storage/Telegram значения из .env.e2e
 bun run build       # production-сборка всех пакетов
 ```
 

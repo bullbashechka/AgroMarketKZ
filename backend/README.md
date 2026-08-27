@@ -7,6 +7,8 @@ REST API на **Hono**, работает на двух рантаймах из �
 ```sh
 bun run dev          # Bun, watch, http://localhost:3000
 bun run dev:worker   # эмуляция Cloudflare Workers (wrangler dev)
+bun run types:worker # пересоздать worker-configuration.d.ts из wrangler.toml
+bun run types:worker:check # проверить, что сгенерированный файл не имеет drift
 bun run typecheck
 bun test
 ```
@@ -14,6 +16,12 @@ bun test
 Переменные окружения локально читаются из корневого `.env` (`Bun.env`), на Workers — из `c.env` (см. `wrangler.toml` и `wrangler secret put`). Для production требуются `PAGES_PROXY_SECRET`, `ADMIN_OWNER_TELEGRAM_ID`, `TELEGRAM_BOT_TOKEN`, `ADMIN_ALLOWLIST`, `WEBAPP_ORIGIN` и Hyperdrive; прямой `DATABASE_URL` не является production fallback. `DATABASE_URL` и origin credentials Hyperdrive должны принадлежать отдельной runtime-роли без superuser/DDL-привилегий; миграции используют отдельный `MIGRATION_DATABASE_URL`.
 
 CORS разрешает только точный `WEBAPP_ORIGIN` (сравнение origin запроса, без wildcard и без localhost-fallback в коде): production-значение в `wrangler.toml` — `https://agromarketkz-webapp.pages.dev` (домен детерминирован именем Cloudflare Pages проекта). Локально `wrangler dev` переопределяет его через `backend/.dev.vars` (не в git), обычный `bun run dev` — через корневой `.env`.
+
+`backend/wrangler.toml` задаёт Worker bindings, а `.worker-types.env` — versioned fixture с
+именами только обязательных production secrets для type generation. Не редактировать `worker-configuration.d.ts` вручную:
+`bun run types:worker` передаёт этот fixture через `--env-file` и не читает untracked локальный
+`.dev.vars`, а
+`bun run types:worker:check` проверяет drift (и включён в `bun run release:verify`).
 
 ## Структура
 
@@ -27,7 +35,7 @@ src/
   repos/            # SQL-доступ к пользователям, каталогу, заявкам, настройкам и Storage
   lib/
     telegram.ts     # валидация initData и Login Widget (Web Crypto, HMAC-SHA256)
-    jwt.ts          # выпуск/проверка JWT (hono/jwt, HS256, 24 часа, версия сессии)
+    session.ts      # cookie-параметры, opaque token и детерминированная ротация
     admin.ts        # валидация и кеш ADMIN_ALLOWLIST, проверка прав по числовому id
     telegramId.ts   # общий допустимый диапазон реальных и синтетических Telegram id
     errors.ts       # HttpError (статус + сообщение)
@@ -36,7 +44,7 @@ src/
     adminAuditOutbox.ts   # scheduled recovery, bounded retries и operator-visible dead letters
     telegram*.ts    # webhook, requestContact и уведомления в Telegram
   middleware/
-    auth.ts         # requireAuth — проверка Bearer JWT
+    auth.ts         # requireAuth — lookup opaque session по HttpOnly cookie
     admin.ts        # requireAdmin — живая проверка прав
   routes/
     auth.ts         # /auth/telegram, /auth/widget/exchange (legacy /auth/widget alias)
@@ -55,7 +63,7 @@ tests/              # unit- и контрактные тесты
   `auth_date` не старше 5 минут и атомарно записывает HMAC proof в `app_private.widget_auth_proofs`,
   поэтому один redirect нельзя обменять дважды.
 
-После успешной валидации создаётся/обновляется `User` (зеркало Telegram: id, username, имя — обновляется при каждом входе; контактные имя/телефон неприкосновенны) и выдаётся **JWT на 24 часа** (`Authorization: Bearer`). В Telegram токен молча перевыпускается из свежего `initData`, поэтому повторного входа пользователь не видит.
+После успешной валидации создаётся/обновляется `User` (зеркало Telegram: id, username, имя — обновляется при каждом входе; контактные имя/телефон неприкосновенны) и атомарно создаётся **opaque-сессия** в `app_private.user_sessions`. В ответ устанавливается cookie: production — `__Host-agromarket_session`, локально — `agromarket_session`; она имеет `HttpOnly`, `SameSite=Strict`, путь `/`, срок 7 суток и `Secure` на HTTPS. Токен не возвращается в JSON и не принимается из `Authorization`.
 
 **Админы** определяются по `ADMIN_ALLOWLIST` (числовые Telegram id, через запятую). Принимаются
 только канонические положительные целые без ведущих нулей, не выше `2^52`; битые токены
@@ -63,15 +71,15 @@ tests/              # unit- и контрактные тесты
 повторные проверки не парсят и не логируют его заново, а смена значения применяется на первом
 следующем запросе. Проверка остаётся живой (`requireAdmin`), статус в токен не зашит.
 
-## JWT-сессии и отзыв
+## Сессии и отзыв
 
-JWT выпускается на 24 часа с claims `sub`, `tgId`, `ver`, `iat` и `exp`. `requireAuth` проверяет подпись и форму claims, затем одним запросом к `users` сверяет существование пользователя, его `telegram_id` и `token_version`. Production устанавливает `AUTH_CACHE_MODE=disabled`, поэтому отзыв сессии не ждёт KV TTL; `read-through` допускается только как осознанная capacity-настройка. Удалённый пользователь или несовпадение версии получают `401`; сбой БД остаётся серверной ошибкой.
+`requireAuth` извлекает cookie и читает её SHA-256 hash в PostgreSQL: проверяются существование пользователя, истечение и отзыв сессии. Через 12 часов активная сессия ротируется; старое значение принимается только в 60-секундном recovery window и выдаёт replacement cookie. `AUTH_CACHE_MODE=disabled` остаётся production-default, но не участвует в session lookup. Удалённый пользователь, отозванная или истёкшая сессия получают `401`; сбой БД остаётся серверной ошибкой.
 
-Миграция `0006_user_token_version.sql` добавляет `users.token_version`. Администратор отзывает все ранее выданные JWT пользователя запросом `POST /admin/users/:id/revoke-sessions`; маршрут возвращает `204`, либо `404` для отсутствующего UUID-пользователя. Новый вход выдаёт JWT с новой версией. Legacy JWT без `ver` и `iat` временно считается версией `0` до собственного `exp`.
+`POST /auth/logout` отзывает текущую сессию и очищает cookie; `POST /auth/logout-all` делает то же для всех сессий текущего пользователя. Администратор отзывает все сессии пользователя через `POST /admin/users/:id/revoke-sessions`; маршрут возвращает `204`, либо `404` для отсутствующего UUID-пользователя.
 
 ## API
 
-Все маршруты, кроме health, входа и Telegram-вебхука, требуют `Authorization: Bearer <JWT>`. Контракты запросов и ответов находятся в `packages/contracts`.
+Все маршруты, кроме health, входа и Telegram-вебхука, требуют валидную session cookie. Контракты запросов и ответов находятся в `packages/contracts`.
 
 | Группа | Маршруты |
 |-------|----------|

@@ -1,8 +1,8 @@
 WEBAPP_ORIGIN=http://localhost:5173
 # Runtime connection: a dedicated non-superuser role; migration runner uses a separate URL.
 DATABASE_URL=postgresql://agromarket_runtime:[RUNTIME-PASSWORD]@aws-0-your-region.pooler.supabase.com:5432/postgres
-# Production Worker default: disabled. Set read-through only after accepting
-# up-to-60s session revocation lag and validating KV health.
+# Production Worker default: disabled. read-through affects only the separate
+# legacy auth cache; session revocation always reads PostgreSQL.
 AUTH_CACHE_MODE=disabled
 PAGES_PROXY_SECRET=replace-with-local-proxy-secret-at-least-32-characters
 ADMIN_OWNER_TELEGRAM_ID=telegram_owner_id
@@ -10,7 +10,7 @@ TELEGRAM_BOT_TOKEN=replace-with-telegram-bot-token
 TELEGRAM_WEBHOOK_SECRET=replace-with-random-webhook-secret
 TELEGRAM_BOT_USERNAME=replace_with_bot_username
 TELEGRAM_MINIAPP_SHORTNAME=replace_with_miniapp_shortname
-ADMIN_ALLOWLIST=telegram_username_or_user_id
+ADMIN_ALLOWLIST=telegram_user_id
 SUPABASE_URL=https://replace-with-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=replace-with-supabase-service-role-key
 SUPABASE_STORAGE_BUCKET=card-images

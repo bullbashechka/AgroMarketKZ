@@ -3,7 +3,7 @@
 Разбивка [PRD.md](./PRD.md) на этапы и задачи под стек шаблона **[di-sukharev/vibe](https://github.com/di-sukharev/vibe)**.
 
 **Стек:** монорепо на Bun.
-- `backend/` — Hono + Cloudflare Workers + Supabase PostgreSQL/Storage + кастомный JWT + Zod.
+- `backend/` — Hono + Cloudflare Workers + Supabase PostgreSQL/Storage + opaque HttpOnly-сессии + Zod.
 - `webapp/` — React + Vite, TanStack Query/Form/Router (CSR за авторизацией) — здесь живёт Telegram Mini App.
 - `website/` — Astro (публичные SEO-страницы) — **вне scope** для Mini App, опционально под лендинг.
 - `packages/contracts/` — общие Zod-схемы и TypeScript-типы.
@@ -11,13 +11,19 @@
 
 Условные обозначения: `[ ]` — не сделано. В скобках — ссылки на разделы PRD.
 
+> **Статус на 27.08.2026.** Этот файл хранит продуктовую хронологию и оставшиеся ручные
+> операции. Реестр текущего инженерного долга, его приоритеты и acceptance criteria находится
+> только в [tech_debt/README.md](./tech_debt/README.md); не дублировать его задачи здесь.
+> Формулировки из ранних этапов ниже приведены к текущей модели opaque-сессий, но даты решений
+> сохранены как исторический контекст.
+
 ---
 
 ## Этап 0. Подготовка проекта и инфраструктура
 
 - [x] Инициализировать монорепо из шаблона vibe (Bun, workspaces: `backend`, `webapp`, `packages/contracts`).
 - [x] Подключить Supabase PostgreSQL как единую БД для разработки и прода (`DATABASE_URL` — transaction pooler).
-- [x] Настроить переменные окружения: `DATABASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `ADMIN_CHAT_ID`, `ADMIN_ALLOWLIST` (числовые Telegram id), ключи Supabase и Cloudflare.
+- [x] Настроить переменные окружения: `DATABASE_URL` для локального runtime, `TELEGRAM_BOT_TOKEN`, `ADMIN_ALLOWLIST` (числовые Telegram id), ключи Supabase и Cloudflare. Production secrets и bindings описаны в `DEPLOYMENT.md`.
 - [x] Убедиться, что `backend` и `webapp` запускаются и общаются между собой локально.
 - [x] Настроить базовый CI (линт, типы, тесты) при наличии в шаблоне.
 
@@ -54,11 +60,11 @@
 ## Этап 3. Регистрация и авторизация через Telegram (раздел 1, 13, 16)
 
 - [x] Backend: валидация `initData` Telegram (проверка подписи `TELEGRAM_BOT_TOKEN`).
-- [x] Backend: выдача JWT после успешной валидации, создание/обновление `User`.
+- [x] Backend: после успешной валидации атомарно создаёт opaque-сессию и обновляет `User`.
 - [x] Backend: регистрация — сохранение имени и телефона, признак «зарегистрирован».
-- [x] Backend: middleware авторизации (проверка JWT на защищённых маршрутах).
+- [x] Backend: middleware авторизации (lookup session cookie на защищённых маршрутах).
 - [x] Backend: определение администратора по `ADMIN_ALLOWLIST`, middleware admin-guard.
-- [x] webapp: получение `initData` из Telegram Web Apps SDK, отправка на бэкенд, хранение JWT.
+- [x] webapp: получение `initData` из Telegram Web Apps SDK и bootstrap через HttpOnly cookie без хранения credentials в клиенте.
 - [x] webapp: отложенная регистрация перед персональными действиями; каталог доступен сразу, а первая заявка атомарно завершает регистрацию.
 - [x] webapp: фолбэк для обычного браузера (Telegram Login Widget) — корректная деградация.
 
@@ -103,7 +109,7 @@
 Миграция `0002_card_delete_keeps_requests.sql` применена к dev-базе Supabase и проверена транзакционным
 драйраном (удаление карточки с заявкой → `card_id` становится `null`, снапшот сохраняется, откат не оставил тестовых
 данных). `bun run typecheck` и `bun test` (backend + contracts) проходят. HTTP-прогон curl-флоу из плана
-верификации не выполнен в этой сессии — нет `.env`/`backend/.dev.vars` с реальными `JWT_SECRET`/`TELEGRAM_BOT_TOKEN`;
+верификации не выполнен в этой сессии — нет `.env`/`backend/.dev.vars` с реальным `TELEGRAM_BOT_TOKEN`;
 сделать перед деплоем (Этап 10) или при следующей сессии с локальным окружением.
 
 ---
@@ -182,7 +188,7 @@ settings), `lib/favorites.ts` (optimistic toggle), `lib/format.ts`/`sound.ts`/`u
 (3 источника заявки, авто-синхронизация профиля, читаемые 429/409/404), `Gallery`. CSS — секции в
 `components.css` на существующих семантических токенах (тёмная тема автоматически). Проверено: `bun test`
 (backend 48 тестов + contracts 24, включая новые для `phoneSchema`/`toCategoryListItem`), `typecheck` по
-всей монорепе — зелёные; сквозной прогон через реальный dev backend + БД (curl с настоящим JWT
+всей монорепе — зелёные; сквозной прогон через реальный dev backend + БД (curl с валидной session cookie
 существующего пользователя): категории со счётчиками, список/поиск/фильтр карточек, карточка + 404,
 избранное add/list/remove, заявки из всех 3 источников (включая международный номер `+994...`,
 нормализованный в E.164), повторная заявка на ту же карточку, rate-limit 429 на 6-й заявке подряд,
@@ -243,11 +249,10 @@ Backend-правка: cardCount/activeCardCount в админ-списке ка�
 - [x] E2E: админ — создание/редактирование карточки и категории, смена статуса заявки.
 - [x] Проверка авторизации/доступа (обычный пользователь vs админ).
 
-Продуктовые решения по этапу 9 (обсуждение 2026-07-13): тесты гоняются против локальной
-dev-БД Supabase (не отдельная тестовая БД); аутентификация — прямой `POST /auth/telegram`
-с офлайн HMAC-подписанным `initData` (тот же алгоритм, что `backend/src/lib/telegram.ts`),
-JWT кладётся в `localStorage` до захода на страницу — без UI-логина; для админ-тестов
-в `ADMIN_ALLOWLIST` добавлен второй тестовый Telegram id рядом с реальным.
+Продуктовые решения по этапу 9 (обсуждение 2026-07-13, обновлено 27.08.2026): тесты используют
+прямой `POST /auth/telegram` с офлайн HMAC-подписанным `initData`, получают из ответа session
+cookie и добавляют её в Playwright context. Credentials не попадают в `localStorage`; тестовые
+администраторы изолированы от production allowlist.
 
 Реализация (2026-07-13): `@playwright/test` установлен в корень монорепо, `e2e/` —
 `playwright.config.ts` (два `webServer`: backend на 3000 через `/health`, webapp на 5173;
@@ -256,8 +261,8 @@ JWT кладётся в `localStorage` до захода на страницу �
 `helpers/api.ts` (обёртка для setup/teardown через admin API), `helpers/nav.ts`
 (обход известного гочи: Vite dev-прокси форвардит `/admin/*` на backend, поэтому прямой
 `page.goto("/admin/...")` в dev возвращает JSON вместо SPA — навигация в админку всегда
-через клик по ссылке из «Общее»), `fixtures/auth.fixture.ts` (`userPage`/`adminPage` с готовым
-JWT и предзарегистрированным профилем, `freshUserPage`/ad-hoc свежие telegram id для тестов,
+через клик по ссылке из «Общее»), `fixtures/auth.fixture.ts` (`userPage`/`adminPage` с готовой
+session cookie и предзарегистрированным профилем, `freshUserPage`/ad-hoc свежие telegram id для тестов,
 создающих заявки — чтобы не делить общий rate-limit 5/10мин с TEST_USER). 8 спеков, все
 сценарии из плана + `access-control.spec.ts` (403 от admin API + отсутствие ссылки
 «Управление» для обычного пользователя). Добавлены точечные `data-testid` на интерактивные
@@ -267,7 +272,7 @@ JWT и предзарегистрированным профилем, `freshUser
 (нужна отдельная БД/ветка на прогон) — see e2e/playwright.config.ts.
 
 Текущая конфигурация supersedes это ограничение: `e2e/playwright.config.ts` не наследует
-корневой `.env`, требует отдельные `E2E_*` DB/Storage/Telegram/JWT значения, запускает
+корневой `.env`, требует отдельные `E2E_*` DB/Storage/Telegram значения, запускает
 серверы с явным окружением и проверяет, что тестовые ресурсы не совпадают с production.
 Для удалённых E2E-БД/Supabase корневой `.env` с production baseline обязателен; полностью
 локальная конфигурация может работать без него.
@@ -349,8 +354,9 @@ Supabase. SQL повторно не выполнять. Остаётся кон�
 Источник: [SECURITY_AUDIT_PRERELEASE.md](./SECURITY_AUDIT_PRERELEASE.md), аудит от 2026-07-26.
 Контекст: релиз через 4 дня, целевая аудитория 24 000 пользователей.
 
-`(№N — X/10)` — номер проблемы в отчёте аудита и её оценка серьёзности.
-Этапы 12–17 блокируют релиз, этап 18 — нет.
+`(№N — X/10)` — номер проблемы в историческом отчёте аудита и его оценка. Закрытые
+пункты ниже отражают текущий код; открытыми оставлены только ещё не выполненные ручные или
+продуктовые решения. Новый engineering backlog ведётся в `tech_debt/`.
 
 ---
 
@@ -359,7 +365,7 @@ Supabase. SQL повторно не выполнять. Остаётся кон�
 Без этих четырёх пунктов релиз выпускать нельзя.
 
 - [ ] **(№1 — 9/10) Убрать тестовый admin id из прод-allowlist.**
-  - [x] Подтвердить отсутствие компрометации: JWT требует строку `users`, а
+  - [x] Подтвердить отсутствие компрометации: session lookup требует строку `users`, а
     `telegram_id = 900000002` в production отсутствует.
   - [x] Production secret развернут secret-only версией со значением владельца `1295392762`.
   - [ ] Владелец живьём проверяет раздел «Управление» после смены секрета.
@@ -430,56 +436,43 @@ Supabase. SQL повторно не выполнять. Остаётся кон�
 
 ## Этап 14. Аутентификация, бот и наблюдаемость (день 2–3)
 
-- [ ] **(№6 — 6/10) Ограничить приветствия бота.**
-  - [ ] `backend/src/lib/telegramWebhook.ts`: отвечать только на `/start` (и опционально `/help`), а не на любое приватное сообщение — иначе 24k пользователей выжигают глобальный лимит Bot API ~30 msg/s и уведомления о заявках перестают доходить.
-  - [ ] Дедупликация: не приветствовать один `chat_id` чаще раза в час (Workers KV с TTL).
-  - [ ] Развести приоритеты: уведомления о заявках — с ретраем, приветствия — без.
-  - [ ] Обновить комментарии в `routes/telegram.ts` и `README.md` (см. №23).
+- **(№6 — 6/10, архивная гипотеза, не active backlog).** Код уже отвечает только на `/start`,
+  а durable notification outbox отделён от welcome message. Нужна ли дедупликация приветствия —
+  продуктово-операционное решение; при подтверждённой нагрузке завести новую задачу в
+  `tech_debt/`, а не возвращать этот исторический пункт в execution plan.
 
-- [ ] **(№7 — 6/10) Сузить окно валидности Login Widget.**
-  - [ ] `backend/src/lib/telegram.ts`: ввести `WIDGET_MAX_AUTH_AGE_SEC = 300` для `validateWidgetLogin`, оставив 24 ч только для `validateInitData`.
-  - [ ] Сделать widget-логин одноразовым: `hash` в Workers KV с TTL 300 с, повтор отклонять.
-  - [ ] Проверить, что редиректная страница Pages не утекает query string в `Referer`.
+- [x] **(№7 — 6/10) Сузить окно валидности Login Widget.** `validateWidgetLogin` принимает proof не старше 5 минут; его SHA-256 digest записывается уникально в `app_private.widget_auth_proofs` в той же транзакции, что opaque-сессия. Повторный exchange отклоняется; Pages/API используют `Referrer-Policy: no-referrer`.
 
-- [ ] **(№8 — 6/10) Аудит-лог админских действий.**
-  - [ ] Миграция: `admin_audit_log (id, actor_telegram_id, action, target_type, target_id, meta jsonb, created_at)`, индекс `(actor_telegram_id, created_at desc)`.
-  - [ ] Middleware после `requireAdmin`: запись для всех не-GET запросов + отдельно для `GET /admin/users` (доступ к PII).
-  - [ ] Ретеншен 180 дней.
-  - [ ] Экран просмотра в админке либо готовый SQL-запрос в `DEPLOYMENT.md`.
+- [x] **(№8 — 6/10) Аудит-лог админских действий.** Админские мутации пишут PII-free intent в `app_private.admin_audit_outbox` в бизнес-транзакции; Worker делает append-only audit event и bounded recovery/dead-letter. Read-only operator query и requeue описаны в `DEPLOYMENT.md`.
 
 ---
 
 ## Этап 15. Корректность данных и валидация (день 3)
 
-- [ ] **(№5 — 6/10) Починить верификацию телефона после регистрации.**
-  - [ ] `webapp/src/components/ContactFields.tsx`: проп `onContactResponseChange`, пробрасывать `shared.contactResponse` наверх (сейчас он выбрасывается), сбрасывать при ручной правке поля — как в `RequestSheet:153`.
-  - [ ] `backend/src/routes/profile.ts` (`PUT /`): вызвать `tryValidateContactPhoneForUser` и передать результат в `updateContacts`, повторив логику `case when … else verified_phone end` из `register()`.
-  - [ ] `ProfileEditScreen` и `FeedbackScreen`: хранить и отправлять `contactResponse`.
-  - [ ] Тест: смена номера с proof → `phoneVerified: true`; без proof → `false`.
+- [x] **(№5 — 6/10) Верификация телефона при редактировании профиля.** Закрыто TD-004: signed contact proof передаётся через UI, backend сверяет пользователя и номер, а тесты покрывают подтверждённый и неподтверждённый update.
 
-- [ ] **(№9 — 5/10) Валидировать `storagePath`.**
-  - [ ] Вынести `CARD_IMAGE_PATH_PATTERN` в `packages/contracts/src/constants.ts` (единый источник для обоих пакетов).
-  - [ ] `cardImageInput.storagePath`: `z.string().regex(...)` вместо `requiredText(500)`.
-  - [ ] `backend/src/lib/storage.ts:publicImageUrl`: кодировать сегменты через `encodeURIComponent`.
-  - [ ] Тест: путь вне `cards/` и путь с `../` отклоняются с 400.
+- [x] **(№9 — 5/10) Валидировать `storagePath`.** `CARD_IMAGE_PATH_PATTERN` живёт в contracts и ограничивает `cards/<uuid>.<ext>` либо изолированный E2E namespace; backend использует ту же политику для uploads и cleanup.
 
-- [ ] **(№10 — 5/10) Подпись Login Widget по сырым полям.** `validateWidgetLogin` строит data-check-string из zod-очищенного объекта — любое новое поле от Telegram молча сломает вход в браузере. Принимать сырой объект, считать подпись по всем полям кроме `hash`, валидировать структуру только после проверки. Тест: лишнее неизвестное поле не ломает верификацию.
+- **(№10 — 5/10, архивная гипотеза, не active backlog).** Текущий контракт Login Widget
+  покрыт signature/freshness tests. Изменение raw-field semantics требует сначала подтвердить
+  актуальный Telegram payload и совместимость; при воспроизводимом сбое оформить отдельную
+  задачу в `tech_debt/` с evidence и migration plan.
 
-- [ ] **(№11 — 4/10) Не удалять фото, на которое ссылается другая карточка.** Перед `deleteStorageObjects` в `routes/admin/cards.ts:64,76` фильтровать пути через существующий `findReferencedStoragePaths`. Опционально — глобальный `unique (storage_path)` на `card_images`.
+- [x] **(№11 — 4/10) Не удалять фото, на которое ссылается другая карточка.** После commit карточки backend повторно читает ссылки через `findReferencedStoragePaths` и удаляет только неиспользуемые paths.
 
-- [ ] **(№12 — 4/10) `save_chat` не должен молча перехватывать уведомления.** `backend/src/routes/telegram.ts:30-38`: если `adminChatId` уже задан и отличается — не перезаписывать, а ответить в новый чат подсказкой. Смену чата сделать явным действием в `AdminSettingsScreen`.
+- [x] **(№12 — 4/10) `save_chat` не перехватывает уведомления.** Новый чат получает только подсказку, если настройка уже занята; смена доступна через admin settings и требует `ADMIN_OWNER_TELEGRAM_ID`.
 
-- [ ] **(№21 — 3/10) `JSON.parse(userRaw)` без try/catch.** `backend/src/lib/telegram.ts:86` даёт 500 вместо 401 — обернуть и бросать `HttpError(401, …)`, распарсенный объект валидировать zod вместо `as`.
+- [x] **(№21 — 3/10) Ошибочный Telegram `user` не даёт 500.** Парсинг защищён `try/catch`, а невалидный JSON или id возвращают `401`.
 
-- [ ] **(№23 — 1/10) Устаревшие комментарии.** `routes/settings.ts:41` («доступны без авторизации» при `requireAuth`), `repos/users.ts:126-130` (докблок от удалённой функции), `lib/telegramWebhook.ts:46` + `README` (расхождение про `/start`).
+- [x] **(№23 — 1/10) Устаревшие комментарии.** Комментарии и package README отражают текущие protected routes, `/start` и session flow.
 
 ---
 
 ## Этап 16. Процесс деплоя и заголовки (день 3)
 
-- [ ] **(№13 — 4/10) CSP enforcing по умолчанию.** `webapp/scripts/generate-headers.ts:34-35`: инвертировать — enforcing по умолчанию, `CSP_REPORT_ONLY=1` как явный opt-in. Сейчас любой ручной `bun run build` без `CSP_ENFORCE=1` незаметно снимет CSP с прода. Добавить в чек-лист деплоя проверку живого заголовка через `curl -sI`.
+- [x] **(№13 — 4/10) CSP enforcing по умолчанию.** `generate-headers.ts` выпускает enforcing CSP; `CSP_REPORT_ONLY=1` — явный временный opt-in. Live header проверяется по `DEPLOYMENT.md`.
 
-- [ ] **(№14 — 4/10) `Cache-Control: no-store`** в глобальном middleware `backend/src/app.ts:37-41` — `GET /profile`, `/admin/users`, `/admin/requests` отдают имена и телефоны без директив кеширования.
+- [x] **(№14 — 4/10) `Cache-Control: no-store`.** Глобальный API middleware выставляет `no-store`; это закреплено security test.
 
 - [ ] **(№18 — 3/10) Достроить Telegram-интеграцию.** `/newapp` у @BotFather → `TELEGRAM_MINIAPP_SHORTNAME` в `[vars]` (без неё нет кнопок «Открыть заявку» и «Открыть AgroMarket»). Заодно закрыть висящие пункты `DEPLOYMENT.md`: Menu Button и `/setdomain` — без последнего Login Widget в браузере не работает вообще.
 
@@ -489,7 +482,7 @@ Supabase. SQL повторно не выполнять. Остаётся кон�
 
 - [ ] `bun run typecheck` — зелёный.
 - [ ] `cd backend && bun test` — зелёный.
-- [ ] `bun run test:e2e` — запускать только с изолированными `E2E_*` DB/Storage/Telegram/JWT
+- [ ] `bun run test:e2e` — запускать только с изолированными `E2E_*` DB/Storage/Telegram
   значениями из `.env.e2e`; конфигурация с production-ресурсами блокируется до старта.
 - [ ] Security и performance advisors Supabase — ноль ERROR/WARN.
 - [ ] Живая проверка заголовков: CSP enforcing, HSTS, `nosniff`, `Cache-Control: no-store` на API.
@@ -507,5 +500,5 @@ Supabase. SQL повторно не выполнять. Остаётся кон�
 - [ ] **(№15 — 4/10)** Явный бейдж неподтверждённого номера в `RequestItem` — заявку можно отправить с чужим телефоном. Отдельно обсудить продуктовое решение: требовать ли подтверждённый номер для заявок из карточки.
 - [ ] **(№16 — 3/10)** IP-лимитер на `/telegram/webhook` либо ограничение источника диапазонами Telegram через WAF.
 - [ ] **(№17 — 3/10)** Разобрать «dry-run candidates» в `wrangler tail` за неделю, убедиться что в списке нет живых файлов, отдельным деплоем переключить `STORAGE_CLEANUP_DRY_RUN` в `"false"`. До релиза не трогать.
-- [ ] **(№19 — 3/10)** Self-service logout: кнопка «Выйти на всех устройствах» в «Мои контакты» → `POST /profile/revoke-sessions` поверх существующего `revokeUserSessions`.
+- [x] **(№19 — 3/10)** Self-service logout: `POST /auth/logout-all` отзывает все session generations текущего пользователя и очищает cookie; admin revoke остаётся в `POST /admin/users/:id/revoke-sessions`.
 - [ ] **(№22 — 2/10)** Ограничить `offset` сверху (например 10 000) либо перейти на keyset-пагинацию по `(sort_order, title, id)` — сортировка уже детерминированная.

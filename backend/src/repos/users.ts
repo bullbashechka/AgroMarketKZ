@@ -36,7 +36,7 @@ export async function findByTelegramId(env: AppEnv, telegramId: number, db: Data
   return row;
 }
 
-/** Минимальная живая запись для проверки JWT без повторного SELECT в requireRegistered. */
+/** Минимальная живая запись для optional auth-cache; session middleware читает user_sessions напрямую. */
 export async function findAuthUser(
   env: AppEnv,
   userId: string,
@@ -75,9 +75,8 @@ export async function findAuthUserCached(
   db: Database,
 ): Promise<{ tokenVersion: number; isRegistered: boolean } | undefined> {
   const kv = env.AUTH_CACHE_KV;
-  // Session revocation is a security boundary. Cache use must be an explicit
-  // capacity choice; production defaults to a live DB read so token_version
-  // changes take effect immediately even if KV invalidation is delayed.
+  // Legacy auth-cache remains a capacity seam for its callers. Session revocation
+  // itself is a live user_sessions lookup and never depends on this KV entry.
   if (!kv || env.AUTH_CACHE_MODE === "disabled") return findAuthUser(env, userId, telegramId, db);
 
   const key = authCacheKey(userId);
@@ -98,7 +97,7 @@ async function invalidateAuthCache(env: AppEnv, userId: string): Promise<void> {
   await env.AUTH_CACHE_KV.delete(authCacheKey(userId)).catch(() => {});
 }
 
-/** Атомарно отзывает все JWT пользователя, выпущенные до текущей версии сессии. */
+/** Legacy token-version revocation helper; opaque session routes use repos/sessions instead. Clears its cache entry when invoked. */
 export async function revokeUserSessions(env: AppEnv, userId: string, db: Database): Promise<boolean> {
   const sql = db.sql;
   const rows = await sql<{ id: string }[]>`

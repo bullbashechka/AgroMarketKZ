@@ -22,7 +22,6 @@ const E2E_SUPABASE_URL = process.env.E2E_SUPABASE_URL;
 const E2E_SUPABASE_STORAGE_BUCKET = process.env.E2E_SUPABASE_STORAGE_BUCKET;
 const E2E_SUPABASE_SERVICE_ROLE_KEY = process.env.E2E_SUPABASE_SERVICE_ROLE_KEY;
 const E2E_TELEGRAM_BOT_TOKEN = process.env.E2E_TELEGRAM_BOT_TOKEN;
-const E2E_JWT_SECRET = process.env.E2E_JWT_SECRET;
 
 assertSafeE2EEnvironment({
   apiUrl: API_URL,
@@ -31,13 +30,11 @@ assertSafeE2EEnvironment({
   supabaseUrl: E2E_SUPABASE_URL,
   storageBucket: E2E_SUPABASE_STORAGE_BUCKET,
   telegramBotToken: E2E_TELEGRAM_BOT_TOKEN,
-  jwtSecret: E2E_JWT_SECRET,
   storageServiceKey: E2E_SUPABASE_SERVICE_ROLE_KEY,
   productionApiUrl: productionEnv.VITE_API_URL,
   productionDatabaseUrl: productionEnv.DATABASE_URL,
   productionSupabaseUrl: productionEnv.SUPABASE_URL,
   productionTelegramBotToken: productionEnv.TELEGRAM_BOT_TOKEN,
-  productionJwtSecret: productionEnv.JWT_SECRET,
   productionStorageServiceKey: productionEnv.SUPABASE_SERVICE_ROLE_KEY,
 });
 
@@ -56,7 +53,6 @@ const backendEnv = {
   SUPABASE_STORAGE_BUCKET: E2E_SUPABASE_STORAGE_BUCKET!,
   SUPABASE_SERVICE_ROLE_KEY: E2E_SUPABASE_SERVICE_ROLE_KEY!,
   TELEGRAM_BOT_TOKEN: E2E_TELEGRAM_BOT_TOKEN!,
-  JWT_SECRET: E2E_JWT_SECRET!,
   WEBAPP_ORIGIN: BASE_URL,
   ADMIN_ALLOWLIST: String(e2eAdminTelegramId),
   E2E_RUN_ID: runId,

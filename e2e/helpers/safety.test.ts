@@ -13,13 +13,11 @@ const safeConfig: E2ESafetyInput = {
   supabaseUrl: "https://e2e-project.supabase.co",
   storageBucket: "card-images-e2e",
   telegramBotToken: "e2e-bot-token",
-  jwtSecret: "e2e-jwt-secret",
   storageServiceKey: "e2e-service-key",
   productionApiUrl: "https://agromarketkz-api.example",
   productionDatabaseUrl: "postgresql://production@pooler.supabase.com/prod",
   productionSupabaseUrl: "https://production.supabase.co",
   productionTelegramBotToken: "production-bot-token",
-  productionJwtSecret: "production-jwt-secret",
   productionStorageServiceKey: "production-service-key",
 };
 
@@ -67,7 +65,6 @@ describe("E2E environment safety", () => {
       productionDatabaseUrl: undefined,
       productionSupabaseUrl: undefined,
       productionTelegramBotToken: undefined,
-      productionJwtSecret: undefined,
       productionStorageServiceKey: undefined,
     })).toThrow("Production baseline");
   });
@@ -81,7 +78,6 @@ describe("E2E environment safety", () => {
       productionDatabaseUrl: undefined,
       productionSupabaseUrl: undefined,
       productionTelegramBotToken: undefined,
-      productionJwtSecret: undefined,
       productionStorageServiceKey: undefined,
     })).not.toThrow();
   });

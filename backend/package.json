@@ -12,7 +12,8 @@
     "deploy:production": "bun scripts/deployProduction.ts",
     "migrate": "bun scripts/migrate.ts",
     "seed:dev": "bun scripts/seedDev.ts",
-    "types:worker": "wrangler types worker-configuration.d.ts --env-interface WorkerEnv --include-runtime=false --strict-vars",
+    "types:worker": "wrangler types worker-configuration.d.ts --env-file .worker-types.env --env-interface WorkerEnv --include-runtime=false --strict-vars",
+    "types:worker:check": "wrangler types worker-configuration.d.ts --env-file .worker-types.env --env-interface WorkerEnv --include-runtime=false --strict-vars --check",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "webhook:set": "bun --env-file=../.env scripts/set-webhook.ts"
   },
