@@ -305,7 +305,9 @@ session cookie и предзарегистрированным профилем,
   Worker Git Build отключён.
 - [x] Развернуть `webapp` в Cloudflare Pages; production Pages Function `/api/*` проверена.
 - [x] Применить production PostgreSQL migrations через linked Supabase CLI до `0019`.
-- [ ] Подтвердить тариф Supabase Pro, PITR минимум 7 дней и отдельный restore drill.
+- [ ] Подтвердить тариф Supabase Pro, PITR минимум 7 дней и отдельный restore drill. До dated
+  external evidence destructive/schema-rewrite release заблокирован; см.
+  [`docs/backup-recoverability-evidence.md`](./docs/backup-recoverability-evidence.md).
 - [x] Настроить Supabase Storage `card-images`, ограничения и backend-only write path.
 - [x] Задать production variables/secrets Worker и Pages без хранения deploy-token в репозитории.
 - [ ] Повторно проверить `/start` и открытие Mini App в реальном Telegram после rollout 2026-08-25.

@@ -141,6 +141,21 @@ DB connection errors = 0, outbox sent/delivered = 100%, DLQ = 0.
 приватный R2 bucket с 90-дневным immutable Bucket Lock и успешный `storageBackup` manifest с
 `complete=true` (не только наличие файла manifest).
 
+### Backup/PITR evidence — current blocker
+
+Read-only инвентаризация от **2026-08-27** не подтверждает active PITR/retention/latest
+recoverable point, complete Storage manifest, failure alerts или measured restore drill. Tracked
+`wrangler.toml` также не включает `STORAGE_BACKUP`, поэтому самостоятельная Storage recovery не
+считается настроенной. Это unknown, а не предположение об отсутствии внешних ресурсов; полный
+evidence, owner и границы TD-203 зафиксированы в
+[`docs/backup-recoverability-evidence.md`](./docs/backup-recoverability-evidence.md).
+
+Пока evidence не получен, **destructive или schema-rewrite release запрещён**. Additive migration
+требует отдельного risk review. Restore drill выполняется только после отдельной operational
+authorization и исключительно в новом изолированном project по
+[`docs/restore-drill-plan.md`](./docs/restore-drill-plan.md); production project не может быть
+target.
+
 ## Rollout release-hardening
 
 1. Заморозить административные записи, применить 0015–0021 через Supabase CLI, выдать
@@ -177,11 +192,15 @@ cd backend
 ./node_modules/.bin/wrangler r2 bucket create agromarketkz-storage-backup-prod
 ./node_modules/.bin/wrangler r2 bucket lock add agromarketkz-storage-backup-prod \
   backup-retention snapshots/ --retention-days 90
+./node_modules/.bin/wrangler r2 bucket lock add agromarketkz-storage-backup-prod \
+  manifest-retention manifests/ --retention-days 90
 ```
 
 После создания R2 bucket снять комментарий с `[[r2_buckets]]` в `backend/wrangler.toml` и
 проверить, что bucket не имеет public `r2.dev` или custom-domain доступа. Bucket Lock должен
-быть immutable; backup-код пишет versioned keys и не перезаписывает snapshots.
+быть immutable для `snapshots/` и `manifests/`; backup-код пишет versioned keys и не
+перезаписывает snapshots. Перед объявлением manifest recoverability evidence сохранить его digest
+в независимом от bucket месте без customer payload.
 
 Один раз сохранить короткоживущий deploy-токен в macOS Keychain через **Keychain Access** →
 **login** → **Passwords** → **Add Password**: Name `agromarketkz-cloudflare-deploy`, Account —
