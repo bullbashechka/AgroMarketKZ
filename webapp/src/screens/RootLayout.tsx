@@ -1,5 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
+import { Component, lazy, Suspense, type ReactNode } from "react";
 import { AppShell } from "../components/AppShell";
 import { ErrorState } from "../components/ErrorState";
 import { RateLimitedState } from "../components/RateLimitedState";
@@ -25,6 +25,41 @@ function FullScreenLoading() {
       </section>
     </main>
   );
+}
+
+function LazyRouteLoading() {
+  return (
+    <section className="shell" role="status" aria-live="polite" aria-label="Загружаем раздел">
+      <div className="card loading-skeleton-card">
+        <Skeleton size="title" width="sixty" />
+        <Skeleton width="ninety" />
+        <Skeleton width="eighty" />
+      </div>
+    </section>
+  );
+}
+
+class LazyRouteBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  override state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  override render() {
+    if (this.state.error) {
+      return (
+        <section className="shell">
+          <ErrorState
+            message="Не удалось загрузить раздел."
+            onRetry={() => window.location.reload()}
+          />
+        </section>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 /** Гейт авторизации + общий каркас с нижней навигацией. Login/Register рендерятся вне AppShell. */
@@ -53,7 +88,11 @@ export function RootLayout() {
       <CatalogRegionProvider>
         <RegistrationIntentProvider>
           <AppShell>
-            <Outlet />
+            <LazyRouteBoundary>
+              <Suspense fallback={<LazyRouteLoading />}>
+                <Outlet />
+              </Suspense>
+            </LazyRouteBoundary>
           </AppShell>
         </RegistrationIntentProvider>
       </CatalogRegionProvider>

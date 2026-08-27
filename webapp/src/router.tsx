@@ -1,19 +1,10 @@
 import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
+import { lazy } from "react";
 import { AdminGuard } from "./components/admin/AdminGuard";
-import { AdminCardsScreen } from "./screens/admin/AdminCardsScreen";
-import { AdminCategoriesScreen } from "./screens/admin/AdminCategoriesScreen";
-import { AdminRequestScreen } from "./screens/admin/AdminRequestScreen";
-import { AdminRequestsScreen } from "./screens/admin/AdminRequestsScreen";
-import { AdminSettingsScreen } from "./screens/admin/AdminSettingsScreen";
-import { AdminUsersScreen } from "./screens/admin/AdminUsersScreen";
-import { CardEditorScreen } from "./screens/admin/CardEditorScreen";
 import { CardScreen } from "./screens/CardScreen";
 import { CatalogTab } from "./screens/CatalogTab";
 import { CategoryScreen } from "./screens/CategoryScreen";
-import { FavoritesScreen } from "./screens/FavoritesScreen";
-import { FeedbackScreen } from "./screens/FeedbackScreen";
 import { GeneralTab } from "./screens/GeneralTab";
-import { ProfileEditScreen } from "./screens/ProfileEditScreen";
 import { RootLayout } from "./screens/RootLayout";
 import {
   adminCardsSearchSchema,
@@ -23,6 +14,37 @@ import {
   productCatalogSearchSchema,
 } from "./lib/searchParams";
 import { rememberLocation } from "./lib/tabHistory";
+
+const ProfileEditScreen = lazy(() =>
+  import("./screens/ProfileEditScreen").then((module) => ({ default: module.ProfileEditScreen }))
+);
+const FavoritesScreen = lazy(() =>
+  import("./screens/FavoritesScreen").then((module) => ({ default: module.FavoritesScreen }))
+);
+const FeedbackScreen = lazy(() =>
+  import("./screens/FeedbackScreen").then((module) => ({ default: module.FeedbackScreen }))
+);
+const AdminCardsScreen = lazy(() =>
+  import("./screens/admin/AdminCardsScreen").then((module) => ({ default: module.AdminCardsScreen }))
+);
+const CardEditorScreen = lazy(() =>
+  import("./screens/admin/CardEditorScreen").then((module) => ({ default: module.CardEditorScreen }))
+);
+const AdminCategoriesScreen = lazy(() =>
+  import("./screens/admin/AdminCategoriesScreen").then((module) => ({ default: module.AdminCategoriesScreen }))
+);
+const AdminRequestsScreen = lazy(() =>
+  import("./screens/admin/AdminRequestsScreen").then((module) => ({ default: module.AdminRequestsScreen }))
+);
+const AdminRequestScreen = lazy(() =>
+  import("./screens/admin/AdminRequestScreen").then((module) => ({ default: module.AdminRequestScreen }))
+);
+const AdminUsersScreen = lazy(() =>
+  import("./screens/admin/AdminUsersScreen").then((module) => ({ default: module.AdminUsersScreen }))
+);
+const AdminSettingsScreen = lazy(() =>
+  import("./screens/admin/AdminSettingsScreen").then((module) => ({ default: module.AdminSettingsScreen }))
+);
 
 const rootRoute = createRootRoute({ component: RootLayout });
 

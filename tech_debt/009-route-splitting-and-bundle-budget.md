@@ -4,6 +4,7 @@
 **Этап:** 1  
 **Оценка:** S  
 **Зависимости:** нет.
+**Статус:** выполнено 27.08.2026 (два независимых review-прохода).
 
 ## Проблема
 
@@ -37,3 +38,15 @@ bun run test:e2e
 ## Вероятные файлы
 
 `webapp/src/router.tsx`/route composition, loading boundary, `webapp/vite.config.ts`, небольшой bundle-budget script.
+
+## Итоговое решение
+
+Вторичные profile/admin/editor/request маршруты теперь загружаются через
+`React.lazy`; каталоговый shell и частые зависимости остаются в initial path.
+`RootLayout` показывает доступные loading/error состояния и при ошибке загрузки
+versioned chunk восстанавливает приложение перезагрузкой. Vite manifest включён,
+а `bun run bundle:check` обходит только static initial graph, печатает raw/gzip
+размеры и largest chunks, проверяет cap `473_807` raw bytes, отсутствие
+admin/editor source и наличие всех secondary routes в dynamic imports. Команда
+включена в `release:verify` после build. Post-split build: 462.62 KiB raw /
+142.37 KiB gzip initial JavaScript; admin/editor создают отдельные chunks.
