@@ -4,6 +4,7 @@
 **Этап:** 1  
 **Оценка:** M  
 **Зависимости:** выполнить перед TD-006/007 и Stage 2 catalog variants.
+**Статус:** выполнено 27.08.2026.
 
 ## Проблема и доказательства
 
@@ -46,6 +47,14 @@
 - Live checklist не может показать green, когда backend policy блокирует при одинаковом persisted candidate.
 - SQL constraint error продолжает маппиться в безопасный actionable 4xx.
 - Cross-repository visibility test защищает catalog/favorites/request consistency.
+
+## Принятое разделение ответственности
+
+`getPublicationPolicyIssues()` — чистая UX-policy с устойчивыми `code/path/message`:
+её адаптируют Zod, live checklist и backend. Контекст категории передаёт
+backend, поэтому contracts package не обращается к БД. SQL constraints остаются
+независимой последней линией целостности и по-прежнему переводятся в безопасный
+actionable 4xx; они не заменяют application-level policy.
 
 ## Проверка
 

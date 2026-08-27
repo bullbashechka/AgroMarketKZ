@@ -13,6 +13,9 @@ import {
 import { appendAdminAuditEvent as appendAdminAuditEventRepo } from "../src/repos/adminAudit";
 import { cleanupE2eRun as cleanupE2eRunRepo } from "../src/repos/e2eCleanup";
 import { acceptTelegramUpdate as acceptTelegramUpdateRepo } from "../src/repos/telegramUpdates";
+import { getCardById, listCards, listCategories } from "../src/repos/catalog";
+import { addFavorite, listFavorites } from "../src/repos/favorites";
+import { createRequest } from "../src/repos/requests";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIntegration = databaseUrl ? describe : describe.skip;
@@ -159,6 +162,96 @@ describeIntegration("admin catalog persistence", () => {
     const published = await publishCard(env, created.id, updated.detail.version);
     expect(published.publicationStatus).toBe("published");
     expect(published.reviewIssues).toEqual([]);
+  });
+
+  test("публичная видимость едина для каталога, избранного и заявок", async () => {
+    const visibilityCategoryId = crypto.randomUUID();
+    const visibilityUserId = crypto.randomUUID();
+    const visibilityTelegramId = 8_100_000_000 + Math.floor(Math.random() * 100_000_000);
+    const prefix = `[visibility] ${crypto.randomUUID()}`;
+    const createVisibilityCard = (suffix: string) => createCard(env, {
+      type: "product",
+      categoryId: visibilityCategoryId,
+      title: `${prefix} ${suffix}`,
+      description: "Полное описание для проверки видимости",
+      priceType: "fixed",
+      priceAmount: 1000,
+      priceUnit: "за тонну",
+      priceReason: null,
+      location: null,
+      territoryCode: "abay_region",
+      ownershipForm: "peasant_farm",
+      productLocation: "elevator",
+      productLocationDetail: null,
+      serviceAllKazakhstan: false,
+      serviceTerritoryCodes: [],
+      availability: null,
+      sortOrder: 0,
+      images: [{ storagePath: `cards/${crypto.randomUUID()}.jpg`, sortOrder: 0 }],
+      specs: [],
+    });
+
+    await sql`
+      insert into categories (id, type, name, sort_order, is_commodity, required_specs)
+      values (${visibilityCategoryId}, 'product', ${prefix}, 0, false, ${[]})
+    `;
+    await sql`
+      insert into users (id, telegram_id, telegram_first_name)
+      values (${visibilityUserId}, ${visibilityTelegramId}, ${prefix})
+    `;
+
+    try {
+      const draft = await createVisibilityCard("draft");
+      const activeDraft = await createVisibilityCard("published");
+      const published = await publishCard(env, activeDraft.id, activeDraft.version);
+      const archivedDraft = await createVisibilityCard("archived");
+      const archived = await publishCard(env, archivedDraft.id, archivedDraft.version);
+      await sql`update cards set archived_at = now() where id = ${archived.id}`;
+
+      const catalog = await listCards(env, {
+        type: "product",
+        search: prefix,
+        limit: 20,
+        offset: 0,
+        region: "all_regions",
+        sort: "default",
+        productLocation: "all",
+      }, db);
+      expect(catalog.items.map((card) => card.id)).toEqual([published.id]);
+      expect(await getCardById(env, published.id, db)).toBeDefined();
+      expect(await getCardById(env, draft.id, db)).toBeUndefined();
+      expect(await getCardById(env, archived.id, db)).toBeUndefined();
+
+      const categories = await listCategories(env, "product", db, true);
+      expect(categories.find((category) => category.id === visibilityCategoryId)?.cardCount).toBe(1);
+
+      await addFavorite(env, visibilityUserId, published.id, db);
+      await sql`
+        insert into favorites (user_id, card_id)
+        values (${visibilityUserId}, ${archived.id})
+        on conflict do nothing
+      `;
+      await expect(addFavorite(env, visibilityUserId, draft.id, db)).rejects.toMatchObject({ status: 404 });
+      await expect(addFavorite(env, visibilityUserId, archived.id, db)).rejects.toMatchObject({ status: 404 });
+      expect((await listFavorites(env, visibilityUserId, db)).map((card) => card.id)).toEqual([published.id]);
+
+      const requestFor = (cardId: string) => createRequest(env, visibilityUserId, {
+        source: "card",
+        cardId,
+        clientRequestId: crypto.randomUUID(),
+        contactName: "Тестовый покупатель",
+        contactPhone: "+77011234567",
+      }, crypto.randomUUID(), null, db);
+      expect((await requestFor(published.id)).created).toBe(true);
+      await expect(requestFor(draft.id)).rejects.toMatchObject({ status: 409 });
+      await expect(requestFor(archived.id)).rejects.toMatchObject({ status: 409 });
+    } finally {
+      await sql`delete from requests where user_id = ${visibilityUserId}`;
+      await sql`delete from favorites where user_id = ${visibilityUserId}`;
+      await sql`delete from cards where category_id = ${visibilityCategoryId}`;
+      await sql`delete from categories where id = ${visibilityCategoryId}`;
+      await sql`delete from users where id = ${visibilityUserId}`;
+    }
   });
 
   test("сохраняет audit metadata как JSON object", async () => {

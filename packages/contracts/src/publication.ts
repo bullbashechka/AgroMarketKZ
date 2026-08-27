@@ -26,41 +26,66 @@ export interface PublicationCandidate {
   requiredSpecs: string[];
 }
 
+export type PublicationIssueCode =
+  | "description_required"
+  | "image_required"
+  | "product_territory_required"
+  | "product_territory_invalid"
+  | "ownership_form_required"
+  | "product_location_required"
+  | "commodity_group_required"
+  | "volume_required"
+  | "product_price_required"
+  | "service_territory_required"
+  | "legacy_location_required"
+  | "availability_required"
+  | "price_unit_required"
+  | "price_amount_required"
+  | "price_reason_required"
+  | "required_spec_missing";
+
+export interface PublicationIssue {
+  code: PublicationIssueCode;
+  path: string;
+  message: string;
+}
+
 const normalizedKey = (value: string) => value.trim().toLocaleLowerCase("ru");
 
-/** Единая проверка качества для публикации, повторного открытия и live-чек-листа. */
-export function getPublicationIssues(candidate: PublicationCandidate): string[] {
-  const issues: string[] = [];
-  if (!candidate.description.trim()) issues.push("Добавьте описание");
-  if (candidate.imageCount < 1) issues.push("Добавьте хотя бы одно фото");
+/** Canonical pure publication policy for schema, backend and live UI adapters. */
+export function getPublicationPolicyIssues(candidate: PublicationCandidate): PublicationIssue[] {
+  const issues: PublicationIssue[] = [];
+  const add = (code: PublicationIssueCode, path: string, message: string) => issues.push({ code, path, message });
+  if (!candidate.description.trim()) add("description_required", "description", "Добавьте описание");
+  if (candidate.imageCount < 1) add("image_required", "images", "Добавьте хотя бы одно фото");
   if (candidate.type === "product") {
     const isLegacyProduct = candidate.categoryIsCommodity === undefined;
-    if (!candidate.territoryCode) issues.push(isLegacyProduct ? "Выберите регион" : "Выберите область");
-    else if (!productTerritoryCodes.includes(candidate.territoryCode as typeof productTerritoryCodes[number])) issues.push("Выберите область");
-    if (!candidate.ownershipForm) issues.push("Выберите форму собственности");
-    if (!candidate.productLocation) issues.push("Выберите местонахождение");
+    if (!candidate.territoryCode) add("product_territory_required", "territoryCode", isLegacyProduct ? "Выберите регион" : "Выберите область");
+    else if (!productTerritoryCodes.includes(candidate.territoryCode as typeof productTerritoryCodes[number])) add("product_territory_invalid", "territoryCode", "Выберите область");
+    if (!candidate.ownershipForm) add("ownership_form_required", "ownershipForm", "Выберите форму собственности");
+    if (!candidate.productLocation) add("product_location_required", "productLocation", "Выберите местонахождение");
     // Старые callers без categoryIsCommodity используют legacy-правила. Backend
     // передаёт флаг категории явно, поэтому новые карточки проверяются строго.
     const isCommodity = candidate.categoryIsCommodity === true;
     if (isCommodity) {
-      if (!candidate.commodityGroup) issues.push("Выберите группу продукции");
-      if (candidate.volumeTonnes == null) issues.push("Укажите объём в тоннах");
+      if (!candidate.commodityGroup) add("commodity_group_required", "commodityGroup", "Выберите группу продукции");
+      if (candidate.volumeTonnes == null) add("volume_required", "volumeTonnes", "Укажите объём в тоннах");
     }
-    if (candidate.priceType === "on_request" && !isLegacyProduct) issues.push("У товара всегда должна быть цена");
+    if (candidate.priceType === "on_request" && !isLegacyProduct) add("product_price_required", "priceType", "У товара всегда должна быть цена");
   } else if (!candidate.serviceAllKazakhstan && candidate.serviceTerritoryCount === 0) {
-    issues.push("Выберите хотя бы один регион или весь Казахстан");
+    add("service_territory_required", "serviceTerritoryCodes", "Выберите хотя бы один регион или весь Казахстан");
   } else if (!candidate.type && !candidate.location?.trim()) {
-    issues.push("Укажите регион или территорию");
+    add("legacy_location_required", "location", "Укажите регион или территорию");
   }
   if (candidate.type === "service" || !candidate.type) {
-    if (!candidate.availability?.trim()) issues.push("Укажите наличие или срок исполнения");
+    if (!candidate.availability?.trim()) add("availability_required", "availability", "Укажите наличие или срок исполнения");
   }
-  if (!candidate.priceUnit?.trim()) issues.push("Укажите единицу цены");
+  if (!candidate.priceUnit?.trim()) add("price_unit_required", "priceUnit", "Укажите единицу цены");
   if (candidate.priceType !== "on_request" && candidate.priceAmount == null) {
-    issues.push("Укажите цену");
+    add("price_amount_required", "priceAmount", "Укажите цену");
   }
   if (candidate.type !== "product" && candidate.priceType === "on_request" && !candidate.priceReason?.trim()) {
-    issues.push("Объясните, от чего зависит цена");
+    add("price_reason_required", "priceReason", "Объясните, от чего зависит цена");
   }
 
   const filled = new Set(
@@ -70,10 +95,15 @@ export function getPublicationIssues(candidate: PublicationCandidate): string[] 
   );
   for (const key of candidate.requiredSpecs) {
     if (!filled.has(normalizedKey(key))) {
-      issues.push(`Заполните характеристику «${key.trim()}»`);
+      add("required_spec_missing", "specs", `Заполните характеристику «${key.trim()}»`);
     }
   }
   return issues;
+}
+
+/** Compatibility projection for existing presentation DTOs. Do not use for decisions. */
+export function getPublicationIssues(candidate: PublicationCandidate): string[] {
+  return getPublicationPolicyIssues(candidate).map((issue) => issue.message);
 }
 
 export function getPublicationStatus(

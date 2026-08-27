@@ -9,6 +9,7 @@ import { cardListQuery, categoryListQuery } from "../src/catalog";
 import { VOLUME_MAX, VOLUME_MIN } from "../src/constants";
 import { volumeTonnesSchema } from "../src/commodity";
 import { updateProfileInput } from "../src/profile";
+import { getPublicationPolicyIssues } from "../src/publication";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 const oneImage = [{ storagePath: `cards/${UUID}.jpg` }];
@@ -34,6 +35,28 @@ const baseCard = {
   availability: "В наличии",
   images: oneImage,
 };
+
+function publicationPolicyPaths(input: unknown): string[] {
+  const card = createCardInput.parse(input);
+  return getPublicationPolicyIssues({
+    type: card.type,
+    description: card.description,
+    priceType: card.priceType,
+    priceAmount: card.priceAmount ?? null,
+    priceUnit: card.priceUnit ?? null,
+    priceReason: card.priceReason ?? null,
+    territoryCode: card.territoryCode ?? null,
+    ownershipForm: card.ownershipForm ?? null,
+    productLocation: card.productLocation ?? null,
+    categoryIsCommodity: false,
+    serviceAllKazakhstan: card.serviceAllKazakhstan,
+    serviceTerritoryCount: card.serviceTerritoryCodes.length,
+    availability: card.availability ?? null,
+    imageCount: card.images.length,
+    specs: card.specs,
+    requiredSpecs: [],
+  }).map((issue) => issue.path);
+}
 
 describe("createCardInput — цена", () => {
   test("fixed с положительной ценой валиден", () => {
@@ -82,6 +105,45 @@ describe("createCardInput — цена", () => {
         priceType: "fixed",
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("publishCardInput — единая policy", () => {
+  const baseService = {
+    type: "service" as const,
+    categoryId: UUID,
+    title: "Перевозка зерна",
+    description: "Перевозка по регионам Казахстана",
+    priceType: "on_request" as const,
+    priceAmount: null,
+    priceUnit: "за рейс",
+    priceReason: "Зависит от маршрута",
+    availability: "По согласованию",
+    images: oneImage,
+  };
+
+  test("Zod совпадает с canonical policy по допустимости и путям product/service вариантов", () => {
+    const cases = [
+      { ...baseCard, priceType: "fixed" as const, priceAmount: 120_000 },
+      { ...baseCard, description: " ", priceType: "fixed" as const, priceAmount: 120_000 },
+      { ...baseCard, images: [], priceType: "fixed" as const, priceAmount: 120_000 },
+      { ...baseCard, priceType: "on_request" as const, priceAmount: null, priceReason: "По договорённости" },
+      { ...baseService, serviceAllKazakhstan: true, serviceTerritoryCodes: [] },
+      { ...baseService, serviceAllKazakhstan: false, serviceTerritoryCodes: [] },
+      { ...baseService, serviceAllKazakhstan: true, serviceTerritoryCodes: [], priceReason: null },
+    ];
+
+    for (const input of cases) {
+      const parsed = publishCardInput.safeParse(input);
+      const policyPaths = publicationPolicyPaths(input);
+      expect(parsed.success).toBe(policyPaths.length === 0);
+      if (!parsed.success) {
+        expect(parsed.error.issues
+          .filter((issue) => issue.code === "custom")
+          .map((issue) => String(issue.path[0])))
+          .toEqual(policyPaths);
+      }
+    }
   });
 });
 

@@ -28,6 +28,7 @@ import {
   territoryCodeSchema,
   territorySchema
 } from "./territory";
+import { getPublicationPolicyIssues } from "./publication";
 
 // --- Изображения ---
 
@@ -213,34 +214,26 @@ export type CreateCardInput = z.infer<typeof createCardInput>;
 
 /** Полная клиентская проверка перед публикацией; требования категории проверяет backend. */
 export const publishCardInput = createCardInput.superRefine((input, ctx) => {
-  if (!input.description.trim()) {
-    ctx.addIssue({ code: "custom", path: ["description"], message: "Добавьте описание" });
-  }
-  if (input.images.length < MIN_IMAGES) {
-    ctx.addIssue({ code: "custom", path: ["images"], message: "Добавьте хотя бы одно фото" });
-  }
-  if (input.type === "product") {
-    if (!input.territoryCode) ctx.addIssue({ code: "custom", path: ["territoryCode"], message: "Выберите регион" });
-    if (!input.ownershipForm) ctx.addIssue({ code: "custom", path: ["ownershipForm"], message: "Выберите форму собственности" });
-    if (!input.productLocation) ctx.addIssue({ code: "custom", path: ["productLocation"], message: "Выберите местонахождение" });
-  } else if (!input.serviceAllKazakhstan && input.serviceTerritoryCodes.length === 0) {
-    ctx.addIssue({ code: "custom", path: ["serviceTerritoryCodes"], message: "Выберите хотя бы один регион или весь Казахстан" });
-  }
-  if (input.type === "service" && !input.availability) {
-    ctx.addIssue({ code: "custom", path: ["availability"], message: "Укажите наличие или срок исполнения" });
-  }
-  if (input.type === "product" && input.priceType === "on_request") {
-    ctx.addIssue({ code: "custom", path: ["priceType"], message: "У товара всегда должна быть цена" });
-  }
-  if (!input.priceUnit) {
-    ctx.addIssue({ code: "custom", path: ["priceUnit"], message: "Укажите единицу цены" });
-  }
-  if (input.priceType !== "on_request" && input.priceAmount == null) {
-    ctx.addIssue({ code: "custom", path: ["priceAmount"], message: "Укажите цену" });
-  }
-  if (input.type === "service" && input.priceType === "on_request" && !input.priceReason) {
-    ctx.addIssue({ code: "custom", path: ["priceReason"], message: "Объясните, от чего зависит цена" });
-  }
+  for (const issue of getPublicationPolicyIssues({
+    type: input.type,
+    description: input.description,
+    priceType: input.priceType,
+    priceAmount: input.priceAmount ?? null,
+    priceUnit: input.priceUnit ?? null,
+    priceReason: input.priceReason ?? null,
+    territoryCode: input.territoryCode ?? null,
+    ownershipForm: input.ownershipForm ?? null,
+    productLocation: input.productLocation ?? null,
+    // Contracts do not know the DB category, but product price semantics are
+    // category-independent and must not fall back to legacy permissiveness.
+    categoryIsCommodity: false,
+    serviceAllKazakhstan: input.serviceAllKazakhstan,
+    serviceTerritoryCount: input.serviceTerritoryCodes.length,
+    availability: input.availability ?? null,
+    imageCount: input.images.length,
+    specs: input.specs,
+    requiredSpecs: [],
+  })) ctx.addIssue({ code: "custom", path: [issue.path], message: issue.message });
 });
 
 export type PublishCardInput = z.infer<typeof publishCardInput>;

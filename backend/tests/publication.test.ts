@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getPublicationIssues, getPublicationStatus } from "@agromarket/contracts";
+import { getPublicationIssues, getPublicationPolicyIssues, getPublicationStatus } from "@agromarket/contracts";
 
 const complete = {
   description: "Подробное описание",
@@ -18,6 +18,15 @@ const complete = {
 };
 
 describe("getPublicationIssues", () => {
+  test("возвращает stable code/path/message, а legacy adapter только проектирует сообщения", () => {
+    const candidate = { ...complete, description: " ", imageCount: 0 };
+    const structured = getPublicationPolicyIssues(candidate);
+    expect(structured).toEqual(expect.arrayContaining([
+      { code: "description_required", path: "description", message: "Добавьте описание" },
+      { code: "image_required", path: "images", message: "Добавьте хотя бы одно фото" },
+    ]));
+    expect(getPublicationIssues(candidate)).toEqual(structured.map((issue) => issue.message));
+  });
   test("полная карточка проходит проверку, обязательные ключи сравниваются без регистра и пробелов", () => {
     expect(getPublicationIssues(complete)).toEqual([]);
   });

@@ -11,7 +11,11 @@ import type {
   UpdateCardInput,
   UpdateCategoryInput
 } from "@agromarket/contracts";
-import { getPublicationIssues, getPublicationStatus } from "@agromarket/contracts";
+import {
+  getPublicationPolicyIssues,
+  getPublicationStatus,
+  type PublicationCandidate,
+} from "@agromarket/contracts";
 import type { TransactionSql } from "postgres";
 import type { Database } from "../db";
 import type { AppEnv } from "../env";
@@ -132,6 +136,41 @@ function validateCategoryFields(
   if (!isCommodity && hasCommodityFields) {
     throw new HttpError(400, "Выбранная категория не использует группу и объём товара");
   }
+}
+
+type PublicationContent = Pick<PublicationCandidate,
+  | "type"
+  | "description"
+  | "priceType"
+  | "priceAmount"
+  | "priceUnit"
+  | "priceReason"
+  | "territoryCode"
+  | "ownershipForm"
+  | "productLocation"
+  | "commodityGroup"
+  | "volumeTonnes"
+  | "serviceAllKazakhstan"
+  | "availability"
+>;
+
+type PublicationContext = Pick<PublicationCandidate,
+  | "categoryIsCommodity"
+  | "serviceTerritoryCount"
+  | "imageCount"
+  | "specs"
+  | "requiredSpecs"
+>;
+
+/**
+ * Единственная server-side сборка кандидата публикации. Разные SQL/read-модели
+ * адаптируются к ней, но не принимают собственных решений о готовности карточки.
+ */
+function getPublicationIssueMessages(
+  content: PublicationContent,
+  context: PublicationContext,
+): string[] {
+  return getPublicationPolicyIssues({ ...content, ...context }).map((issue) => issue.message);
 }
 
 /**
@@ -436,7 +475,7 @@ interface AdminCardListRow extends CardListRow {
 }
 
 function toAdminCardListItem(row: AdminCardListRow, env: AppEnv): AdminCardListItem {
-  const reviewIssues = getPublicationIssues({
+  const reviewIssues = getPublicationIssueMessages({
     type: row.type,
     description: row.description,
     priceType: row.price_type,
@@ -446,12 +485,13 @@ function toAdminCardListItem(row: AdminCardListRow, env: AppEnv): AdminCardListI
     territoryCode: row.territory_code,
     ownershipForm: row.ownership_form,
     productLocation: row.product_location,
-    categoryIsCommodity: row.is_commodity,
     commodityGroup: row.commodity_group,
     volumeTonnes: row.volume_tonnes === null ? null : Number(row.volume_tonnes),
     serviceAllKazakhstan: row.service_all_kazakhstan,
-    serviceTerritoryCount: row.service_territory_count,
     availability: row.availability,
+  }, {
+    categoryIsCommodity: row.is_commodity,
+    serviceTerritoryCount: row.service_territory_count,
     imageCount: row.image_count,
     specs: row.spec_keys.map((key) => ({ key, value: "filled" })),
     requiredSpecs: row.required_specs,
@@ -531,7 +571,7 @@ function toAdminCardDetailWithRequiredSpecs(
   requiredSpecs: string[],
   categoryIsCommodity: boolean,
 ): AdminCardDetail {
-  const reviewIssues = getPublicationIssues({
+  const reviewIssues = getPublicationIssueMessages({
     type: detail.type,
     description: detail.description,
     priceType: detail.priceType,
@@ -541,12 +581,13 @@ function toAdminCardDetailWithRequiredSpecs(
     territoryCode: detail.territory?.code ?? null,
     ownershipForm: detail.ownershipForm,
     productLocation: detail.productLocation,
-    categoryIsCommodity,
     commodityGroup: detail.commodityGroup,
     volumeTonnes: detail.volumeTonnes,
     serviceAllKazakhstan: detail.serviceAllKazakhstan,
-    serviceTerritoryCount: detail.serviceTerritories.length,
     availability: detail.availability,
+  }, {
+    categoryIsCommodity,
+    serviceTerritoryCount: detail.serviceTerritories.length,
     imageCount: detail.images.length,
     specs: detail.specs,
     requiredSpecs,
@@ -867,7 +908,7 @@ export async function updateCard(
       if (!category) throw new HttpError(400, "Категория не подходит по типу карточки");
       validateCategoryFields(normalizedInput, category.is_commodity);
       if (existingCard.published_at !== null && existingCard.archived_at === null) {
-        const issues = getPublicationIssues({
+        const issues = getPublicationIssueMessages({
           type: normalizedInput.type,
           description: normalizedInput.description,
           priceType: normalizedInput.priceType,
@@ -877,15 +918,16 @@ export async function updateCard(
           territoryCode: normalizedInput.territoryCode ?? null,
           ownershipForm: normalizedInput.ownershipForm ?? null,
           productLocation: normalizedInput.productLocation ?? null,
-          categoryIsCommodity: category?.is_commodity ?? false,
           commodityGroup: normalizedInput.commodityGroup ?? null,
           volumeTonnes: normalizedInput.volumeTonnes ?? null,
           serviceAllKazakhstan: normalizedInput.serviceAllKazakhstan,
-          serviceTerritoryCount: normalizedInput.serviceTerritoryCodes.length,
           availability: normalizedInput.type === "service" ? normalizedInput.availability ?? null : null,
+        }, {
+          categoryIsCommodity: category.is_commodity,
+          serviceTerritoryCount: normalizedInput.serviceTerritoryCodes.length,
           imageCount: normalizedInput.images.length,
           specs: normalizedInput.specs,
-          requiredSpecs: category?.required_specs ?? [],
+          requiredSpecs: category.required_specs,
         });
         if (issues.length > 0) {
           throw new HttpError(400, `Сначала скройте карточку или исправьте: ${issues.join("; ")}`);
@@ -1111,7 +1153,7 @@ export async function publishCard(
     const serviceTerritories = await tx<{ count: string }[]>`
       select count(*) from card_service_territories where card_id = ${id}
     `;
-    const issues = getPublicationIssues({
+    const issues = getPublicationIssueMessages({
       type: card.type,
       description: card.description,
       priceType: card.price_type,
@@ -1121,12 +1163,13 @@ export async function publishCard(
       territoryCode: card.territory_code,
       ownershipForm: card.ownership_form,
       productLocation: card.product_location,
-      categoryIsCommodity: category.is_commodity,
       commodityGroup: card.commodity_group,
       volumeTonnes: volumeTonnes ?? null,
       serviceAllKazakhstan: card.service_all_kazakhstan,
-      serviceTerritoryCount: Number(serviceTerritories[0]?.count ?? 0),
       availability: card.availability,
+    }, {
+      categoryIsCommodity: category.is_commodity,
+      serviceTerritoryCount: Number(serviceTerritories[0]?.count ?? 0),
       imageCount: Number(images[0]?.count ?? 0),
       specs,
       requiredSpecs: category.required_specs,

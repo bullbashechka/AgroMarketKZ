@@ -1,5 +1,5 @@
 import {
-  getPublicationIssues,
+  getPublicationPolicyIssues,
   type CatalogType,
   type PriceType,
   type ProductLocation,
@@ -48,7 +48,7 @@ export function getLivePublicationIssues(input: LivePublicationInput): string[] 
     issues.push("Выберите доступную категорию");
   }
 
-  const contentIssues = getPublicationIssues({
+  const contentIssues = getPublicationPolicyIssues({
     type: input.type,
     description: input.description,
     priceType: input.priceType,
@@ -68,7 +68,7 @@ export function getLivePublicationIssues(input: LivePublicationInput): string[] 
     specs: input.specs,
     requiredSpecs: input.categoryState === "ready" && input.categoryFound ? input.requiredSpecs : [],
   });
-  issues.push(...contentIssues.filter((issue) => issue !== "Добавьте хотя бы одно фото"));
+  issues.push(...contentIssues.filter((issue) => issue.code !== "image_required").map((issue) => issue.message));
 
   if (input.imagePending) {
     issues.unshift("Дождитесь завершения загрузки фото");
