@@ -46,12 +46,43 @@ export function formatApiError(error: unknown, fallback: string): string {
   return `${error.message} (код обращения: ${error.requestId})`;
 }
 
-interface RequestOptions {
+export interface RequestOptions {
   /** Profile bootstrap owns its 401 transition and must not invalidate itself. */
   notifyUnauthorized?: boolean;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+interface ResponseSchema<T> {
+  safeParse(input: unknown): { success: true; data: T } | { success: false };
+}
+
+function apiErrorData(payload: unknown): {
+  error?: string;
+  retryAfterSeconds?: number;
+  code?: string;
+  requestId?: string;
+  retryable?: boolean;
+} {
+  if (!payload || typeof payload !== "object") return {};
+  const data = payload as Record<string, unknown>;
+  return {
+    error: typeof data.error === "string" ? data.error : undefined,
+    retryAfterSeconds: typeof data.retryAfterSeconds === "number"
+      && Number.isFinite(data.retryAfterSeconds)
+      && data.retryAfterSeconds > 0
+      ? data.retryAfterSeconds
+      : undefined,
+    code: typeof data.code === "string" ? data.code : undefined,
+    requestId: typeof data.requestId === "string" ? data.requestId : undefined,
+    retryable: data.retryable === true,
+  };
+}
+
+async function request(
+  method: string,
+  path: string,
+  body?: unknown,
+  options: RequestOptions = {},
+): Promise<unknown> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
@@ -77,25 +108,44 @@ async function request<T>(method: string, path: string, body?: unknown, options:
   const payload: unknown = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message =
-      (payload as { error?: string } | null)?.error ?? "Не удалось выполнить запрос";
+    const data = apiErrorData(payload);
     throw new ApiError(
       response.status,
-      message,
-      (payload as { retryAfterSeconds?: number } | null)?.retryAfterSeconds,
-      (payload as { code?: string } | null)?.code,
-      (payload as { requestId?: string } | null)?.requestId
+      data.error ?? "Не удалось выполнить запрос",
+      data.retryAfterSeconds,
+      data.code,
+      data.requestId
         ?? response.headers.get("X-Request-ID")
         ?? undefined,
-      (payload as { retryable?: boolean } | null)?.retryable === true,
+      data.retryable === true,
     );
   }
 
-  return payload as T;
+  return payload;
 }
 
-export const apiGet = <T>(path: string, options?: RequestOptions) => request<T>("GET", path, undefined, options);
-export const apiPost = <T>(path: string, body?: unknown) => request<T>("POST", path, body);
-export const apiPut = <T>(path: string, body?: unknown) => request<T>("PUT", path, body);
-export const apiPatch = <T>(path: string, body?: unknown) => request<T>("PATCH", path, body);
-export const apiDelete = <T = null>(path: string, body?: unknown) => request<T>("DELETE", path, body);
+function parseResponse<T>(payload: unknown, schema: ResponseSchema<T>): T {
+  const parsed = schema.safeParse(payload);
+  if (parsed.success) return parsed.data;
+  throw new ApiError(502, "Сервер вернул некорректные данные. Повторите попытку позже.", undefined, "INVALID_API_RESPONSE");
+}
+
+/** Runtime-validated response for critical API boundaries. */
+export async function apiGetParsed<T>(path: string, schema: ResponseSchema<T>, options?: RequestOptions): Promise<T> {
+  return parseResponse(await request("GET", path, undefined, options), schema);
+}
+
+/** Runtime-validated mutation response for critical API boundaries. */
+export async function apiPostParsed<T>(path: string, body: unknown, schema: ResponseSchema<T>): Promise<T> {
+  return parseResponse(await request("POST", path, body), schema);
+}
+
+export async function apiPutParsed<T>(path: string, body: unknown, schema: ResponseSchema<T>): Promise<T> {
+  return parseResponse(await request("PUT", path, body), schema);
+}
+
+export const apiGet = <T>(path: string, options?: RequestOptions) => request("GET", path, undefined, options) as Promise<T>;
+export const apiPost = <T>(path: string, body?: unknown) => request("POST", path, body) as Promise<T>;
+export const apiPut = <T>(path: string, body?: unknown) => request("PUT", path, body) as Promise<T>;
+export const apiPatch = <T>(path: string, body?: unknown) => request("PATCH", path, body) as Promise<T>;
+export const apiDelete = <T = null>(path: string, body?: unknown) => request("DELETE", path, body) as Promise<T>;

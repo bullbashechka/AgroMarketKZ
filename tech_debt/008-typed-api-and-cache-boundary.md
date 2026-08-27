@@ -4,6 +4,7 @@
 **Этап:** 1  
 **Оценка:** M  
 **Зависимости:** TD-003A для proxy boundary.
+**Статус:** выполнено 27.08.2026 (два независимых review-прохода; финальный P1 recovery исправлен и покрыт тестом).
 
 ## Проблема
 
@@ -37,3 +38,14 @@ bun run build
 ## Вероятные файлы
 
 `packages/contracts/src/*`, `webapp/src/lib/api.ts`, query modules/screens и их tests.
+
+## Итоговое решение
+
+Для auth/profile и admin catalog-card critical slice клиент теперь вызывает
+`safeParse` существующих contract schemas на response boundary. Некорректный
+успешный payload становится безопасной `INVALID_API_RESPONSE`, а auth recovery
+не использует retained cached profile после failed refetch. Catalog query keys и
+invalidation rules живут рядом с query options: lifecycle mutation инвалидирует
+все изменяемые публичные и admin lists, включая favorites и listing categories.
+Тесты покрывают additive payload, malformed success/error response, cached
+profile recovery и набор invalidate keys.

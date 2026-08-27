@@ -1,6 +1,7 @@
 import {
   catalogTypeLabels,
   commodityGroupLabels,
+  adminCardDetailSchema,
   createCardInput,
   publishCardInput,
   DESCRIPTION_MAX,
@@ -29,7 +30,15 @@ import { BottomSheet } from "../../components/BottomSheet";
 import { CardDetailsView } from "../../components/CardDetailsView";
 import { Screen } from "../../components/Screen";
 import { SkeletonList } from "../../components/Skeleton";
-import { ApiError, apiDelete, apiGet, apiPost, apiPut, formatApiError, isAmbiguousMutationError } from "../../lib/api";
+import {
+  ApiError,
+  apiDelete,
+  apiGetParsed,
+  apiPostParsed,
+  apiPutParsed,
+  formatApiError,
+  isAmbiguousMutationError,
+} from "../../lib/api";
 import { PublishAfterSaveError } from "../../lib/cardMutation";
 import { clearCardDraft, loadCardDraft, saveCardDraft, type CardDraft } from "../../lib/cardDraft";
 import {
@@ -45,7 +54,13 @@ import {
 } from "../../lib/cardEditorModel";
 import { zodFieldErrorsByPath } from "../../lib/formErrors";
 import { getLivePublicationIssues } from "../../lib/publicationChecklist";
-import { adminCardQueryOptions, adminCategoriesQueryOptions, territoriesQueryOptions } from "../../lib/queries";
+import {
+  adminCardQueryOptions,
+  adminCatalogQueryKeys,
+  adminCategoriesQueryOptions,
+  invalidateCatalogAfterAdminCardMutation,
+  territoriesQueryOptions,
+} from "../../lib/queries";
 import type { AdminTypeSearch } from "../../lib/searchParams";
 import { hapticNotify } from "../../lib/telegram";
 import { useDebouncedValue } from "../../lib/useDebouncedValue";
@@ -227,11 +242,7 @@ function CardEditorForm({
   }, [selectedCategory?.requiredSpecs]);
 
   function invalidateCatalogQueries(cardId?: string) {
-    qc.invalidateQueries({ queryKey: ["admin-cards"] });
-    qc.invalidateQueries({ queryKey: ["admin-categories"] });
-    qc.invalidateQueries({ queryKey: ["cards"] });
-    qc.invalidateQueries({ queryKey: ["categories"] });
-    if (cardId) qc.invalidateQueries({ queryKey: ["card", cardId] });
+    invalidateCatalogAfterAdminCardMutation(qc, cardId);
   }
 
   function finishSavedCard(card: AdminCardDetail) {
@@ -249,7 +260,7 @@ function CardEditorForm({
   async function refreshSavedCard(card: AdminCardDetail): Promise<AdminCardDetail> {
     cacheSavedCard(card);
     try {
-      const current = await apiGet<AdminCardDetail>(`/admin/cards/${card.id}`);
+      const current = await apiGetParsed<AdminCardDetail>(`/admin/cards/${card.id}`, adminCardDetailSchema);
       cacheSavedCard(current);
       return current;
     } catch {
@@ -260,7 +271,7 @@ function CardEditorForm({
   /** После сетевой ошибки перечитываем карточку напрямую, минуя staleTime React Query. */
   async function reconcileCardMutation(cardId: string): Promise<"exists" | "deleted" | "unknown"> {
     try {
-      const card = await apiGet<AdminCardDetail>(`/admin/cards/${cardId}`);
+      const card = await apiGetParsed<AdminCardDetail>(`/admin/cards/${cardId}`, adminCardDetailSchema);
       qc.setQueryData(adminCardQueryOptions(cardId).queryKey, card);
       invalidateCatalogQueries(cardId);
       return "exists";
@@ -279,15 +290,16 @@ function CardEditorForm({
     if (!initial || !input.mutationId) return "not_found";
     let current: AdminCardDetail;
     try {
-      current = await apiGet<AdminCardDetail>(
+      current = await apiGetParsed<AdminCardDetail>(
         `/admin/cards/${cardId}?mutationId=${encodeURIComponent(input.mutationId)}`,
+        adminCardDetailSchema,
       );
     } catch (error) {
       if (error instanceof ApiError && error.code === "CARD_UPDATE_MUTATION_NOT_FOUND") return "not_found";
       if (error instanceof ApiError && error.code === "CARD_CHANGED_AFTER_REPLAY") {
         if (!publish) return "changed";
         try {
-          const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${cardId}`);
+          const afterPublish = await apiGetParsed<AdminCardDetail>(`/admin/cards/${cardId}`, adminCardDetailSchema);
           if (afterPublish.publicationStatus === "published") {
             finishSavedCard(afterPublish);
             return "committed";
@@ -305,9 +317,9 @@ function CardEditorForm({
     }
 
     try {
-      const published = await apiPost<AdminCardDetail>(`/admin/cards/${cardId}/publish`, {
+      const published = await apiPostParsed<AdminCardDetail>(`/admin/cards/${cardId}/publish`, {
         expectedVersion: current.version,
-      });
+      }, adminCardDetailSchema);
       finishSavedCard(published);
       return "committed";
     } catch (error) {
@@ -316,7 +328,7 @@ function CardEditorForm({
         return "rejected";
       }
       try {
-        const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${cardId}`);
+        const afterPublish = await apiGetParsed<AdminCardDetail>(`/admin/cards/${cardId}`, adminCardDetailSchema);
         if (afterPublish.publicationStatus === "published") {
           finishSavedCard(afterPublish);
           return "committed";
@@ -336,7 +348,7 @@ function CardEditorForm({
     if (mode !== "create" || !createClientRequestId) return "not_found";
     let current: AdminCardDetail;
     try {
-      current = await apiPost<AdminCardDetail>("/admin/cards", input);
+      current = await apiPostParsed<AdminCardDetail>("/admin/cards", input, adminCardDetailSchema);
     } catch (error) {
       if (error instanceof ApiError && error.code === "CARD_CREATE_REQUEST_REUSED") return "changed";
       return isAmbiguousMutationError(error) ? "unknown" : "rejected";
@@ -347,9 +359,9 @@ function CardEditorForm({
     }
 
     try {
-      const published = await apiPost<AdminCardDetail>(`/admin/cards/${current.id}/publish`, {
+      const published = await apiPostParsed<AdminCardDetail>(`/admin/cards/${current.id}/publish`, {
         expectedVersion: current.version,
-      });
+      }, adminCardDetailSchema);
       finishSavedCard(published);
       return "committed";
     } catch (error) {
@@ -358,7 +370,7 @@ function CardEditorForm({
         return "rejected";
       }
       try {
-        const afterPublish = await apiGet<AdminCardDetail>(`/admin/cards/${current.id}`);
+        const afterPublish = await apiGetParsed<AdminCardDetail>(`/admin/cards/${current.id}`, adminCardDetailSchema);
         if (afterPublish.publicationStatus === "published") {
           finishSavedCard(afterPublish);
           return "committed";
@@ -422,11 +434,15 @@ function CardEditorForm({
       publish: boolean;
     }) => {
       const saved = mode === "edit" && initial
-        ? await apiPut<AdminCardDetail>(`/admin/cards/${initial.id}`, { ...input, expectedVersion: initial.version })
-        : await apiPost<AdminCardDetail>("/admin/cards", input);
+        ? await apiPutParsed<AdminCardDetail>(`/admin/cards/${initial.id}`, { ...input, expectedVersion: initial.version }, adminCardDetailSchema)
+        : await apiPostParsed<AdminCardDetail>("/admin/cards", input, adminCardDetailSchema);
       if (!publish) return saved;
       try {
-        return await apiPost<AdminCardDetail>(`/admin/cards/${saved.id}/publish`, { expectedVersion: saved.version });
+        return await apiPostParsed<AdminCardDetail>(
+          `/admin/cards/${saved.id}/publish`,
+          { expectedVersion: saved.version },
+          adminCardDetailSchema,
+        );
       } catch (error) {
         throw new PublishAfterSaveError(saved, error);
       }
@@ -436,7 +452,11 @@ function CardEditorForm({
   });
 
   const archiveMutation = useMutation({
-    mutationFn: () => apiPost<AdminCardDetail>(`/admin/cards/${initial!.id}/archive`, { expectedVersion: initial!.version }),
+    mutationFn: () => apiPostParsed<AdminCardDetail>(
+      `/admin/cards/${initial!.id}/archive`,
+      { expectedVersion: initial!.version },
+      adminCardDetailSchema,
+    ),
     onMutate: () => setErrors({}),
     onSuccess: (card) => {
       qc.setQueryData(adminCardQueryOptions(card.id).queryKey, card);
@@ -454,8 +474,8 @@ function CardEditorForm({
     mutationFn: () => apiDelete(`/admin/cards/${initial!.id}`, { expectedVersion: initial!.version }),
     onMutate: () => setErrors({}),
     onSuccess: () => {
-      qc.removeQueries({ queryKey: ["admin-card", initial!.id] });
-      invalidateCatalogQueries();
+      qc.removeQueries({ queryKey: adminCatalogQueryKeys.card(initial!.id) });
+      invalidateCatalogQueries(initial!.id);
       navigate({ href: "/admin/cards" });
     },
     onError: (error) => {
@@ -463,7 +483,7 @@ function CardEditorForm({
       setErrors({ form: formatApiError(error, "Не удалось удалить карточку") });
       void reconcileCardMutation(initial!.id).then((result) => {
         if (result === "deleted") {
-          qc.removeQueries({ queryKey: ["admin-card", initial!.id] });
+          qc.removeQueries({ queryKey: adminCatalogQueryKeys.card(initial!.id) });
           navigate({ href: "/admin/cards" });
         }
       });

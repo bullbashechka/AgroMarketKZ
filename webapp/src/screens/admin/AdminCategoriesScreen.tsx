@@ -15,7 +15,10 @@ import { ErrorState } from "../../components/ErrorState";
 import { Screen } from "../../components/Screen";
 import { SkeletonList } from "../../components/Skeleton";
 import { ApiError, apiDelete, apiPatch, apiPost } from "../../lib/api";
-import { adminCategoriesQueryOptions } from "../../lib/queries";
+import {
+  adminCategoriesQueryOptions,
+  invalidateCatalogAfterAdminCategoryMutation,
+} from "../../lib/queries";
 import type { AdminTypeSearch } from "../../lib/searchParams";
 
 const typeOptions: { value: CatalogType; label: string }[] = [
@@ -48,8 +51,7 @@ export function AdminCategoriesScreen() {
   }
 
   function invalidate() {
-    qc.invalidateQueries({ queryKey: ["admin-categories"] });
-    qc.invalidateQueries({ queryKey: ["categories"] });
+    invalidateCatalogAfterAdminCategoryMutation(qc);
   }
 
   const createMutation = useMutation({

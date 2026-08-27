@@ -30,7 +30,7 @@ function parseWidgetRedirect(search: string): WidgetLoginInput | null {
  * Redirect-вариант этого не требует.
  */
 export function LoginScreen() {
-  const { loginWidget, loginPending } = useAuth();
+  const { loginWidget, loginPending, loginError } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const handledRedirect = useRef(false);
 
@@ -82,6 +82,11 @@ export function LoginScreen() {
         )}
 
         {loginPending && <p className="muted">Входим…</p>}
+        {loginError && (
+          <p className="field-error" role="alert">
+            {loginError} Попробуйте войти через кнопку Telegram ещё раз.
+          </p>
+        )}
       </section>
     </main>
   );

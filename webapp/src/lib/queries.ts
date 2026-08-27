@@ -21,19 +21,56 @@ import type {
   RequestListResponse,
   RequestStatus
 } from "@agromarket/contracts";
-import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
-import { apiGet, ApiError } from "./api";
+import {
+  adminCardDetailSchema,
+  adminCardListResponse,
+  adminCategoryListResponse,
+} from "@agromarket/contracts";
+import { infiniteQueryOptions, keepPreviousData, queryOptions, type QueryClient } from "@tanstack/react-query";
+import { apiGet, apiGetParsed, ApiError } from "./api";
+
+export const catalogQueryKeys = {
+  categories: ["categories"] as const,
+  listingCategories: ["listing-categories"] as const,
+  cards: ["cards"] as const,
+  card: (cardId: string) => ["card", cardId] as const,
+  favorites: ["favorites"] as const,
+};
+
+export const adminCatalogQueryKeys = {
+  cards: ["admin-cards"] as const,
+  categories: ["admin-categories"] as const,
+  card: (cardId: string) => ["admin-card", cardId] as const,
+};
+
+/** Единственное правило invalidation после admin-card lifecycle mutation. */
+export function invalidateCatalogAfterAdminCardMutation(qc: QueryClient, cardId?: string): void {
+  qc.invalidateQueries({ queryKey: adminCatalogQueryKeys.cards });
+  qc.invalidateQueries({ queryKey: adminCatalogQueryKeys.categories });
+  qc.invalidateQueries({ queryKey: catalogQueryKeys.cards });
+  qc.invalidateQueries({ queryKey: catalogQueryKeys.categories });
+  qc.invalidateQueries({ queryKey: catalogQueryKeys.listingCategories });
+  qc.invalidateQueries({ queryKey: catalogQueryKeys.favorites });
+  if (cardId) qc.invalidateQueries({ queryKey: catalogQueryKeys.card(cardId) });
+}
+
+/** Category mutations affect both admin counters and public creation/filter lists. */
+export function invalidateCatalogAfterAdminCategoryMutation(qc: QueryClient): void {
+  qc.invalidateQueries({ queryKey: adminCatalogQueryKeys.categories });
+  qc.invalidateQueries({ queryKey: catalogQueryKeys.categories });
+  qc.invalidateQueries({ queryKey: catalogQueryKeys.listingCategories });
+}
 
 export const categoriesQueryOptions = (type: CatalogType) =>
   queryOptions({
-    queryKey: ["categories", type] as const,
+    queryKey: [...catalogQueryKeys.categories, type] as const,
     queryFn: () => apiGet<CategoryListItem[]>(`/catalog/categories?type=${type}`)
   });
 
 /** Активные категории для предложения объявления, включая ещё пустые. */
 export const listingCategoriesQueryOptions = (type: CatalogType) =>
   queryOptions({
-    queryKey: ["listing-categories", type] as const,
+    queryKey: [...catalogQueryKeys.listingCategories, type] as const,
     queryFn: () => apiGet<CategoryListItem[]>(`/catalog/categories?type=${type}&includeEmpty=true`)
   });
 
@@ -73,7 +110,7 @@ function buildCardsQuery(params: CardsQueryParams, offset: number): string {
 export const cardsInfiniteQueryOptions = (params: CardsQueryParams) =>
   infiniteQueryOptions({
     queryKey: [
-      "cards",
+      ...catalogQueryKeys.cards,
       params.type,
       params.categoryId ?? null,
       params.search ?? "",
@@ -93,13 +130,13 @@ export const cardsInfiniteQueryOptions = (params: CardsQueryParams) =>
 /** Полная карточка по id. 404 (снята/не существует) не ретраим — сразу показываем заглушку. */
 export const cardDetailQueryOptions = (cardId: string) =>
   queryOptions({
-    queryKey: ["card", cardId] as const,
+    queryKey: catalogQueryKeys.card(cardId),
     queryFn: () => apiGet<CardDetail>(`/catalog/cards/${cardId}`),
     retry: (failureCount, error) => !(error instanceof ApiError && error.status === 404) && failureCount < 2
   });
 
 export const favoritesQueryOptions = queryOptions({
-  queryKey: ["favorites"] as const,
+  queryKey: catalogQueryKeys.favorites,
   queryFn: () => apiGet<CardListItem[]>("/favorites")
 });
 
@@ -135,9 +172,11 @@ function buildAdminCardsQuery(params: AdminCardsQueryParams, offset: number): st
 /** Постраничный список карточек (админ) — все карточки, включая скрытые. */
 export const adminCardsInfiniteQueryOptions = (params: AdminCardsQueryParams) =>
   infiniteQueryOptions({
-    queryKey: ["admin-cards", params.type ?? null, params.categoryId ?? null, params.search ?? ""] as const,
-    queryFn: ({ pageParam }) =>
-      apiGet<AdminCardListResponse>(`/admin/cards?${buildAdminCardsQuery(params, pageParam)}`),
+    queryKey: [...adminCatalogQueryKeys.cards, params.type ?? null, params.categoryId ?? null, params.search ?? ""] as const,
+    queryFn: ({ pageParam }) => apiGetParsed<AdminCardListResponse>(
+      `/admin/cards?${buildAdminCardsQuery(params, pageParam)}`,
+      adminCardListResponse,
+    ),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => lastPage.nextOffset,
     placeholderData: keepPreviousData
@@ -146,16 +185,19 @@ export const adminCardsInfiniteQueryOptions = (params: AdminCardsQueryParams) =>
 /** Полная карточка по id (админ — включая скрытые). */
 export const adminCardQueryOptions = (cardId: string) =>
   queryOptions({
-    queryKey: ["admin-card", cardId] as const,
-    queryFn: () => apiGet<AdminCardDetail>(`/admin/cards/${cardId}`),
+    queryKey: adminCatalogQueryKeys.card(cardId),
+    queryFn: () => apiGetParsed<AdminCardDetail>(`/admin/cards/${cardId}`, adminCardDetailSchema),
     retry: (failureCount, error) => !(error instanceof ApiError && error.status === 404) && failureCount < 2
   });
 
 /** Категории вкладки (админ) — включая неактивные, со счётчиками карточек. */
 export const adminCategoriesQueryOptions = (type: CatalogType) =>
   queryOptions({
-    queryKey: ["admin-categories", type] as const,
-    queryFn: () => apiGet<AdminCategory[]>(`/admin/categories?type=${type}`)
+    queryKey: [...adminCatalogQueryKeys.categories, type] as const,
+    queryFn: () => apiGetParsed<AdminCategory[]>(
+      `/admin/categories?type=${type}`,
+      adminCategoryListResponse,
+    )
   });
 
 /** Постраничный список заявок (админ) по статусу. */
