@@ -4,6 +4,7 @@
 **Этап:** 1  
 **Оценка:** M  
 **Зависимости:** TD-003A определяет handler contracts; TD-003B обязателен перед redrive outbox-сообщений.
+**Статус:** выполнено 27.08.2026
 
 ## Проблема
 
@@ -27,6 +28,20 @@
 ## Проверка и ловушки
 
 Unit tests redaction/route normalization; local injected timing tests; production read-only preflight и test alert — только с явной operational авторизацией. Не логировать bodies, initData, phones, tokens. Не строить dashboard zoo: одна операторская панель и один release checklist достаточны.
+
+## Статус (26.08.2026)
+
+- Реализованы bounded Analytics Engine dimensions: HTTP route template + status/duration, DB,
+  Telegram, Storage, Queue attempt/age и cron outcome/duration. Raw path и identifiers в labels
+  не попадают; `unmatched` — единый label для 404.
+- Authorized production read-only preflight: primary queues имеют по одному producer/consumer;
+  `agromarketkz-notifications-dlq-prod` и `agromarketkz-telegram-updates-dlq-prod` имеют 0
+  consumers, что соответствует quarantine policy. Owner обеих DLQ — production
+  `ADMIN_OWNER_TELEGRAM_ID`; redrive только вручную после inspect и проверки TD-003B idempotency.
+- P0/S закрыт 27.08.2026: live Worker содержит отдельный read-only
+  `CF_ANALYTICS_API_TOKEN`, owner подтвердил test notification и четыре Workers Observability
+  alerts (5xx, DB connection, primary backlog, DLQ). `DEPLOYMENT.md` остаётся executable
+  fail-closed runbook для всех последующих canary.
 
 ## Вероятные файлы
 

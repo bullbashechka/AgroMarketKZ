@@ -19,9 +19,10 @@
   webhook/Queue, upload claims и строгий auth-cache mode. Четыре Queue-ресурса существуют;
   consumers подключены только к `agromarketkz-notifications-prod` и
   `agromarketkz-telegram-updates-prod`, обе DLQ не имеют consumers.
-- Persisted Worker logs включены. Для release-hardening email alerts на 5xx, DB connection errors,
-  Queue backlog и DLQ нужно активировать в Workers Observability до canary; текущая live-версия их
-  ещё не имеет, `CF_ANALYTICS_API_TOKEN` пока не создаётся.
+- Persisted Worker logs включены. Production preflight 27.08.2026 подтвердил наличие отдельного
+  `CF_ANALYTICS_API_TOKEN` и Queue bindings; owner подтвердил test notification. Следующий canary
+  по-прежнему fail-closed: analytics query, четыре alerts и delivery receipt должны быть зелёными
+  непосредственно перед каждой волной.
 - **GitHub Actions не используется** — CI/CD полностью на стороне Cloudflare. `.github/workflows/ci.yml` удалён.
 - **Webapp (Cloudflare Pages) деплоится автоматически**: проект `agromarketkz-webapp` привязан к репозиторию через Git-интеграцию Cloudflare Pages (не GitHub Actions) — любой пуш в любую ветку собирает preview-деплой, пуш в `main` собирает production. В Production environment заданы `BACKEND_ORIGIN`, `PAGES_PROXY_SECRET` и `SUPABASE_URL`; `VITE_API_URL` больше не нужен, потому что браузер обращается только к same-origin `/api`. Старый `CSP_ENFORCE` код не читает, его можно удалить из Dashboard.
 - Pages Function `functions/api/[[path]].js` требует secret `BACKEND_ORIGIN` (Worker origin) и тот же `PAGES_PROXY_SECRET`, что Worker. Она добавляет proxy proof, protocol header `X-Agromarket-Proxy-Version: 1` и отвергает cross-origin mutation либо клиентские internal proxy headers до Worker; без обоих secret production release блокируется. Worker временно принимает отсутствие version header (legacy Pages) или `1`, но отклоняет любую другую версию. После подтверждённого rollout обеих сторон можно отдельным изменением сделать `1` обязательной.
@@ -71,7 +72,24 @@ bun run release:verify
   быть нулевыми на canary и после каждой волны.
 - В Workers Observability создать email alerts на `5xx > 1%` (минимум 20 ответов/5 минут),
   DB connection errors `>0`, Queue backlog `>100` и DLQ `>0`. Проверить получение тестового
-  webhook/уведомления до включения следующей волны.
+  webhook/уведомления до включения следующей волны. Единственный owner и получатель escalation —
+  владелец production `ADMIN_OWNER_TELEGRAM_ID`; он же подтверждает receipt. Обе DLQ намеренно
+  не имеют consumers: сначала `wrangler queues info <name>` (bounded inspect конфигурации), затем
+  зафиксировать depth в Observability; автоматический redrive запрещён. Notification outbox можно
+  replay только после dry-run и сверки idempotency из TD-003B; Telegram updates с poison payload
+  остаются в quarantine до отдельного разбора. Runtime telemetry fail-open, а этот checklist
+  fail-closed: без token, query и подтверждённого test notification волна не начинается.
+
+  Минимальная Analytics Engine query (одна панель, 5 минут; dimensions не содержат PII):
+
+  ```sql
+  SELECT blob1 AS kind, blob2 AS operation, blob3 AS outcome,
+         count() AS count, avg(double1) AS avg_duration_ms,
+         max(double2) AS max_quantity
+  FROM agromarketkz_requests
+  WHERE timestamp > NOW() - INTERVAL '5' MINUTE
+  GROUP BY kind, operation, outcome
+  ```
 - Проверить production `ADMIN_ALLOWLIST`: владелец `1295392762` и оператор видят раздел
   «Управление», посторонний аккаунт получает `403`; в `wrangler tail` нет предупреждений
   про синтетические id.

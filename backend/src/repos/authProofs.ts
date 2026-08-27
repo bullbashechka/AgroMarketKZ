@@ -59,10 +59,12 @@ async function consumeWidgetAuthProofWithSql(
 }
 
 /** Удаляет только давно истёкшие одноразовые proofs; вызывается из cron. */
-export async function purgeExpiredWidgetAuthProofs(env: AppEnv, db: IdempotentDatabase): Promise<void> {
+export async function purgeExpiredWidgetAuthProofs(env: AppEnv, db: IdempotentDatabase): Promise<number> {
   // DELETE по фиксированному cutoff идемпотентен; cleanup не публикует неоднозначный row count.
-  await db.retryIdempotentStandalone`
+  const deleted = await db.retryIdempotentStandalone<{ proof_hash: string }[]>`
     delete from app_private.widget_auth_proofs
     where expires_at < now() - interval '1 hour'
+    returning proof_hash
   `;
+  return deleted.length;
 }

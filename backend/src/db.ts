@@ -1,5 +1,6 @@
 import postgres, { type Sql } from "postgres";
 import { HttpError } from "./lib/errors";
+import { metricNow, writeMetric } from "./lib/metrics";
 import type { AppEnv } from "./env";
 
 const { PostgresError } = postgres;
@@ -35,7 +36,7 @@ const CLOUDFLARE_POSTGRES_WRITE_FRAMES = [
   "at new Query",
 ] as const;
 
-type DatabaseEnv = Pick<AppEnv, "DATABASE_URL" | "HYPERDRIVE">;
+type DatabaseEnv = Pick<AppEnv, "DATABASE_URL" | "HYPERDRIVE" | "REQUEST_METRICS">;
 
 /** The only query shape exposed to the explicit idempotent retry capability. */
 export type StandaloneSql = <T = unknown>(
@@ -151,9 +152,13 @@ export function createDatabaseInvocation(
       const result = Reflect.apply(client, thisArg, args);
       if (!isTaggedTemplate(args)) return result;
       return (async () => {
+        const startedAt = metricNow();
         try {
-          return await result;
+          const value = await result;
+          writeMetric(env, { kind: "db", operation: "query", outcome: "ok", durationMs: metricNow() - startedAt });
+          return value;
         } catch (err) {
+          writeMetric(env, { kind: "db", operation: "query", outcome: "error", durationMs: metricNow() - startedAt });
           if (!isConnectionError(err)) throw err;
           await reconnect(client);
           throw err;
@@ -184,13 +189,26 @@ export function createDatabaseInvocation(
     const execute = (client: Sql): Promise<T> =>
       Reflect.apply(client, client, [strings, ...values]) as Promise<T>;
     const client = getCurrent();
+    const startedAt = metricNow();
     try {
-      return await execute(client);
+      const value = await execute(client);
+      writeMetric(env, { kind: "db", operation: "idempotent_query", outcome: "ok", durationMs: metricNow() - startedAt });
+      return value;
     } catch (err) {
-      if (!isConnectionError(err)) throw err;
-      await reconnect(client);
-      // This is the one and only explicit retry. A second failure propagates.
-      return await execute(getCurrent());
+      if (!isConnectionError(err)) {
+        writeMetric(env, { kind: "db", operation: "idempotent_query", outcome: "error", durationMs: metricNow() - startedAt });
+        throw err;
+      }
+      try {
+        await reconnect(client);
+        // This is the one and only explicit retry. A second failure propagates.
+        const value = await execute(getCurrent());
+        writeMetric(env, { kind: "db", operation: "idempotent_query", outcome: "ok", durationMs: metricNow() - startedAt });
+        return value;
+      } catch (retryError) {
+        writeMetric(env, { kind: "db", operation: "idempotent_query", outcome: "error", durationMs: metricNow() - startedAt });
+        throw retryError;
+      }
     }
   };
 

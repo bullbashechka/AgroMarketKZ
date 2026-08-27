@@ -2,6 +2,7 @@ import { healthResponseSchema } from "@agromarket/contracts";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { matchedRoutes } from "hono/route";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ZodError } from "zod";
 import {
@@ -11,6 +12,7 @@ import {
 } from "./db";
 import { type AppEnv, type HonoEnv, resolveEnv } from "./env";
 import { HttpError } from "./lib/errors";
+import { metricNow, metricRoute, writeMetric } from "./lib/metrics";
 import { timingSafeEqual } from "./lib/telegram";
 import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
@@ -147,11 +149,16 @@ export function createApp(options: AppOptions = {}) {
   // Счётчик исходов для алертинга (см. lib/alerts.ts) — без REQUEST_METRICS (локально/пока не
   // настроен биндинг) молча no-op.
   app.use("*", async (c, next) => {
+    const startedAt = metricNow();
     await next();
     const status = c.res.status;
-    c.get("env").REQUEST_METRICS?.writeDataPoint({
-      indexes: [status >= 500 ? "server_error" : status >= 400 ? "client_error" : "ok"],
-      blobs: [c.req.method, new URL(c.req.url).pathname]
+    const category = status >= 500 ? "server_error" : status >= 400 ? "client_error" : "ok";
+    writeMetric(c.get("env"), {
+      kind: "http",
+      operation: metricRoute(matchedRoutes(c).at(-1)?.path ?? ""),
+      outcome: category,
+      category,
+      durationMs: metricNow() - startedAt,
     });
   });
 
@@ -220,9 +227,12 @@ export function createApp(options: AppOptions = {}) {
       ...safeErrorMetadata(err),
     });
     if (connectionError) {
-      c.get("env").REQUEST_METRICS?.writeDataPoint({
-        indexes: ["db_conn_error"],
-        blobs: [c.req.method, new URL(c.req.url).pathname]
+      writeMetric(c.get("env"), {
+        kind: "db",
+        operation: "query",
+        outcome: "error",
+        category: "db_conn_error",
+        durationMs: 0,
       });
       return c.json(errorBody(c, {
         error: "Сервис временно недоступен. Попробуйте ещё раз",

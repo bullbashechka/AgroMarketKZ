@@ -279,7 +279,7 @@ export async function dispatchNotificationForEntity(
 }
 
 /** Reconciles events whose enqueue ack was lost; safe to run from cron. */
-export async function reconcileNotificationOutbox(env: AppEnv, db: IdempotentDatabase): Promise<void> {
+export async function reconcileNotificationOutbox(env: AppEnv, db: IdempotentDatabase): Promise<number> {
   const sql = db.retryIdempotentStandalone;
   const rows = await sql<Pick<OutboxRow, "id">[]>`
     select id from app_private.notification_outbox
@@ -299,4 +299,5 @@ export async function reconcileNotificationOutbox(env: AppEnv, db: IdempotentDat
       console.error("notification outbox reconcile failed", { outboxId: row.id, error });
     });
   }
+  return rows.length;
 }

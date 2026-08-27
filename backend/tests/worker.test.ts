@@ -60,6 +60,8 @@ function message(id: string, body: unknown): QueueMessageLike & { actions: strin
   const actions: string[] = [];
   return {
     id,
+    timestamp: new Date(),
+    attempts: 1,
     body,
     actions,
     ack: () => actions.push("ack"),
@@ -103,6 +105,30 @@ async function readWranglerConfig(): Promise<{ source: string; config: Record<st
 }
 
 describe("Worker Queue contract", () => {
+  test("records bounded queue attempt and age metrics", async () => {
+    const points: unknown[] = [];
+    const queued = message("valid", { outboxId });
+    queued.attempts = 3;
+    queued.timestamp = new Date(Date.now() - 2_000);
+    const metricsEnv = {
+      ...resolvedEnv,
+      REQUEST_METRICS: { writeDataPoint: (point: unknown) => points.push(point) } as AnalyticsEngineDataset,
+    };
+
+    await handleQueueBatch({ queue: NOTIFICATION_QUEUE_NAME, messages: [queued] }, env, dependencies({
+      resolveEnvironment: () => metricsEnv,
+    }));
+
+    expect(points).toHaveLength(2);
+    expect(points[0]).toMatchObject({
+      blobs: ["queue", "notification", "ok"],
+      doubles: [expect.any(Number), 3],
+    });
+    expect(points[1]).toMatchObject({
+      blobs: ["queue", "age_seconds", "ok"],
+      doubles: [0, expect.any(Number)],
+    });
+  });
   test("uses queue identity and strict envelope before dispatching", async () => {
     const valid = message("valid", { outboxId });
     const invalid = message("invalid", { updateId: 7 });
@@ -232,6 +258,25 @@ describe("Pages-to-Worker proxy protocol", () => {
 });
 
 describe("Worker scheduled contract", () => {
+  test("records cron duration and reported work-item count", async () => {
+    const points: unknown[] = [];
+    const metricsEnv = {
+      ...resolvedEnv,
+      REQUEST_METRICS: { writeDataPoint: (point: unknown) => points.push(point) } as AnalyticsEngineDataset,
+    };
+    const context = scheduledContext();
+    handleScheduled({ cron: DAILY_STORAGE_CRON }, env, context, dependencies({
+      resolveEnvironment: () => metricsEnv,
+      runStorageCleanup: async () => ({ scanned: 7 }),
+      runStorageBackup: async () => ({ scanned: 4 }),
+    }));
+    await context.promises[0];
+
+    expect(points).toEqual(expect.arrayContaining([
+      expect.objectContaining({ blobs: ["cron", "storage-cleanup", "ok"], doubles: [expect.any(Number), 7] }),
+      expect.objectContaining({ blobs: ["cron", "storage-backup", "ok"], doubles: [expect.any(Number), 4] }),
+    ]));
+  });
   test("routes each configured cron to exactly its own jobs", async () => {
     const calls: string[] = [];
     const deps = dependencies({

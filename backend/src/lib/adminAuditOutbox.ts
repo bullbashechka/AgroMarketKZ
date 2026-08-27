@@ -252,7 +252,7 @@ async function deadLetterExhaustedRows(db: IdempotentDatabase): Promise<void> {
 export async function reconcileAdminAuditOutbox(
   env: AppEnv,
   db: IdempotentDatabase,
-): Promise<void> {
+): Promise<number> {
   await deadLetterExhaustedRows(db);
   const rows = await db.retryIdempotentStandalone<Pick<AdminAuditOutboxRow, "id">[]>`
     select id
@@ -277,6 +277,7 @@ export async function reconcileAdminAuditOutbox(
       });
     });
   }
+  return rows.length;
 }
 
 /** Operator recovery: explicitly reopens one terminal poison row. */

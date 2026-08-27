@@ -11,6 +11,7 @@ import {
   type RequestSource
 } from "@agromarket/contracts";
 import type { AppEnv } from "../env";
+import { metricNow, writeMetric } from "./metrics";
 
 /** Экранирует спецсимволы для Telegram `parse_mode: "HTML"`. */
 export function escapeHtml(text: string): string {
@@ -153,6 +154,7 @@ export async function sendTelegramMessage(
   html: string,
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<boolean> {
+  const startedAt = metricNow();
   try {
     const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
@@ -166,11 +168,14 @@ export async function sendTelegramMessage(
       })
     });
     if (!res.ok) {
+      writeMetric(env, { kind: "telegram", operation: "send_message", outcome: "error", durationMs: metricNow() - startedAt });
       console.error("sendTelegramMessage: Telegram API вернул ошибку", res.status, await res.text());
       return false;
     }
+    writeMetric(env, { kind: "telegram", operation: "send_message", outcome: "ok", durationMs: metricNow() - startedAt });
     return true;
   } catch (err) {
+    writeMetric(env, { kind: "telegram", operation: "send_message", outcome: "error", durationMs: metricNow() - startedAt });
     console.error("sendTelegramMessage: не удалось отправить сообщение", err);
     return false;
   }
@@ -187,6 +192,7 @@ export async function sendTelegramPhoto(
   htmlCaption: string,
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<boolean> {
+  const startedAt = metricNow();
   try {
     const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
       method: "POST",
@@ -201,11 +207,14 @@ export async function sendTelegramPhoto(
       })
     });
     if (!res.ok) {
+      writeMetric(env, { kind: "telegram", operation: "send_photo", outcome: "error", durationMs: metricNow() - startedAt });
       console.error("sendTelegramPhoto: Telegram API вернул ошибку", res.status, await res.text());
       return false;
     }
+    writeMetric(env, { kind: "telegram", operation: "send_photo", outcome: "ok", durationMs: metricNow() - startedAt });
     return true;
   } catch (err) {
+    writeMetric(env, { kind: "telegram", operation: "send_photo", outcome: "error", durationMs: metricNow() - startedAt });
     console.error("sendTelegramPhoto: не удалось отправить фото", err);
     return false;
   }

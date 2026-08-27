@@ -1,11 +1,34 @@
 import { CARD_IMAGE_PATH_PATTERN as CONTRACT_CARD_IMAGE_PATH_PATTERN, type UploadContentType } from "@agromarket/contracts";
 import type { AppEnv } from "../env";
 import { HttpError } from "./errors";
+import { metricNow, writeMetric } from "./metrics";
 
 type StorageAdminEnv = Pick<
   AppEnv,
-  "SUPABASE_URL" | "SUPABASE_STORAGE_BUCKET" | "SUPABASE_SERVICE_ROLE_KEY"
+  "SUPABASE_URL" | "SUPABASE_STORAGE_BUCKET" | "SUPABASE_SERVICE_ROLE_KEY" | "REQUEST_METRICS"
 >;
+
+async function fetchStorage(
+  env: StorageAdminEnv,
+  operation: string,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const startedAt = metricNow();
+  try {
+    const response = await fetch(input, init);
+    writeMetric(env, {
+      kind: "storage",
+      operation,
+      outcome: response.ok ? "ok" : "error",
+      durationMs: metricNow() - startedAt,
+    });
+    return response;
+  } catch (error) {
+    writeMetric(env, { kind: "storage", operation, outcome: "error", durationMs: metricNow() - startedAt });
+    throw error;
+  }
+}
 
 /**
  * Публичный URL изображения в Supabase Storage (бакет публичный, см.
@@ -74,7 +97,7 @@ export async function createSignedUploadUrl(
 ): Promise<{ uploadUrl: string; token: string }> {
   const base = env.SUPABASE_URL.replace(/\/+$/, "");
   const path = storagePath.replace(/^\/+/, "");
-  const res = await fetch(`${base}/storage/v1/object/upload/sign/${env.SUPABASE_STORAGE_BUCKET}/${path}`, {
+  const res = await fetchStorage(env, "create_signed_upload", `${base}/storage/v1/object/upload/sign/${env.SUPABASE_STORAGE_BUCKET}/${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -132,7 +155,7 @@ export async function deleteStorageObjects(env: AppEnv, storagePaths: string[]):
   if (storagePaths.length === 0) return;
   const base = env.SUPABASE_URL.replace(/\/+$/, "");
   try {
-    const res = await fetch(`${base}/storage/v1/object/${env.SUPABASE_STORAGE_BUCKET}`, {
+    const res = await fetchStorage(env, "delete_objects", `${base}/storage/v1/object/${env.SUPABASE_STORAGE_BUCKET}`, {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -178,7 +201,7 @@ export async function downloadStorageObject(
   env: StorageAdminEnv,
   storagePath: string,
 ): Promise<Response> {
-  return fetch(storageObjectUrl(env, storagePath), {
+  return fetchStorage(env, "download_object", storageObjectUrl(env, storagePath), {
     headers: {
       Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
       apikey: env.SUPABASE_SERVICE_ROLE_KEY,
@@ -194,7 +217,7 @@ export async function listStorageObjects(
 ): Promise<StorageObjectSummary[]> {
   const base = env.SUPABASE_URL.replace(/\/+$/, "");
   const normalizedPrefix = prefix.replace(/^\/+/, "");
-  const res = await fetch(`${base}/storage/v1/object/list/${encodeURIComponent(env.SUPABASE_STORAGE_BUCKET)}`, {
+  const res = await fetchStorage(env, "list_objects", `${base}/storage/v1/object/list/${encodeURIComponent(env.SUPABASE_STORAGE_BUCKET)}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -249,7 +272,7 @@ async function reconcileMissingStoragePaths(env: StorageAdminEnv, paths: string[
   const missing: string[] = [];
   for (const path of paths) {
     try {
-      const response = await fetch(storageObjectUrl(env, path), {
+      const response = await fetchStorage(env, "head_object", storageObjectUrl(env, path), {
         method: "HEAD",
         headers: {
           Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -278,7 +301,7 @@ export async function deleteStorageObjectsStrict(
   const base = env.SUPABASE_URL.replace(/\/+$/, "");
   const uniquePaths = [...new Set(storagePaths)];
   try {
-    const res = await fetch(`${base}/storage/v1/object/${env.SUPABASE_STORAGE_BUCKET}`, {
+    const res = await fetchStorage(env, "delete_objects_strict", `${base}/storage/v1/object/${env.SUPABASE_STORAGE_BUCKET}`, {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,

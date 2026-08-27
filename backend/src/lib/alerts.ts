@@ -83,23 +83,26 @@ async function markSent(env: AppEnv, key: string): Promise<void> {
  * (только *.workers.dev), поэтому счётчики пишет сам app.ts (см. REQUEST_METRICS). Без настроенных
  * REQUEST_METRICS/CF_ANALYTICS_API_TOKEN — молча no-op, не шумит.
  */
-export async function runDbHealthAlertCheck(env: AppEnv, db: Database): Promise<void> {
-  if (!env.REQUEST_METRICS || !env.CF_ANALYTICS_API_TOKEN) return;
+export async function runDbHealthAlertCheck(env: AppEnv, db: Database): Promise<number> {
+  if (!env.REQUEST_METRICS || !env.CF_ANALYTICS_API_TOKEN) return 0;
 
   let window: WindowCounts;
   try {
     window = await queryWindow(env);
   } catch (err) {
     console.error("runDbHealthAlertCheck: не удалось прочитать метрики", err);
-    return;
+    return 0;
   }
 
   const chatId = await getAdminChatId(env, db);
-  if (!chatId) return;
+  if (!chatId) return 0;
 
+  let sent = 0;
   for (const alert of evaluateWindow(window)) {
     if (await isSuppressed(env, alert.key)) continue;
     await sendAdminNotification(env, chatId, alert.message);
     await markSent(env, alert.key);
+    sent += 1;
   }
+  return sent;
 }
