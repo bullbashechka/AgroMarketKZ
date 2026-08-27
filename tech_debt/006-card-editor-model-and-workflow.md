@@ -4,6 +4,7 @@
 **Этап:** 1  
 **Оценка:** M  
 **Зависимости:** TD-004, TD-005.
+**Статус:** выполнено 27.08.2026.
 
 ## Проблема и граница
 
@@ -40,3 +41,11 @@ bun run test:e2e
 ## Вероятные файлы
 
 `webapp/src/screens/admin/CardEditorScreen.tsx`, новый `webapp/src/lib/cardEditorModel.ts`, небольшие `webapp/src/components/card-editor/*`, tests.
+
+## Итоговое решение
+
+`cardEditorModel` владеет единственным `EditorState`, переходами типа и
+категории, восстановлением DTO/draft и чистыми проекциями draft, mutation и
+preview. Экран сохранил orchestration queries, мутаций, recovery и Telegram UI;
+он больше не нормализует и не собирает business payload вручную. Существующие
+upload и API contracts не менялись.

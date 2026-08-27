@@ -9,7 +9,6 @@ import {
   productLocationLabels,
   productOwnershipFormLabels,
   type AdminCardDetail,
-  type CardDetail,
   type CatalogType,
   type CommodityGroup,
   type CreateCardInput,
@@ -24,7 +23,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ConfirmSheet } from "../../components/admin/ConfirmSheet";
 import { ImagePicker } from "../../components/admin/ImagePicker";
 import { Segmented } from "../../components/admin/Segmented";
-import { SpecsEditor, type SpecRow } from "../../components/admin/SpecsEditor";
+import { SpecsEditor } from "../../components/admin/SpecsEditor";
 import { ErrorState } from "../../components/ErrorState";
 import { BottomSheet } from "../../components/BottomSheet";
 import { CardDetailsView } from "../../components/CardDetailsView";
@@ -33,13 +32,24 @@ import { SkeletonList } from "../../components/Skeleton";
 import { ApiError, apiDelete, apiGet, apiPost, apiPut, formatApiError, isAmbiguousMutationError } from "../../lib/api";
 import { PublishAfterSaveError } from "../../lib/cardMutation";
 import { clearCardDraft, loadCardDraft, saveCardDraft, type CardDraft } from "../../lib/cardDraft";
+import {
+  changeEditorCategory,
+  changeEditorType,
+  createEditorState,
+  syncRequiredSpecs,
+  toDraft,
+  toMutationInput,
+  toPreview,
+  toggleEditorServiceTerritory,
+  type EditorState,
+} from "../../lib/cardEditorModel";
 import { zodFieldErrorsByPath } from "../../lib/formErrors";
 import { getLivePublicationIssues } from "../../lib/publicationChecklist";
 import { adminCardQueryOptions, adminCategoriesQueryOptions, territoriesQueryOptions } from "../../lib/queries";
 import type { AdminTypeSearch } from "../../lib/searchParams";
 import { hapticNotify } from "../../lib/telegram";
 import { useDebouncedValue } from "../../lib/useDebouncedValue";
-import { useImageUploads, type DraftImage } from "../../lib/useImageUploads";
+import { useImageUploads } from "../../lib/useImageUploads";
 
 const typeOptions: { value: CatalogType; label: string }[] = [
   { value: "service", label: catalogTypeLabels.service },
@@ -151,36 +161,28 @@ function CardEditorForm({
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const [type, setType] = useState<CatalogType>(initial?.type ?? draft?.type ?? initialType ?? "service");
-  const [categoryId, setCategoryId] = useState(initial?.categoryId ?? draft?.categoryId ?? "");
-  const [title, setTitle] = useState(initial?.title ?? draft?.title ?? "");
-  const [description, setDescription] = useState(initial?.description ?? draft?.description ?? "");
-  const [priceType, setPriceType] = useState<PriceType>(
-    (initial?.type ?? draft?.type ?? initialType) === "product" && (initial?.priceType ?? draft?.priceType) === "on_request"
-      ? "fixed"
-      : initial?.priceType ?? draft?.priceType ?? "fixed"
-  );
-  const [priceAmount, setPriceAmount] = useState(
-    initial?.priceAmount != null ? String(initial.priceAmount) : draft?.priceAmount ?? ""
-  );
-  const [priceUnit, setPriceUnit] = useState(initial?.priceUnit ?? draft?.priceUnit ?? "");
-  const [priceReason, setPriceReason] = useState(initial?.priceReason ?? draft?.priceReason ?? "");
-  const [territoryCode, setTerritoryCode] = useState<TerritoryCode | "">(initial?.territory?.code ?? draft?.territoryCode ?? "");
-  const [ownershipForm, setOwnershipForm] = useState<ProductOwnershipForm | "">(initial?.ownershipForm ?? draft?.ownershipForm ?? "");
-  const [productLocation, setProductLocation] = useState<ProductLocation | "">(initial?.productLocation ?? draft?.productLocation ?? "");
-  const [productLocationDetail, setProductLocationDetail] = useState(initial?.productLocationDetail ?? draft?.productLocationDetail ?? "");
-  const [commodityGroup, setCommodityGroup] = useState<CommodityGroup | "">(initial?.commodityGroup ?? draft?.commodityGroup ?? "");
-  const [volumeTonnes, setVolumeTonnes] = useState(
-    initial?.volumeTonnes != null ? String(initial.volumeTonnes) : draft?.volumeTonnes ?? ""
-  );
-  const [serviceAllKazakhstan, setServiceAllKazakhstan] = useState(initial?.serviceAllKazakhstan ?? draft?.serviceAllKazakhstan ?? false);
-  const [serviceTerritoryCodes, setServiceTerritoryCodes] = useState<TerritoryCode[]>(
-    initial?.serviceTerritories.map((territory) => territory.code) ?? draft?.serviceTerritoryCodes ?? []
-  );
-  const [availability, setAvailability] = useState(initial?.availability ?? draft?.availability ?? "");
-  const [specs, setSpecs] = useState<SpecRow[]>(
-    (initial?.specs ?? draft?.specs ?? []).map((s) => ({ localId: crypto.randomUUID(), key: s.key, value: s.value }))
-  );
+  const [editor, setEditor] = useState<EditorState>(() => createEditorState({ initial, draft, initialType }));
+  const {
+    type, categoryId, title, description, priceType, priceAmount, priceUnit, priceReason,
+    territoryCode, ownershipForm, productLocation, productLocationDetail, commodityGroup,
+    volumeTonnes, serviceAllKazakhstan, serviceTerritoryCodes, availability, specs,
+  } = editor;
+  const updateEditor = (patch: Partial<EditorState>) => setEditor((current) => ({ ...current, ...patch }));
+  const setTitle = (value: string) => updateEditor({ title: value });
+  const setDescription = (value: string) => updateEditor({ description: value });
+  const setPriceType = (value: PriceType) => updateEditor({ priceType: value });
+  const setPriceAmount = (value: string) => updateEditor({ priceAmount: value });
+  const setPriceUnit = (value: string) => updateEditor({ priceUnit: value });
+  const setPriceReason = (value: string) => updateEditor({ priceReason: value });
+  const setTerritoryCode = (value: TerritoryCode | "") => updateEditor({ territoryCode: value });
+  const setOwnershipForm = (value: ProductOwnershipForm | "") => updateEditor({ ownershipForm: value });
+  const setProductLocation = (value: ProductLocation | "") => updateEditor({ productLocation: value });
+  const setProductLocationDetail = (value: string) => updateEditor({ productLocationDetail: value });
+  const setCommodityGroup = (value: CommodityGroup | "") => updateEditor({ commodityGroup: value });
+  const setVolumeTonnes = (value: string) => updateEditor({ volumeTonnes: value });
+  const setServiceAllKazakhstan = (value: boolean) => updateEditor({ serviceAllKazakhstan: value });
+  const setAvailability = (value: string) => updateEditor({ availability: value });
+  const setSpecs = (next: EditorState["specs"]) => updateEditor({ specs: next });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -206,8 +208,7 @@ function CardEditorForm({
     if (recoveryError) setErrors((current) => ({ ...current, form: recoveryError }));
   }, [recoveryError]);
 
-  const initialImages: DraftImage[] =
-    initial?.images.map((img) => ({ storagePath: img.storagePath, publicUrl: img.url })) ?? draft?.images ?? [];
+  const initialImages = initial?.images.map((img) => ({ storagePath: img.storagePath, publicUrl: img.url })) ?? draft?.images ?? [];
   const imageUploads = useImageUploads(initialImages);
 
   const categoriesQuery = useQuery(adminCategoriesQueryOptions(type));
@@ -216,22 +217,13 @@ function CardEditorForm({
 
   useEffect(() => {
     if (!selectedCategory || selectedCategory.isCommodity) return;
-    setCommodityGroup("");
-    setVolumeTonnes("");
+    setEditor((current) => changeEditorCategory(current, current.categoryId, false));
   }, [selectedCategory?.id, selectedCategory?.isCommodity]);
 
   useEffect(() => {
     const required = selectedCategory?.requiredSpecs ?? [];
     if (required.length === 0) return;
-    setSpecs((current) => {
-      const keys = new Set(current.map((spec) => spec.key.trim().toLocaleLowerCase("ru")));
-      const missing = required.filter((key) => !keys.has(key.trim().toLocaleLowerCase("ru")));
-      if (missing.length === 0) return current;
-      return [
-        ...current,
-        ...missing.map((key) => ({ localId: crypto.randomUUID(), key, value: "" })),
-      ];
-    });
+    setEditor((current) => syncRequiredSpecs(current, required));
   }, [selectedCategory?.requiredSpecs]);
 
   function invalidateCatalogQueries(cardId?: string) {
@@ -479,31 +471,10 @@ function CardEditorForm({
   });
 
   // Черновик — только для create, только когда есть что сохранять (пустая форма не пишется).
-  const draftSnapshot = JSON.stringify({
-    clientRequestId: createClientRequestId,
-    type,
-    categoryId,
-    title,
-    description,
-    priceType,
-    priceAmount,
-    priceUnit,
-    priceReason,
-    territoryCode: territoryCode || undefined,
-    ownershipForm: ownershipForm || undefined,
-    productLocation: productLocation || undefined,
-    productLocationDetail,
-    commodityGroup: commodityGroup || undefined,
-    volumeTonnes: volumeTonnes || undefined,
-    serviceAllKazakhstan,
-    serviceTerritoryCodes,
-    availability,
-    specs: specs.map(({ key, value }) => ({ key, value })),
-    images: imageUploads.images.filter((img) => img.status === "done").map((img) => ({
-      storagePath: img.storagePath!,
-      publicUrl: img.publicUrl!
-    }))
-  } satisfies CardDraft);
+  const completedImages = imageUploads.images
+    .filter((image) => image.status === "done")
+    .map((image) => ({ storagePath: image.storagePath!, publicUrl: image.publicUrl! }));
+  const draftSnapshot = JSON.stringify(toDraft(editor, createClientRequestId, completedImages));
   const debouncedSnapshot = useDebouncedValue(mode === "create" ? draftSnapshot : "", 500);
 
   useEffect(() => {
@@ -512,20 +483,7 @@ function CardEditorForm({
   }, [debouncedSnapshot, mode]);
 
   function applyTypeChange(nextType: CatalogType) {
-    setType(nextType);
-    if (nextType === "product" && priceType === "on_request") {
-      setPriceType("fixed");
-      setPriceReason("");
-    }
-    setCategoryId("");
-    setTerritoryCode("");
-    setOwnershipForm("");
-    setProductLocation("");
-    setProductLocationDetail("");
-    setCommodityGroup("");
-    setVolumeTonnes("");
-    setServiceAllKazakhstan(false);
-    setServiceTerritoryCodes([]);
+    setEditor((current) => changeEditorType(current, nextType));
     setTypeChange(null);
   }
 
@@ -539,50 +497,24 @@ function CardEditorForm({
   }
 
   function toggleServiceTerritory(code: TerritoryCode) {
-    setServiceTerritoryCodes((current) => current.includes(code)
-      ? current.filter((value) => value !== code)
-      : [...current, code]);
+    setEditor((current) => toggleEditorServiceTerritory(current, code));
   }
 
   function handleCategoryChange(nextCategoryId: string) {
-    setCategoryId(nextCategoryId);
     const nextCategory = categoriesQuery.data?.find((category) => category.id === nextCategoryId);
-    if (!nextCategory?.isCommodity) {
-      setCommodityGroup("");
-      setVolumeTonnes("");
-    }
+    setEditor((current) => changeEditorCategory(current, nextCategoryId, nextCategory?.isCommodity ?? false));
   }
 
   function buildPayload(completeSpecsOnly = false, mutationId?: string) {
-    const payloadSpecs = completeSpecsOnly
-      ? specs.filter((spec) => spec.key.trim() && spec.value.trim())
-      : specs;
     return {
-      clientRequestId: mode === "create" ? createClientRequestId : undefined,
+      ...toMutationInput(editor, {
+        clientRequestId: mode === "create" ? createClientRequestId : undefined,
+        sortOrder: initial?.sortOrder ?? 0,
+        categoryIsCommodity: selectedCategory?.isCommodity ?? false,
+        images: completedImages,
+        completeSpecsOnly,
+      }),
       mutationId,
-      type,
-      categoryId,
-      title,
-      description,
-      sortOrder: initial?.sortOrder ?? 0,
-      priceType,
-      priceAmount: priceType === "on_request" || !priceAmount ? null : Number(priceAmount),
-      priceUnit,
-      priceReason: priceType === "fixed" ? null : priceReason,
-      location: null,
-      territoryCode: type === "product" ? territoryCode || null : null,
-      ownershipForm: type === "product" ? ownershipForm || null : null,
-      productLocation: type === "product" ? productLocation || null : null,
-      productLocationDetail: type === "product" ? productLocationDetail || null : null,
-      commodityGroup: type === "product" && selectedCategory?.isCommodity ? commodityGroup || null : null,
-      volumeTonnes: type === "product" && selectedCategory?.isCommodity && volumeTonnes ? Number(volumeTonnes.replace(",", ".")) : null,
-      serviceAllKazakhstan: type === "service" && serviceAllKazakhstan,
-      serviceTerritoryCodes: type === "service" && !serviceAllKazakhstan ? serviceTerritoryCodes : [],
-      availability: type === "service" ? availability : null,
-      images: imageUploads.images
-        .filter((img) => img.status === "done")
-        .map((img, idx) => ({ storagePath: img.storagePath!, sortOrder: idx })),
-      specs: payloadSpecs.map((spec, idx) => ({ key: spec.key, value: spec.value, sortOrder: idx })),
     };
   }
 
@@ -721,53 +653,12 @@ function CardEditorForm({
   const isSaveBlocked = pendingSaveAttempt !== null || isCheckingSave;
   const canSave = imageUploads.settled && !saveMutation.isPending && !isSaveBlocked;
   const canPublish = canSave && livePublicationIssues.length === 0;
-  const previewPayload = livePayload;
-  const previewCard: CardDetail = {
-    id: initial?.id ?? "00000000-0000-4000-8000-000000000001",
-    type,
-    categoryId: categoryId || "00000000-0000-4000-8000-000000000002",
-    title: title || "Карточка без названия",
-    description,
-    priceType,
-    priceAmount: previewPayload.priceAmount,
-    priceUnit: priceUnit || null,
-    priceReason: priceType === "fixed" ? null : priceReason || null,
-    commodityGroup: type === "product" && selectedCategory?.isCommodity ? commodityGroup || null : null,
-    volumeTonnes: type === "product" && selectedCategory?.isCommodity && volumeTonnes ? Number(volumeTonnes.replace(",", ".")) : null,
-    location: null,
-    territory: type === "product"
-      ? territoriesQuery.data?.find((territory) => territory.code === territoryCode) ?? null
-      : null,
-    ownershipForm: type === "product" ? ownershipForm || null : null,
-    productLocation: type === "product" ? productLocation || null : null,
-    productLocationDetail: type === "product" ? productLocationDetail || null : null,
-    serviceAllKazakhstan: type === "service" && serviceAllKazakhstan,
-    serviceTerritories: type === "service"
-      ? (territoriesQuery.data ?? []).filter((territory) => serviceTerritoryCodes.includes(territory.code))
-      : [],
-    availability: type === "service" ? availability || null : null,
-    sortOrder: initial?.sortOrder ?? 0,
-    version: initial?.version ?? 1,
-    publishedAt: initial?.publishedAt ?? null,
-    archivedAt: initial?.archivedAt ?? null,
-    createdAt: initial?.createdAt ?? new Date().toISOString(),
-    updatedAt: initial?.updatedAt ?? new Date().toISOString(),
-    images: imageUploads.images
-      .filter((image) => image.status === "done")
-      .map((image, index) => ({
-        id: `00000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`,
-        storagePath: image.storagePath!,
-        url: image.publicUrl!,
-        altText: null,
-        sortOrder: index,
-      })),
-    specs: specs.filter((spec) => spec.key.trim() && spec.value.trim()).map((spec, index) => ({
-      id: `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`,
-      key: spec.key,
-      value: spec.value,
-      sortOrder: index,
-    })),
-  };
+  const previewCard = toPreview(editor, {
+    initial,
+    categoryIsCommodity: selectedCategory?.isCommodity ?? false,
+    territories: territoriesQuery.data ?? [],
+    images: completedImages,
+  });
 
   return (
     <form className="form" onSubmit={handleSubmit} noValidate>

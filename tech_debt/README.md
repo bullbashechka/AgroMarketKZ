@@ -23,7 +23,7 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 | 010 | P0 gate / P1 | ✅ [Наблюдаемость, DLQ и operational closure](010-observability-dlq-and-operations.md) | Закрыта 27.08.2026: monitoring preflight и операторский контур готовы. |
 | 004 | P1 | ✅ [Верификация телефона при редактировании профиля](004-profile-phone-verification.md) | Закрыта 27.08.2026: signed proof проходит profile edit и подтверждает только совпавший номер. |
 | 005 | P1 | ✅ [Единая политика публикации и видимости карточек](005-publication-policy-single-source.md) | Закрыта 27.08.2026: typed policy едина для Zod/UI/backend, публичная видимость покрыта integration-контрактом. |
-| 006 | P1 | [TDD-рефакторинг модели и workflow редактора карточки](006-card-editor-model-and-workflow.md) | Снизить риск каждого нового поля в 1095-строчном god-component. |
+| 006 | P1 | ✅ [TDD-рефакторинг модели и workflow редактора карточки](006-card-editor-model-and-workflow.md) | Закрыта 27.08.2026: editor model централизует переходы и проекции draft/mutation/preview. |
 | 007 | P1 | [Разделение adminCatalog и единый card read model](007-admin-catalog-boundaries.md) | Снизить shotgun surgery в 1126-строчном god-repository. |
 | 008 | P1 | [Типизированная API и cache boundary](008-typed-api-and-cache-boundary.md) | Убрать unchecked `payload as T` и разбросанные raw query keys. |
 | 009 | P1 | [Route splitting и бюджет стартового bundle](009-route-splitting-and-bundle-budget.md) | Каталог сейчас загружает админку; main chunk уже 532.68 kB minified. |
