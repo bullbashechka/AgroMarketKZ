@@ -15,15 +15,13 @@ import { HttpError } from "../../lib/errors";
 import { deleteStorageObjects } from "../../lib/storage";
 import { findReferencedStoragePaths } from "../../repos/cardImages";
 import {
-  adminListCards,
   archiveCard,
   createCard,
   deleteCard,
-  getAdminCardDetail,
-  getAdminCardDetailForMutation,
   publishCard,
   updateCard
 } from "../../repos/adminCatalog";
+import { adminListCards, getAdminCardDetail, getAdminCardDetailForMutation } from "../../repos/adminCardReads";
 
 export const adminCardsRoutes = new Hono<HonoEnv>();
 

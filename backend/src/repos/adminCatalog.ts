@@ -1,41 +1,32 @@
 import type {
-  AdminCardListItem,
   AdminCardDetail,
-  AdminCardListQuery,
-  AdminCategory,
-  CardDetail,
-  Category,
   CatalogType,
   CreateCardInput,
-  CreateCategoryInput,
   UpdateCardInput,
-  UpdateCategoryInput
 } from "@agromarket/contracts";
-import {
-  getPublicationPolicyIssues,
-  getPublicationStatus,
-  type PublicationCandidate,
-} from "@agromarket/contracts";
-import type { TransactionSql } from "postgres";
 import type { Database } from "../db";
 import type { AppEnv } from "../env";
 import { HttpError } from "../lib/errors";
 import { appendAdminAuditIntent, type AdminAuditInput } from "./adminAudit";
-import { consumeUploadClaims } from "./uploadClaims";
-import { paginateRows, type PaginatedResult } from "../lib/pagination";
-import { escapeLike, normalizeCatalogText } from "../lib/search";
 import {
-  type CardListRow,
+  getPublicationIssueMessages,
+  toPublicationCandidateFromInput,
+  toPublicationCandidateFromPersistedCard,
+} from "./adminCardPolicy";
+import {
+  getAdminCardDetail as readAdminCardDetail,
+  getAdminCardDetailForMutation as readAdminCardDetailForMutation,
+  toAdminCardDetailWithRequiredSpecs,
+} from "./adminCardReads";
+import { consumeUploadClaims } from "./uploadClaims";
+import { normalizeCatalogText } from "../lib/search";
+import {
   type CardRow,
   type CardImageRow,
   type CardSpecRow,
-  type CategoryRow,
   type TerritoryRow,
   toCardDetail,
-  toCardListItem,
-  toCategory,
   toTerritory,
-  getCardByIdAdmin,
 } from "./catalog";
 
 function isPgError(err: unknown, code: string): boolean {
@@ -136,41 +127,6 @@ function validateCategoryFields(
   if (!isCommodity && hasCommodityFields) {
     throw new HttpError(400, "Выбранная категория не использует группу и объём товара");
   }
-}
-
-type PublicationContent = Pick<PublicationCandidate,
-  | "type"
-  | "description"
-  | "priceType"
-  | "priceAmount"
-  | "priceUnit"
-  | "priceReason"
-  | "territoryCode"
-  | "ownershipForm"
-  | "productLocation"
-  | "commodityGroup"
-  | "volumeTonnes"
-  | "serviceAllKazakhstan"
-  | "availability"
->;
-
-type PublicationContext = Pick<PublicationCandidate,
-  | "categoryIsCommodity"
-  | "serviceTerritoryCount"
-  | "imageCount"
-  | "specs"
-  | "requiredSpecs"
->;
-
-/**
- * Единственная server-side сборка кандидата публикации. Разные SQL/read-модели
- * адаптируются к ней, но не принимают собственных решений о готовности карточки.
- */
-function getPublicationIssueMessages(
-  content: PublicationContent,
-  context: PublicationContext,
-): string[] {
-  return getPublicationPolicyIssues({ ...content, ...context }).map((issue) => issue.message);
 }
 
 /**
@@ -304,403 +260,6 @@ async function legacyLocationForInput(env: AppEnv, input: CreateCardInput, db: D
   return `Регион работы: ${names.length} регионов`;
 }
 
-interface AdminCategoryRow extends CategoryRow {
-  card_count: number;
-  active_card_count: number;
-}
-
-function toAdminCategory(row: AdminCategoryRow): AdminCategory {
-  return {
-    ...toCategory(row),
-    cardCount: row.card_count,
-    activeCardCount: row.active_card_count
-  };
-}
-
-/** Все категории вкладки (включая неактивные) — со счётчиками карточек для админ-списка. */
-export async function listCategoriesAdmin(env: AppEnv, type: CatalogType, db: Database): Promise<AdminCategory[]> {
-  const sql = db.sql;
-  const rows = await sql<AdminCategoryRow[]>`
-    select
-      cat.id, cat.type, cat.name, cat.sort_order, cat.is_active, cat.is_commodity, cat.created_at, cat.updated_at,
-      cat.required_specs,
-      count(c.id)::int as card_count,
-      count(c.id) filter (
-        where c.published_at is not null and c.archived_at is null
-      )::int as active_card_count
-    from categories cat
-    left join cards c on c.category_id = cat.id
-    where cat.type = ${type}
-    group by cat.id
-    order by cat.sort_order, cat.name
-  `;
-  return rows.map(toAdminCategory);
-}
-
-/** Создание категории. 409, если активная категория с таким названием уже есть. */
-export async function createCategory(
-  env: AppEnv,
-  input: CreateCategoryInput,
-  db: Database,
-  audit?: AdminAuditInput,
-): Promise<Category> {
-  const sql = db.sql;
-  const name = normalizeCatalogText(input.name);
-  try {
-    return await sql.begin(async (tx) => {
-      const [row] = await tx<CategoryRow[]>`
-        insert into categories (type, name, sort_order, is_commodity, required_specs)
-        values (${input.type}, ${name}, ${input.sortOrder}, ${input.type === "product" && input.isCommodity}, ${input.requiredSpecs.map(normalizeCatalogText)})
-        returning id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
-      `;
-      if (audit) await appendAdminAuditIntent(tx, audit);
-      return toCategory(row!);
-    });
-  } catch (err) {
-    if (isPgError(err, "23505")) {
-      throw new HttpError(409, "Категория с таким названием уже есть");
-    }
-    throw err;
-  }
-}
-
-/** Переименование/перемещение категории. Тип не меняется. */
-export async function updateCategory(
-  env: AppEnv,
-  id: string,
-  input: UpdateCategoryInput,
-  db: Database,
-  audit?: AdminAuditInput,
-): Promise<Category> {
-  const sql = db.sql;
-  const columns: Record<string, string | number | boolean | string[]> = {};
-  if (input.name !== undefined) columns.name = normalizeCatalogText(input.name);
-  if (input.sortOrder !== undefined) columns.sort_order = input.sortOrder;
-  if (input.requiredSpecs !== undefined) columns.required_specs = input.requiredSpecs.map(normalizeCatalogText);
-  if (input.isCommodity !== undefined) columns.is_commodity = input.isCommodity;
-
-  const keys = Object.keys(columns);
-  if (keys.length === 0) {
-    return sql.begin(async (tx) => {
-      const [row] = await tx<CategoryRow[]>`
-        select id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
-        from categories where id = ${id}
-      `;
-      if (!row) throw new HttpError(404, "Категория не найдена");
-      if (audit) await appendAdminAuditIntent(tx, audit);
-      return toCategory(row);
-    });
-  }
-
-  try {
-    return await sql.begin(async (tx) => {
-      const [current] = await tx<{ type: CatalogType; is_commodity: boolean }[]>`
-        select type, is_commodity from categories where id = ${id}
-        for update
-      `;
-      if (!current) throw new HttpError(404, "Категория не найдена");
-      if (current.type === "service" && input.isCommodity) {
-        throw new HttpError(400, "Группа продукции доступна только для товарной категории");
-      }
-      if (input.isCommodity !== undefined && current.is_commodity !== input.isCommodity) {
-        const [active] = await tx<{ count: string }[]>`
-          select count(*) from cards
-          where category_id = ${id} and published_at is not null and archived_at is null
-        `;
-        if (Number(active?.count ?? 0) > 0) {
-          throw new HttpError(409, "Сначала скройте опубликованные карточки в категории, затем измените признак товарной категории");
-        }
-      }
-
-      const [row] = await tx<CategoryRow[]>`
-        update categories set ${tx(columns, ...keys)}
-        where id = ${id}
-        returning id, type, name, sort_order, is_active, is_commodity, required_specs, created_at, updated_at
-      `;
-      if (!row) throw new HttpError(404, "Категория не найдена");
-      if (audit) await appendAdminAuditIntent(tx, audit);
-      return toCategory(row);
-    });
-  } catch (err) {
-    if (isPgError(err, "23505")) {
-      throw new HttpError(409, "Категория с таким названием уже есть");
-    }
-    throw err;
-  }
-}
-
-/** Удаление категории. Запрещено, пока в ней есть карточки. */
-export async function deleteCategory(
-  env: AppEnv,
-  id: string,
-  db: Database,
-  audit?: AdminAuditInput,
-): Promise<void> {
-  const sql = db.sql;
-  try {
-    await sql.begin(async (tx) => {
-      const [count] = await tx<{ count: string }[]>`
-        select count(*) from cards where category_id = ${id}
-      `;
-      if (Number(count?.count ?? 0) > 0) {
-        throw new HttpError(409, "Нельзя удалить категорию, пока в ней есть карточки");
-      }
-      const [row] = await tx<{ id: string }[]>`delete from categories where id = ${id} returning id`;
-      if (!row) throw new HttpError(404, "Категория не найдена");
-      if (audit) await appendAdminAuditIntent(tx, audit);
-    });
-  } catch (err) {
-    if (err instanceof HttpError) throw err;
-    if (isPgError(err, "23503")) {
-      throw new HttpError(409, "Нельзя удалить категорию, пока в ней есть карточки");
-    }
-    throw err;
-  }
-}
-
-// --- Карточки ---
-
-interface AdminCardListRow extends CardListRow {
-  description: string;
-  price_reason: string | null;
-  sort_order: number;
-  published_at: Date | null;
-  archived_at: Date | null;
-  image_count: number;
-  spec_keys: string[];
-  required_specs: string[];
-  updated_at: Date;
-  service_territory_count: number;
-  is_commodity: boolean;
-}
-
-function toAdminCardListItem(row: AdminCardListRow, env: AppEnv): AdminCardListItem {
-  const reviewIssues = getPublicationIssueMessages({
-    type: row.type,
-    description: row.description,
-    priceType: row.price_type,
-    priceAmount: row.price_amount,
-    priceUnit: row.price_unit,
-    priceReason: row.price_reason,
-    territoryCode: row.territory_code,
-    ownershipForm: row.ownership_form,
-    productLocation: row.product_location,
-    commodityGroup: row.commodity_group,
-    volumeTonnes: row.volume_tonnes === null ? null : Number(row.volume_tonnes),
-    serviceAllKazakhstan: row.service_all_kazakhstan,
-    availability: row.availability,
-  }, {
-    categoryIsCommodity: row.is_commodity,
-    serviceTerritoryCount: row.service_territory_count,
-    imageCount: row.image_count,
-    specs: row.spec_keys.map((key) => ({ key, value: "filled" })),
-    requiredSpecs: row.required_specs,
-  });
-  return {
-    ...toCardListItem(row, env),
-    sortOrder: row.sort_order,
-    publishedAt: row.published_at ? row.published_at.toISOString() : null,
-    archivedAt: row.archived_at ? row.archived_at.toISOString() : null,
-    publicationStatus: getPublicationStatus(row.published_at, row.archived_at),
-    needsReview: reviewIssues.length > 0,
-    reviewIssues,
-    updatedAt: row.updated_at.toISOString()
-  };
-}
-
-/** Список карточек (админ) — как публичный каталог, но без фильтра по видимости. */
-export async function adminListCards(
-  env: AppEnv,
-  query: AdminCardListQuery,
-  db: Database,
-): Promise<PaginatedResult<AdminCardListItem>> {
-  const sql = db.sql;
-  const searchPattern = query.search ? `%${escapeLike(normalizeCatalogText(query.search))}%` : null;
-  const archivedFilter = query.archived === "active" ? false : query.archived === "archived" ? true : null;
-  const rows = await sql<AdminCardListRow[]>`
-    select
-      c.id, c.type, c.category_id, c.title, c.description, c.price_type, c.price_amount,
-      c.price_unit, c.price_reason, c.location, c.availability, c.commodity_group, c.volume_tonnes,
-      c.territory_code, territory.name as territory_name, territory.kind as territory_kind,
-      territory.sort_order as territory_sort_order,
-      c.ownership_form, c.product_location, c.service_all_kazakhstan,
-      c.sort_order, c.published_at, c.archived_at, c.updated_at,
-      cat.required_specs, cat.is_commodity,
-      img.first_image_path, img.image_count,
-      service.service_territories, service.service_territory_count,
-      spec.first_spec_key, spec.first_spec_value, spec.spec_keys
-    from cards c
-    join categories cat on cat.id = c.category_id
-    left join territories territory on territory.code = c.territory_code
-    left join lateral (
-      select
-        (array_agg(storage_path order by sort_order))[1] as first_image_path,
-        count(*)::int as image_count
-      from card_images where card_id = c.id
-    ) img on true
-    left join lateral (
-      select
-        coalesce(json_agg(json_build_object(
-          'code', t.code, 'name', t.name, 'kind', t.kind, 'sort_order', t.sort_order
-        ) order by cst.sort_order), '[]'::json) as service_territories,
-        count(*)::int as service_territory_count
-      from card_service_territories cst
-      join territories t on t.code = cst.territory_code
-      where cst.card_id = c.id
-    ) service on true
-    left join lateral (
-      select
-        (array_agg(key order by sort_order))[1] as first_spec_key,
-        (array_agg(value order by sort_order))[1] as first_spec_value,
-        coalesce(array_agg(key order by sort_order), '{}') as spec_keys
-      from card_specs where card_id = c.id
-    ) spec on true
-    where (${query.type ?? null}::catalog_type is null or c.type = ${query.type ?? null}::catalog_type)
-      and (${query.categoryId ?? null}::uuid is null or c.category_id = ${query.categoryId ?? null}::uuid)
-      and (${searchPattern}::text is null or c.title ilike ${searchPattern})
-      and (${archivedFilter}::boolean is null or (c.archived_at is not null) = ${archivedFilter}::boolean)
-    order by c.sort_order, c.title, c.id
-    limit ${query.limit + 1} offset ${query.offset}
-  `;
-  const items = rows.map((row) => toAdminCardListItem(row, env));
-  return paginateRows(items, query.limit, query.offset);
-}
-
-function toAdminCardDetailWithRequiredSpecs(
-  detail: CardDetail,
-  requiredSpecs: string[],
-  categoryIsCommodity: boolean,
-): AdminCardDetail {
-  const reviewIssues = getPublicationIssueMessages({
-    type: detail.type,
-    description: detail.description,
-    priceType: detail.priceType,
-    priceAmount: detail.priceAmount,
-    priceUnit: detail.priceUnit,
-    priceReason: detail.priceReason,
-    territoryCode: detail.territory?.code ?? null,
-    ownershipForm: detail.ownershipForm,
-    productLocation: detail.productLocation,
-    commodityGroup: detail.commodityGroup,
-    volumeTonnes: detail.volumeTonnes,
-    serviceAllKazakhstan: detail.serviceAllKazakhstan,
-    availability: detail.availability,
-  }, {
-    categoryIsCommodity,
-    serviceTerritoryCount: detail.serviceTerritories.length,
-    imageCount: detail.images.length,
-    specs: detail.specs,
-    requiredSpecs,
-  });
-  return {
-    ...detail,
-    publicationStatus: getPublicationStatus(
-      detail.publishedAt ? new Date(detail.publishedAt) : null,
-      detail.archivedAt ? new Date(detail.archivedAt) : null,
-    ),
-    needsReview: reviewIssues.length > 0,
-    reviewIssues,
-  };
-}
-
-async function toAdminCardDetail(env: AppEnv, detail: CardDetail, db: Database): Promise<AdminCardDetail> {
-  const sql = db.sql;
-  const [category] = await sql<{ required_specs: string[]; is_commodity: boolean }[]>`
-    select required_specs, is_commodity from categories where id = ${detail.categoryId}
-  `;
-  return toAdminCardDetailWithRequiredSpecs(detail, category?.required_specs ?? [], category?.is_commodity ?? false);
-}
-
-async function getAdminCardDetailInTransaction(
-  env: AppEnv,
-  tx: TransactionSql,
-  id: string,
-): Promise<AdminCardDetail | undefined> {
-  const [row] = await tx<CardRow[]>`
-    select
-      c.id, c.type, c.category_id, c.title, c.description, c.price_type, c.price_amount,
-      c.price_unit, c.price_reason, c.location, c.availability, c.commodity_group, c.volume_tonnes,
-      c.territory_code, territory.name as territory_name, territory.kind as territory_kind,
-      territory.sort_order as territory_sort_order,
-      c.ownership_form, c.product_location, c.product_location_detail, c.service_all_kazakhstan,
-      c.sort_order, c.version, c.published_at, c.archived_at, c.created_at, c.updated_at
-    from cards c
-    left join territories territory on territory.code = c.territory_code
-    where c.id = ${id}
-    for share of c
-  `;
-  if (!row) return undefined;
-
-  const images = await tx<CardImageRow[]>`
-    select id, storage_path, alt_text, sort_order
-    from card_images where card_id = ${id} order by sort_order
-  `;
-  const specs = await tx<CardSpecRow[]>`
-    select id, key, value, sort_order
-    from card_specs where card_id = ${id} order by sort_order
-  `;
-  const serviceTerritories = await tx<TerritoryRow[]>`
-    select t.code, t.name, t.kind, t.sort_order
-    from card_service_territories cst
-    join territories t on t.code = cst.territory_code
-    where cst.card_id = ${id}
-    order by cst.sort_order
-  `;
-  const [category] = await tx<{ required_specs: string[]; is_commodity: boolean }[]>`
-    select required_specs, is_commodity from categories where id = ${row.category_id}
-    for share
-  `;
-  if (!category) return undefined;
-
-  return toAdminCardDetailWithRequiredSpecs(
-    toCardDetail(row, images, specs, env, serviceTerritories.map(toTerritory)),
-    category.required_specs,
-    category.is_commodity,
-  );
-}
-
-export async function getAdminCardDetail(env: AppEnv, id: string, db: Database): Promise<AdminCardDetail | undefined> {
-  const detail = await getCardByIdAdmin(env, id, db);
-  return detail ? toAdminCardDetail(env, detail, db) : undefined;
-}
-
-/**
- * Reads a card only when the exact update mutation was committed. A normal GET
- * must not be used for ambiguous PUT recovery: another editor may have written
- * the same values with a different mutation id.
- */
-export async function getAdminCardDetailForMutation(
-  env: AppEnv,
-  id: string,
-  mutationId: string,
-  db: Database,
-): Promise<AdminCardDetail | undefined> {
-  const sql = db.sql;
-  return sql.begin(async (tx) => {
-    const [receipt] = await tx<{ card_id: string; result_version: number }[]>`
-      select card_id, result_version
-      from card_update_mutations
-      where mutation_id = ${mutationId} and card_id = ${id}
-    `;
-    if (!receipt) return undefined;
-
-    const detail = await getAdminCardDetailInTransaction(env, tx, id);
-    const [finalCard] = await tx<{ version: number }[]>`
-      select version from cards where id = ${id}
-    `;
-    if (
-      !detail
-      || detail.version !== receipt.result_version
-      || finalCard?.version !== receipt.result_version
-    ) {
-      throw new HttpError(409, "Карточка уже изменена после этого сохранения. Обновите данные перед публикацией", {
-        code: "CARD_CHANGED_AFTER_REPLAY",
-      });
-    }
-    return detail;
-  });
-}
-
 /** Создаёт серверный черновик вместе с уже успешно загруженными фото и характеристиками. */
 export async function createCard(
   env: AppEnv,
@@ -823,7 +382,7 @@ export async function createCard(
       );
     });
     if (replayedCardId) {
-      const existing = await getAdminCardDetail(env, replayedCardId, db);
+      const existing = await readAdminCardDetail(env, replayedCardId, db);
       if (!existing || !cardMatchesCreateInput(existing, normalizedInput, legacyLocation)) {
         throw new HttpError(409, "Эта попытка создания уже использована для другой карточки", {
           code: "CARD_CREATE_REQUEST_REUSED",
@@ -908,27 +467,10 @@ export async function updateCard(
       if (!category) throw new HttpError(400, "Категория не подходит по типу карточки");
       validateCategoryFields(normalizedInput, category.is_commodity);
       if (existingCard.published_at !== null && existingCard.archived_at === null) {
-        const issues = getPublicationIssueMessages({
-          type: normalizedInput.type,
-          description: normalizedInput.description,
-          priceType: normalizedInput.priceType,
-          priceAmount: normalizedInput.priceAmount ?? null,
-          priceUnit: normalizedInput.priceUnit ?? null,
-          priceReason: normalizedInput.priceReason ?? null,
-          territoryCode: normalizedInput.territoryCode ?? null,
-          ownershipForm: normalizedInput.ownershipForm ?? null,
-          productLocation: normalizedInput.productLocation ?? null,
-          commodityGroup: normalizedInput.commodityGroup ?? null,
-          volumeTonnes: normalizedInput.volumeTonnes ?? null,
-          serviceAllKazakhstan: normalizedInput.serviceAllKazakhstan,
-          availability: normalizedInput.type === "service" ? normalizedInput.availability ?? null : null,
-        }, {
+        const issues = getPublicationIssueMessages(toPublicationCandidateFromInput(normalizedInput, {
           categoryIsCommodity: category.is_commodity,
-          serviceTerritoryCount: normalizedInput.serviceTerritoryCodes.length,
-          imageCount: normalizedInput.images.length,
-          specs: normalizedInput.specs,
           requiredSpecs: category.required_specs,
-        });
+        }));
         if (issues.length > 0) {
           throw new HttpError(400, `Сначала скройте карточку или исправьте: ${issues.join("; ")}`);
         }
@@ -1064,7 +606,7 @@ export async function updateCard(
       };
     });
     if ("replayed" in result && result.replayed) {
-      const replayedDetail = await getAdminCardDetailForMutation(env, id, mutationId, db);
+      const replayedDetail = await readAdminCardDetailForMutation(env, id, mutationId, db);
       if (!replayedDetail) {
         throw new HttpError(409, "Карточка уже изменена после этого сохранения. Обновите данные перед публикацией", {
           code: "CARD_CHANGED_AFTER_REPLAY",
@@ -1153,27 +695,13 @@ export async function publishCard(
     const serviceTerritories = await tx<{ count: string }[]>`
       select count(*) from card_service_territories where card_id = ${id}
     `;
-    const issues = getPublicationIssueMessages({
-      type: card.type,
-      description: card.description,
-      priceType: card.price_type,
-      priceAmount: card.price_amount,
-      priceUnit: card.price_unit,
-      priceReason: card.price_reason,
-      territoryCode: card.territory_code,
-      ownershipForm: card.ownership_form,
-      productLocation: card.product_location,
-      commodityGroup: card.commodity_group,
-      volumeTonnes: volumeTonnes ?? null,
-      serviceAllKazakhstan: card.service_all_kazakhstan,
-      availability: card.availability,
-    }, {
+    const issues = getPublicationIssueMessages(toPublicationCandidateFromPersistedCard(card, {
       categoryIsCommodity: category.is_commodity,
       serviceTerritoryCount: Number(serviceTerritories[0]?.count ?? 0),
       imageCount: Number(images[0]?.count ?? 0),
       specs,
       requiredSpecs: category.required_specs,
-    });
+    }));
     if (issues.length > 0) {
       throw new HttpError(400, `Карточка не готова к публикации: ${issues.join("; ")}`);
     }
@@ -1185,7 +713,7 @@ export async function publishCard(
     `;
     if (audit) await appendAdminAuditIntent(tx, audit);
   });
-  return (await getAdminCardDetail(env, id, db))!;
+  return (await readAdminCardDetail(env, id, db))!;
 }
 
 /** Скрывает опубликованную карточку, не превращая её обратно в черновик. */
@@ -1216,5 +744,5 @@ export async function archiveCard(
     }
     if (audit) await appendAdminAuditIntent(tx, audit);
   });
-  return (await getAdminCardDetail(env, id, db))!;
+  return (await readAdminCardDetail(env, id, db))!;
 }

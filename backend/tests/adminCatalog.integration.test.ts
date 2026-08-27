@@ -1,21 +1,36 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import postgres from "postgres";
+import { adminCardListResponse } from "@agromarket/contracts";
 import type { AppEnv } from "../src/env";
 import { createDatabaseInvocation } from "../src/db";
 import {
+  archiveCard as archiveCardRepo,
   createCard as createCardRepo,
-  getAdminCardDetail as getAdminCardDetailRepo,
-  getAdminCardDetailForMutation as getAdminCardDetailForMutationRepo,
+  deleteCard as deleteCardRepo,
   publishCard as publishCardRepo,
   updateCard as updateCardRepo,
-  updateCategory as updateCategoryRepo,
 } from "../src/repos/adminCatalog";
+import {
+  adminListCards as adminListCardsRepo,
+  getAdminCardDetail as getAdminCardDetailRepo,
+  getAdminCardDetailForMutation as getAdminCardDetailForMutationRepo,
+} from "../src/repos/adminCardReads";
+import {
+  createCategory as createCategoryRepo,
+  deleteCategory as deleteCategoryRepo,
+  listCategoriesAdmin as listCategoriesAdminRepo,
+  updateCategory as updateCategoryRepo,
+} from "../src/repos/adminCategories";
 import { appendAdminAuditEvent as appendAdminAuditEventRepo } from "../src/repos/adminAudit";
 import { cleanupE2eRun as cleanupE2eRunRepo } from "../src/repos/e2eCleanup";
 import { acceptTelegramUpdate as acceptTelegramUpdateRepo } from "../src/repos/telegramUpdates";
 import { getCardById, listCards, listCategories } from "../src/repos/catalog";
 import { addFavorite, listFavorites } from "../src/repos/favorites";
 import { createRequest } from "../src/repos/requests";
+import {
+  createUploadClaim as createUploadClaimRepo,
+  markUploadClaimValidated as markUploadClaimValidatedRepo,
+} from "../src/repos/uploadClaims";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const describeIntegration = databaseUrl ? describe : describe.skip;
@@ -48,10 +63,22 @@ describeIntegration("admin catalog persistence", () => {
     updateCardRepo(environment, id, input, db, options);
   const updateCategory = (environment: AppEnv, id: string, input: Parameters<typeof updateCategoryRepo>[2]) =>
     updateCategoryRepo(environment, id, input, db);
+  const createCategory = (environment: AppEnv, input: Parameters<typeof createCategoryRepo>[1]) =>
+    createCategoryRepo(environment, input, db);
+  const listCategoriesAdmin = (environment: AppEnv, type: "product" | "service") =>
+    listCategoriesAdminRepo(environment, type, db);
   const publishCard = (environment: AppEnv, id: string, expectedVersion: number) =>
     publishCardRepo(environment, id, expectedVersion, db);
+  const archiveCard = (environment: AppEnv, id: string, expectedVersion: number) =>
+    archiveCardRepo(environment, id, expectedVersion, db);
+  const deleteCard = (environment: AppEnv, id: string, expectedVersion: number) =>
+    deleteCardRepo(environment, id, expectedVersion, db);
+  const deleteCategory = (environment: AppEnv, id: string) =>
+    deleteCategoryRepo(environment, id, db);
   const getAdminCardDetail = (environment: AppEnv, id: string) =>
     getAdminCardDetailRepo(environment, id, db);
+  const adminListCards = (environment: AppEnv, query: Parameters<typeof adminListCardsRepo>[1]) =>
+    adminListCardsRepo(environment, query, db);
   const getAdminCardDetailForMutation = (environment: AppEnv, id: string, mutationId: string) =>
     getAdminCardDetailForMutationRepo(environment, id, mutationId, db);
   const appendAdminAuditEvent = (environment: AppEnv, input: Parameters<typeof appendAdminAuditEventRepo>[1]) =>
@@ -60,6 +87,12 @@ describeIntegration("admin catalog persistence", () => {
     acceptTelegramUpdateRepo(environment, updateId, action, db);
   const cleanupE2eRun = (environment: Parameters<typeof cleanupE2eRunRepo>[0]) =>
     cleanupE2eRunRepo(environment, db);
+  const createUploadClaim = (environment: AppEnv, input: Parameters<typeof createUploadClaimRepo>[1]) =>
+    createUploadClaimRepo(environment, input, db);
+  const markUploadClaimValidated = (
+    environment: AppEnv,
+    input: Parameters<typeof markUploadClaimValidatedRepo>[1],
+  ) => markUploadClaimValidatedRepo(environment, input, db);
   const realFetch = globalThis.fetch;
   let categoryId: string;
   const auditUserId = crypto.randomUUID();
@@ -100,7 +133,7 @@ describeIntegration("admin catalog persistence", () => {
 
   test("создаёт черновик, сохраняет фото и данные, затем публикует", async () => {
     const created = await createCard(env, {
-      type: "product",
+      type: "product" as const,
       categoryId,
       title: "Интеграционная карточка",
       description: "Описание до публикации",
@@ -129,6 +162,18 @@ describeIntegration("admin catalog persistence", () => {
       "Укажите единицу цены",
       "Заполните характеристику «Год выпуска»",
     ]));
+    const draftList = adminCardListResponse.parse(await adminListCards(env, {
+      type: "product",
+      categoryId,
+      archived: "all",
+      limit: 20,
+      offset: 0,
+    }));
+    expect(draftList.items.find((card) => card.id === created.id)).toMatchObject({
+      needsReview: created.needsReview,
+      reviewIssues: created.reviewIssues,
+      publicationStatus: created.publicationStatus,
+    });
 
     const updated = await updateCard(env, created.id, {
       type: "product",
@@ -158,10 +203,142 @@ describeIntegration("admin catalog persistence", () => {
     expect(updated.detail.reviewIssues).toEqual([]);
     expect(updated.detail.images.map((image) => image.storagePath)).toEqual(["cards/11111111-1111-4111-8111-111111111111.jpg"]);
     expect(updated.detail.version).toBe(created.version + 1);
+    const readyList = adminCardListResponse.parse(await adminListCards(env, {
+      type: "product",
+      categoryId,
+      archived: "all",
+      limit: 20,
+      offset: 0,
+    }));
+    expect(readyList.items.find((card) => card.id === created.id)).toMatchObject({
+      needsReview: updated.detail.needsReview,
+      reviewIssues: updated.detail.reviewIssues,
+      publicationStatus: updated.detail.publicationStatus,
+    });
 
     const published = await publishCard(env, created.id, updated.detail.version);
     expect(published.publicationStatus).toBe("published");
     expect(published.reviewIssues).toEqual([]);
+  });
+
+  test("не удаляет занятую категорию и поддерживает archive/delete lifecycle", async () => {
+    const ownCategoryId = crypto.randomUUID();
+    await sql`
+      insert into categories (id, type, name, sort_order, is_commodity, required_specs)
+      values (${ownCategoryId}, 'product', ${`[integration] lifecycle ${ownCategoryId}`}, 0, false, '{}')
+    `;
+
+    try {
+      const draft = await createCard(env, {
+        type: "product",
+        categoryId: ownCategoryId,
+        title: "Карточка archive/delete",
+        description: "Готовое описание для жизненного цикла",
+        priceType: "fixed",
+        priceAmount: 1000,
+        priceUnit: "за тонну",
+        priceReason: null,
+        location: null,
+        territoryCode: "abay_region",
+        ownershipForm: "peasant_farm",
+        productLocation: "elevator",
+        productLocationDetail: null,
+        serviceAllKazakhstan: false,
+        serviceTerritoryCodes: [],
+        availability: null,
+        sortOrder: 0,
+        images: [{ storagePath: `cards/${crypto.randomUUID()}.jpg`, sortOrder: 0 }],
+        specs: [],
+      });
+
+      await expect(deleteCategory(env, ownCategoryId)).rejects.toMatchObject({ status: 409 });
+      const published = await publishCard(env, draft.id, draft.version);
+      const archived = await archiveCard(env, published.id, published.version);
+      expect(archived.publicationStatus).toBe("archived");
+
+      await expect(deleteCard(env, archived.id, archived.version)).resolves.toEqual([
+        archived.images[0]?.storagePath,
+      ]);
+      expect(await getAdminCardDetail(env, archived.id)).toBeUndefined();
+    } finally {
+      await sql`delete from cards where category_id = ${ownCategoryId}`;
+      await sql`delete from categories where id = ${ownCategoryId}`;
+    }
+  });
+
+  test("category boundary characterizes create/list/update/delete", async () => {
+    const created = await createCategory(env, {
+      type: "service",
+      name: `Категория границы ${crypto.randomUUID()}`,
+      sortOrder: 7,
+      isCommodity: false,
+      requiredSpecs: ["Лицензия"],
+    });
+
+    try {
+      const updated = await updateCategory(env, created.id, {
+        name: `${created.name} (обновлено)`,
+        sortOrder: 8,
+        requiredSpecs: ["Опыт"],
+      });
+      expect(updated).toMatchObject({
+        id: created.id,
+        sortOrder: 8,
+        requiredSpecs: ["Опыт"],
+      });
+      expect((await listCategoriesAdmin(env, "service")).find((category) => category.id === created.id)).toMatchObject({
+        name: updated.name,
+        cardCount: 0,
+        activeCardCount: 0,
+      });
+    } finally {
+      await deleteCategory(env, created.id);
+    }
+
+    expect((await listCategoriesAdmin(env, "service")).find((category) => category.id === created.id)).toBeUndefined();
+  });
+
+  test("create consumes only the actor's validated upload claim", async () => {
+    const storagePath = `cards/${crypto.randomUUID()}.jpg`;
+    await createUploadClaim(env, {
+      storagePath,
+      issuerUserId: auditUserId,
+      contentType: "image/jpeg",
+    });
+    await markUploadClaimValidated(env, {
+      storagePath,
+      issuerUserId: auditUserId,
+      contentType: "image/jpeg",
+    });
+
+    const input = {
+      type: "product",
+      categoryId,
+      title: "Карточка с claimed upload",
+      description: "Описание",
+      priceType: "fixed",
+      priceAmount: 1000,
+      priceUnit: null,
+      priceReason: null,
+      location: null,
+      territoryCode: "abay_region",
+      ownershipForm: "peasant_farm",
+      productLocation: "elevator",
+      productLocationDetail: null,
+      serviceAllKazakhstan: false,
+      serviceTerritoryCodes: [],
+      availability: null,
+      sortOrder: 0,
+      images: [{ storagePath, sortOrder: 0 }],
+      specs: [],
+    };
+    await expect(createCard(env, input, { actorUserId: crypto.randomUUID() })).rejects.toMatchObject({ status: 409 });
+
+    const card = await createCard(env, input, { actorUserId: auditUserId });
+    expect(card.images.map((image) => image.storagePath)).toEqual([storagePath]);
+    expect(await sql<{ consumed_at: Date | null }[]>`
+      select consumed_at from app_private.card_image_upload_claims where storage_path = ${storagePath}
+    `).toEqual([expect.objectContaining({ consumed_at: expect.any(Date) })]);
   });
 
   test("публичная видимость едина для каталога, избранного и заявок", async () => {

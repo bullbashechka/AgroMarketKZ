@@ -4,6 +4,7 @@
 **Этап:** 1  
 **Оценка:** M  
 **Зависимости:** TD-001, TD-005; координировать с TD-006.
+**Статус:** выполнено 27.08.2026 (независимый review: 9/10; P2 coverage устранено).
 
 ## Проблема и граница
 
@@ -39,3 +40,13 @@ bun run typecheck
 ## Вероятные файлы
 
 `backend/src/repos/adminCatalog.ts`, `backend/src/repos/catalog.ts`, `favorites.ts`, `requests.ts`, новые узкие catalog repo modules, integration tests.
+
+## Итоговое решение
+
+`adminCategories` владеет category CRUD и счётчиками, `adminCardReads` —
+админскими list/detail projections, а `adminCatalog` оставлен только для
+атомарного card lifecycle. Policy-модуль содержит явные adapters из input,
+persisted row, admin list и detail в `PublicationCandidate`; DTO mapping и
+policy candidate больше не смешиваются. Интеграционные проверки покрывают
+category CRUD/list, create/update/publish/archive/delete, category-in-use,
+actor-owned upload claims и parity review state между list/detail.

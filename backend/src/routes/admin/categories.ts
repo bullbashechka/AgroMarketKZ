@@ -10,7 +10,7 @@ import { z } from "zod";
 import { getDatabase, getEnv, type HonoEnv } from "../../env";
 import { runAdminMutation } from "../../lib/adminAuditRequest";
 import { HttpError } from "../../lib/errors";
-import { createCategory, deleteCategory, listCategoriesAdmin, updateCategory } from "../../repos/adminCatalog";
+import { createCategory, deleteCategory, listCategoriesAdmin, updateCategory } from "../../repos/adminCategories";
 
 export const adminCategoriesRoutes = new Hono<HonoEnv>();
 
