@@ -50,10 +50,10 @@ export function TabBar() {
     const root = tabRootPath(section);
     if (section === activeSection) {
       resetTab(section);
-      navigate({ href: root });
+      void navigate({ href: root });
       return;
     }
-    navigate({ href: getRememberedHref(section) ?? root });
+    void navigate({ href: getRememberedHref(section) ?? root });
   }
 
   return (

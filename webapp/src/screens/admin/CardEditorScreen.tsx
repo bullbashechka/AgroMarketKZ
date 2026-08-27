@@ -249,7 +249,7 @@ function CardEditorForm({
     cacheSavedCard(card);
     if (mode === "create") clearCardDraft();
     hapticNotify("success");
-    navigate({ href: mode === "create" ? `/admin/cards/${card.id}` : "/admin/cards" });
+    void navigate({ href: mode === "create" ? `/admin/cards/${card.id}` : "/admin/cards" });
   }
 
   function cacheSavedCard(card: AdminCardDetail) {
@@ -465,7 +465,7 @@ function CardEditorForm({
     onError: (error) => {
       setErrors({ form: formatApiError(error, "Не удалось скрыть карточку") });
       void reconcileCardMutation(initial!.id).then((result) => {
-        if (result === "deleted") navigate({ href: "/admin/cards" });
+        if (result === "deleted") void navigate({ href: "/admin/cards" });
       });
     },
   });
@@ -476,7 +476,7 @@ function CardEditorForm({
     onSuccess: () => {
       qc.removeQueries({ queryKey: adminCatalogQueryKeys.card(initial!.id) });
       invalidateCatalogQueries(initial!.id);
-      navigate({ href: "/admin/cards" });
+      void navigate({ href: "/admin/cards" });
     },
     onError: (error) => {
       setDeleteOpen(false);
@@ -484,7 +484,7 @@ function CardEditorForm({
       void reconcileCardMutation(initial!.id).then((result) => {
         if (result === "deleted") {
           qc.removeQueries({ queryKey: adminCatalogQueryKeys.card(initial!.id) });
-          navigate({ href: "/admin/cards" });
+          void navigate({ href: "/admin/cards" });
         }
       });
     },

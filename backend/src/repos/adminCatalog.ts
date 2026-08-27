@@ -1,6 +1,5 @@
 import type {
   AdminCardDetail,
-  CatalogType,
   CreateCardInput,
   UpdateCardInput,
 } from "@agromarket/contracts";

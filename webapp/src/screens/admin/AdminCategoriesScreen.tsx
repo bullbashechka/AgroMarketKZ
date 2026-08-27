@@ -47,7 +47,7 @@ export function AdminCategoriesScreen() {
   const [sheet, setSheet] = useState<Sheet>(null);
 
   function handleTypeChange(nextType: CatalogType) {
-    navigate({ href: `/admin/categories?type=${nextType}`, replace: true });
+    void navigate({ href: `/admin/categories?type=${nextType}`, replace: true });
   }
 
   function invalidate() {

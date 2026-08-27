@@ -26,7 +26,7 @@ function ListRow({
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
     event.preventDefault();
-    const go = () => navigate({ href });
+    const go = () => void navigate({ href });
     if (registrationReason && !profile?.isRegistered) {
       requireRegistration(go, registrationReason);
       return;

@@ -18,13 +18,12 @@ export function Screen({ title, back, fallbackTo, children }: ScreenProps) {
 
   const goBack = () => {
     if (canGoBack) router.history.back();
-    else navigate({ href: fallbackTo ?? "/" });
+    else void navigate({ href: fallbackTo ?? "/" });
   };
 
   useEffect(() => {
     if (!back) return;
     return showBackButton(goBack);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [back]);
 
   return (

@@ -37,20 +37,19 @@ export function CategoryScreen({ type, section }: CategoryScreenProps) {
   useEffect(() => {
     const nextQuery = debouncedQuery.trim();
     if (nextQuery === activeQuery) return;
-    navigate({
+    void navigate({
       href: basePath + buildSearchQuery({ ...search, q: nextQuery || undefined }),
       replace: true
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
   function handlePriceChange(price: CatalogSearch["price"]) {
-    navigate({ href: basePath + buildSearchQuery({ ...search, price }), replace: true });
+    void navigate({ href: basePath + buildSearchQuery({ ...search, price }), replace: true });
   }
 
   function goToWholeTab(event: MouseEvent) {
     event.preventDefault();
-    navigate({ href: tabRootPath(section) + buildSearchQuery({ ...search, q: activeQuery || undefined }) });
+    void navigate({ href: tabRootPath(section) + buildSearchQuery({ ...search, q: activeQuery || undefined }) });
   }
 
   return (

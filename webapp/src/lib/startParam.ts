@@ -24,5 +24,5 @@ export function consumeStartParam(router: typeof appRouter): void {
   const match = /^request_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(param);
   if (!match) return;
 
-  router.navigate({ to: "/admin/requests/$requestId", params: { requestId: match[1]! } });
+  void router.navigate({ to: "/admin/requests/$requestId", params: { requestId: match[1]! } });
 }

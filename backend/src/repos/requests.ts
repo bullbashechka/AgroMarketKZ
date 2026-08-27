@@ -5,7 +5,6 @@ import type {
   RequestListQuery,
   Territory,
   CommodityGroup,
-  VolumeTonnes
 } from "@agromarket/contracts";
 import type { Database } from "../db";
 import type { AppEnv } from "../env";

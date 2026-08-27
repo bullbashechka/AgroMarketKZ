@@ -57,7 +57,7 @@ export function ProductFilters({ basePath, search }: ProductFiltersProps) {
 
   function apply() {
     setOpen(false);
-    navigate({ href: basePath + buildSearchQuery(draft), replace: true });
+    void navigate({ href: basePath + buildSearchQuery(draft), replace: true });
   }
 
   function reset() {

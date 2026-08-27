@@ -37,7 +37,7 @@ function AdminSettingsForm({ initial }: { initial: AdminPlatformSettings }) {
       apiPatch<AdminPlatformSettings>("/admin/settings", input),
     onSuccess: (settings) => {
       qc.setQueryData(adminSettingsQueryOptions.queryKey, settings);
-      qc.invalidateQueries({ queryKey: ["settings"] });
+      void qc.invalidateQueries({ queryKey: ["settings"] });
     }
   });
 

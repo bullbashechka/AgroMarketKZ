@@ -23,8 +23,12 @@
     "build": "bun run --cwd packages/contracts build && bun run --cwd backend build && bun run --cwd webapp build",
     "bundle:check": "bun run --cwd webapp bundle:check",
     "types:worker:check": "bun run --cwd backend types:worker:check",
+    "quality:lint": "eslint backend/src backend/tests backend/scripts webapp/src webapp/tests webapp/scripts webapp/vite.config.ts webapp/functions/api/proxy.test.ts packages/contracts/src packages/contracts/tests e2e scripts/quality --max-warnings 0",
+    "quality:probes": "bun run scripts/quality/verifyGates.ts",
+    "security:secrets": "bun run scripts/quality/secretScan.ts",
+    "quality:check": "bun run --cwd packages/contracts build && bun run quality:lint && bun run quality:probes && bun run db:migrations:check && bun run typecheck && bun test backend/tests packages/contracts/tests webapp/tests webapp/functions/api/proxy.test.ts && bun run security:deps && bun run security:secrets && bun run test:integration && bun run build && bun run bundle:check",
     "security:deps": "bun audit --audit-level high",
-    "release:verify": "bun install --frozen-lockfile && bun run types:worker:check && bun run typecheck && bun test backend/tests packages/contracts/tests webapp/tests webapp/functions/api/proxy.test.ts && bun run test:integration && bun run security:deps && bun run build && bun run bundle:check && bun run test:e2e",
+    "release:verify": "bun install --frozen-lockfile && bun run types:worker:check && bun run quality:check && bun run test:e2e",
     "typecheck": "bun run --cwd packages/contracts build && bun run --cwd backend typecheck && bun run --cwd webapp typecheck",
     "load:test": "bun --env-file=.env e2e/scripts/loadTest.ts",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
@@ -35,10 +39,13 @@
     "postcss": "8.5.26"
   },
   "devDependencies": {
+    "@eslint/js": "9.39.3",
     "@playwright/test": "^1.61.1",
     "@types/bun": "latest",
     "concurrently": "10.0.5",
     "dotenv": "^17.4.2",
-    "typescript": "latest"
+    "eslint": "9.39.3",
+    "typescript": "latest",
+    "typescript-eslint": "8.68.0"
   }
 }

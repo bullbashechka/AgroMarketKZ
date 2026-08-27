@@ -33,7 +33,7 @@ export function AdminRequestsScreen() {
     const el = sentinelRef.current;
     if (!el || !hasNextPage) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting) fetchNextPage();
+      if (entries[0]?.isIntersecting) void fetchNextPage();
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -43,13 +43,13 @@ export function AdminRequestsScreen() {
     mutationFn: ({ id, nextStatus }: { id: string; nextStatus: RequestStatus }) =>
       apiPatch<Request>(`/admin/requests/${id}/status`, { status: nextStatus }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-requests"] });
-      qc.invalidateQueries({ queryKey: ["admin-requests-badge"] });
+      void qc.invalidateQueries({ queryKey: ["admin-requests"] });
+      void qc.invalidateQueries({ queryKey: ["admin-requests-badge"] });
     }
   });
 
   function handleStatusChange(status: RequestStatus) {
-    navigate({ href: `/admin/requests?status=${status}`, replace: true });
+    void navigate({ href: `/admin/requests?status=${status}`, replace: true });
   }
 
   return (

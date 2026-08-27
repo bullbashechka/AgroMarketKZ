@@ -1,0 +1,2 @@
+# Intentionally empty: the reviewed full-history baseline has no ignored findings.
+# Add only a Gitleaks fingerprint with a matching documented exception; never add a wildcard.

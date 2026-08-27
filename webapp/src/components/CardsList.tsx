@@ -31,7 +31,7 @@ export function CardsList({ type, categoryId, search, price, region, sort, commo
     const el = sentinelRef.current;
     if (!el || !hasNextPage) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting) fetchNextPage();
+      if (entries[0]?.isIntersecting) void fetchNextPage();
     });
     observer.observe(el);
     return () => observer.disconnect();

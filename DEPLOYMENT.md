@@ -39,11 +39,7 @@
 ## Проверки перед деплоем (CI нет — делать руками)
 
 ```bash
-bun run typecheck                 # типы во всех воркспейсах
-bun run security:deps             # high/critical dependency advisories = 0
-cd backend && bun test && cd ..   # юнит-тесты backend
-bun run --cwd webapp test         # чистая логика webapp
-bun run build                     # прод-сборка (для webapp нужен SUPABASE_URL в env)
+bun run quality:check             # contracts, lint/probes, migrations, типы, unit/integration, audit, secrets, build
 ```
 
 Полный блокирующий gate:
@@ -52,7 +48,20 @@ bun run build                     # прод-сборка (для webapp нуж�
 bun run release:verify
 ```
 
-Он требует frozen install, typecheck, unit/integration, dependency audit, build и E2E. High/critical reachable advisory, любой неуспешный шаг или E2E вне изолированных ресурсов блокируют production merge. Исключение допускается только с отдельной записью о reachability и сроком устранения.
+Он требует frozen install, worker types, `quality:check` и E2E. `quality:check` выполняет redacted secret scan Git-истории и рабочей копии, не скрывает отсутствие PostgreSQL для integration-тестов и проверяет связку canonical/Supabase migrations. High/critical reachable advisory, любой неуспешный шаг или E2E вне изолированных ресурсов блокируют production merge. Исключение допускается только с отдельной записью о reachability и сроком устранения.
+
+Локальная предпосылка secret gate — `gitleaks 8.30.1` (проверяется самим скриптом). Установка или
+обновление scanner — отдельное dependency-изменение; при необходимости Homebrew: `brew install gitleaks`.
+Любой потенциальный live secret сначала rotate/revoke. Исключение допускается только как один
+fingerprint в `.gitleaksignore` с записью path/reason/owner/expiry/review в
+[`docs/security-exceptions.md`](./docs/security-exceptions.md); значения секретов не записывать.
+
+### Cadence зависимостей
+
+Patch/minor обновления идут маленькими отдельными PR с `bun run quality:check`; major — отдельным
+PR с changelog, явной проверкой совместимости и планом rollback. TypeScript 7 не обновляется в
+рамках обычного dependency maintenance: `quality:probes` fail-closed при установленной версии 7+;
+нужен отдельный согласованный major-PR.
 
 Перед каждым релизом дополнительно:
 

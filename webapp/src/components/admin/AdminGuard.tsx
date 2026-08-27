@@ -9,7 +9,7 @@ export function AdminGuard({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (profile && !profile.isAdmin) {
-      navigate({ href: "/general", replace: true });
+      void navigate({ href: "/general", replace: true });
     }
   }, [profile, navigate]);
 

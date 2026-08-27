@@ -31,19 +31,18 @@ export function AdminCardsScreen() {
   useEffect(() => {
     const nextQuery = debouncedQuery.trim();
     if (nextQuery === (search.q ?? "")) return;
-    navigate({
+    void navigate({
       href: `/admin/cards${buildAdminCardsQuery({ type, categoryId: search.categoryId, q: nextQuery || undefined })}`,
       replace: true
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
   function handleTypeChange(nextType: CatalogType) {
-    navigate({ href: `/admin/cards${buildAdminCardsQuery({ type: nextType, q: search.q })}`, replace: true });
+    void navigate({ href: `/admin/cards${buildAdminCardsQuery({ type: nextType, q: search.q })}`, replace: true });
   }
 
   function handleCategoryChange(categoryId: string | undefined) {
-    navigate({ href: `/admin/cards${buildAdminCardsQuery({ type, categoryId, q: search.q })}`, replace: true });
+    void navigate({ href: `/admin/cards${buildAdminCardsQuery({ type, categoryId, q: search.q })}`, replace: true });
   }
 
   const { data, isPending, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery(
@@ -56,7 +55,7 @@ export function AdminCardsScreen() {
     const el = sentinelRef.current;
     if (!el || !hasNextPage) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting) fetchNextPage();
+      if (entries[0]?.isIntersecting) void fetchNextPage();
     });
     observer.observe(el);
     return () => observer.disconnect();

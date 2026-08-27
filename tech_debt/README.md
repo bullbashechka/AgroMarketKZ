@@ -29,7 +29,7 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 | 009 | P1 | ✅ [Route splitting и бюджет стартового bundle](009-route-splitting-and-bundle-budget.md) | Закрыта 27.08.2026: вторичные маршруты вынесены, initial graph ограничен проверяемым budget. |
 | 011 | P1 | ✅ [Надёжность Storage/Telegram/maintenance I/O](011-external-io-resilience.md) | Закрыта 27.08.2026: bounded I/O и durable maintenance checkpoints. |
 | 013 | P1 | ✅ [Выровнять документацию, env и исторический backlog](013-docs-config-and-backlog-alignment.md) | Закрыта 27.08.2026: docs, E2E env и Worker types выровнены с opaque sessions и актуальным ownership. |
-| 014 | P1 | [Минимальные quality/security gates](014-quality-and-secret-gates.md) | Нет lint/no-floating-promises, secret-history scan и автоматической политики обновлений. |
+| 014 | P1 | ✅ [Минимальные quality/security gates](014-quality-and-secret-gates.md) | Закрыта 27.08.2026: минимальные lint/secret/release gates и dependency cadence проверяемы локально. |
 | 017 | P1 | [Read-only backup/PITR evidence и restore plan](017-backup-and-restore-evidence.md) | Дёшево снять неизвестность RPO/RTO до построения нового backup-механизма. |
 | 018 | P1 | [Effective grants и runtime capability audit](018-runtime-capability-audit.md) | Измерить реальный blast radius до дорогой сегментации credentials. |
 | 019 | P1 | [Verified release descriptor и read-only preflight](019-verified-release-descriptor.md) | Связать Pages, Worker и migration state без нового staging/CI. |

@@ -171,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     updateProfilePending: updateProfileMutation.isPending,
     refreshProfile: async () => (await profileQuery.refetch()).data,
     retry: () => {
-      profileQuery.refetch();
+      void profileQuery.refetch();
     }
   };
 

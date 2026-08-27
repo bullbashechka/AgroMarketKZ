@@ -273,7 +273,7 @@ describeIntegration("notification outbox durability", () => {
     }
   });
 
-  test("records a Telegram rejection as retryable outbox failure", async () => {
+  test("records a Telegram rejection without a speculative duplicate send", async () => {
     const fixture = await createFixture("telegram rejection");
     const db = openIntegrationDatabase();
 
@@ -281,7 +281,7 @@ describeIntegration("notification outbox durability", () => {
       await setAdminChatId("-100820000003");
       await withTelegramFetch(async (calls) => {
         await expect(processNotificationOutbox(integrationEnv, fixture.outboxId, db)).resolves.toBe(false);
-        expect(calls).toHaveLength(2);
+        expect(calls).toHaveLength(1);
       }, () => new Response("rejected", { status: 503 }));
       const failed = await readOutbox(fixture.outboxId);
       expect(failed).toMatchObject({

@@ -49,7 +49,7 @@ export function useToggleFavorite() {
       if (context?.previous) qc.setQueryData(favoritesQueryOptions.queryKey, context.previous);
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: favoritesQueryOptions.queryKey });
+      void qc.invalidateQueries({ queryKey: favoritesQueryOptions.queryKey });
     }
   });
 }

@@ -29,7 +29,7 @@ export function CategoryFilter({ type, section, selectedCategoryId, search }: Ca
   function selectCategory(categoryId?: string) {
     setOpen(false);
     const path = categoryId ? `${tabRootPath(section)}/${categoryId}` : tabRootPath(section);
-    navigate({ href: path + buildSearchQuery(search) });
+    void navigate({ href: path + buildSearchQuery(search) });
   }
 
   return (

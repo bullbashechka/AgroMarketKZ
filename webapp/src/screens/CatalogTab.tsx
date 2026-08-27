@@ -35,15 +35,14 @@ export function CatalogTab({ type, section, title }: CatalogTabProps) {
   useEffect(() => {
     const nextQuery = debouncedQuery.trim();
     if (nextQuery === activeQuery) return;
-    navigate({
+    void navigate({
       href: tabRootPath(section) + buildSearchQuery({ ...search, q: nextQuery || undefined }),
       replace: true
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
   function handlePriceChange(price: CatalogSearch["price"]) {
-    navigate({ href: tabRootPath(section) + buildSearchQuery({ ...search, price }), replace: true });
+    void navigate({ href: tabRootPath(section) + buildSearchQuery({ ...search, price }), replace: true });
   }
 
   return (

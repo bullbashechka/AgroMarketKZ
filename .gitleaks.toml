@@ -1,0 +1,8 @@
+title = "AgroMarketKZ secret scan policy"
+
+[extend]
+useDefault = true
+
+# Baseline has zero ignored findings. If an exception is ever necessary, add a
+# fingerprint to .gitleaksignore and document its path, reason, owner and expiry
+# in docs/security-exceptions.md; never allowlist a broad secret pattern.

@@ -159,12 +159,17 @@ Backend и webapp развёрнуты на Cloudflare (Workers + Pages), Telegr
 ## Проверка качества
 
 ```sh
+bun run quality:check # единый gate: contracts, lint/probes, migration-link, типы, unit/integration, audit, secrets и build
 bun run typecheck   # типы во всех воркспейсах (contracts собирается первым)
 bun test backend packages/contracts webapp # юнит-тесты без Playwright-спеков
 bun run test:integration # изолированный PostgreSQL + миграции и persistence-тесты
 bun run test:e2e    # Playwright; нужны изолированные E2E_* DB/Storage/Telegram значения из .env.e2e
 bun run build       # production-сборка всех пакетов
 ```
+
+`quality:check` намеренно останавливается, если локальный PostgreSQL для integration-тестов не
+установлен: это не считается зелёным skip. Для проверки секретов нужен ровно `gitleaks 8.30.1`;
+сканирование Git-истории и рабочей копии работает с redaction и не выводит найденные значения.
 
 Каждый E2E-прогон использует уникальный префикс `[e2e:<run-id>]` и отдельные синтетические
 Telegram id; автоматическая зачистка карточек, категорий, заявок, feedback, Storage и тестовых

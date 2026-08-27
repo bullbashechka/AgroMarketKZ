@@ -45,20 +45,20 @@ export const adminCatalogQueryKeys = {
 
 /** Единственное правило invalidation после admin-card lifecycle mutation. */
 export function invalidateCatalogAfterAdminCardMutation(qc: QueryClient, cardId?: string): void {
-  qc.invalidateQueries({ queryKey: adminCatalogQueryKeys.cards });
-  qc.invalidateQueries({ queryKey: adminCatalogQueryKeys.categories });
-  qc.invalidateQueries({ queryKey: catalogQueryKeys.cards });
-  qc.invalidateQueries({ queryKey: catalogQueryKeys.categories });
-  qc.invalidateQueries({ queryKey: catalogQueryKeys.listingCategories });
-  qc.invalidateQueries({ queryKey: catalogQueryKeys.favorites });
-  if (cardId) qc.invalidateQueries({ queryKey: catalogQueryKeys.card(cardId) });
+  void qc.invalidateQueries({ queryKey: adminCatalogQueryKeys.cards });
+  void qc.invalidateQueries({ queryKey: adminCatalogQueryKeys.categories });
+  void qc.invalidateQueries({ queryKey: catalogQueryKeys.cards });
+  void qc.invalidateQueries({ queryKey: catalogQueryKeys.categories });
+  void qc.invalidateQueries({ queryKey: catalogQueryKeys.listingCategories });
+  void qc.invalidateQueries({ queryKey: catalogQueryKeys.favorites });
+  if (cardId) void qc.invalidateQueries({ queryKey: catalogQueryKeys.card(cardId) });
 }
 
 /** Category mutations affect both admin counters and public creation/filter lists. */
 export function invalidateCatalogAfterAdminCategoryMutation(qc: QueryClient): void {
-  qc.invalidateQueries({ queryKey: adminCatalogQueryKeys.categories });
-  qc.invalidateQueries({ queryKey: catalogQueryKeys.categories });
-  qc.invalidateQueries({ queryKey: catalogQueryKeys.listingCategories });
+  void qc.invalidateQueries({ queryKey: adminCatalogQueryKeys.categories });
+  void qc.invalidateQueries({ queryKey: catalogQueryKeys.categories });
+  void qc.invalidateQueries({ queryKey: catalogQueryKeys.listingCategories });
 }
 
 export const categoriesQueryOptions = (type: CatalogType) =>

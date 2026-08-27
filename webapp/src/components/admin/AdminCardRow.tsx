@@ -16,7 +16,7 @@ export function AdminCardRow({ item, categoryName, href }: AdminCardRowProps) {
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
     event.preventDefault();
-    navigate({ href });
+    void navigate({ href });
   }
 
   return (

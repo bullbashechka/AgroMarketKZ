@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import type { AdminCardDetail } from "@agromarket/contracts";
 import { PublishAfterSaveError } from "../src/lib/cardMutation";
 

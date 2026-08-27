@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { getDatabase, getEnv, type HonoEnv } from "../../env";
 import { runAdminMutation } from "../../lib/adminAuditRequest";
-import { HttpError } from "../../lib/errors";
 import { listRegisteredUsers } from "../../repos/users";
 import { revokeAllUserSessions } from "../../repos/sessions";
 

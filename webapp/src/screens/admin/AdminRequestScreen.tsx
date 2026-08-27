@@ -20,8 +20,8 @@ export function AdminRequestScreen() {
       apiPatch<Request>(`/admin/requests/${requestId}/status`, { status: nextStatus }),
     onSuccess: (request) => {
       qc.setQueryData(adminRequestQueryOptions(requestId).queryKey, request);
-      qc.invalidateQueries({ queryKey: ["admin-requests"] });
-      qc.invalidateQueries({ queryKey: ["admin-requests-badge"] });
+      void qc.invalidateQueries({ queryKey: ["admin-requests"] });
+      void qc.invalidateQueries({ queryKey: ["admin-requests-badge"] });
     }
   });
 

@@ -27,7 +27,7 @@ export function Gallery({ images, title }: GalleryProps) {
     let lightbox: PhotoSwipeLightbox | undefined;
     let cancelled = false;
 
-    import("photoswipe/lightbox").then(({ default: PhotoSwipeLightboxCtor }) => {
+    void import("photoswipe/lightbox").then(({ default: PhotoSwipeLightboxCtor }) => {
       if (cancelled || !containerRef.current) return;
       lightbox = new PhotoSwipeLightboxCtor({
         gallery: containerRef.current,
