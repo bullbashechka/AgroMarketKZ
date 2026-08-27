@@ -1,9 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { AppEnv } from "../src/env";
 import {
   buildCardImagePath,
+  createSignedUploadUrl,
   extFromContentType,
   publicImageUrl,
+  readBoundedStorageJson,
   signedUploadUrlFromResponse
 } from "../src/lib/storage";
 
@@ -71,5 +73,40 @@ describe("signedUploadUrlFromResponse", () => {
     expect(() =>
       signedUploadUrlFromResponse(env, { url: "/object/upload/sign/card-images/cards/a.jpg" })
     ).toThrow();
+  });
+});
+
+describe("Storage outbound boundary", () => {
+  const realFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("sets a timeout for server-side Storage fetches", async () => {
+    let signal: AbortSignal | undefined;
+    globalThis.fetch = (async (_input, init) => {
+      signal = init?.signal as AbortSignal | undefined;
+      return new Response(JSON.stringify({ url: "/object/upload/sign/card-images/cards/a.jpg?token=abc" }));
+    }) as typeof fetch;
+
+    await createSignedUploadUrl({ ...env, SUPABASE_SERVICE_ROLE_KEY: "service-key" } as AppEnv, "cards/a.jpg");
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBeFalse();
+  });
+
+  test("rejects malformed and oversized Storage JSON without reading an unbounded body", async () => {
+    await expect(readBoundedStorageJson(new Response("not-json"))).rejects.toThrow("некорректный ответ");
+    await expect(
+      readBoundedStorageJson(new Response("{}", { headers: { "content-length": String(256 * 1024 + 1) } }))
+    ).rejects.toThrow("слишком большой");
+  });
+
+  test("rejects a valid JSON payload with an invalid Storage shape", async () => {
+    globalThis.fetch = (async () => new Response("{}")) as typeof fetch;
+
+    await expect(
+      createSignedUploadUrl({ ...env, SUPABASE_SERVICE_ROLE_KEY: "service-key" } as AppEnv, "cards/a.jpg")
+    ).rejects.toThrow("некорректный ответ");
   });
 });

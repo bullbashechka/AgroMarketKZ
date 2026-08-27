@@ -7,6 +7,7 @@ import {
   listCardImageObjects,
   type StorageObjectSummary
 } from "./storage";
+import { hasMaintenanceBudget } from "./maintenanceBudget";
 
 /** Не трогать объект, пока он моложе окна — черновик карточки мог не быть отправлен. */
 export const CLEANUP_GRACE_PERIOD_DAYS = 7;
@@ -80,6 +81,8 @@ export interface CleanupSummary {
   skippedTooRecent: number;
   deleted: number;
   failed: number;
+  remaining: number | null;
+  checkpoint: { offset: number };
   durationMs: number;
 }
 
@@ -90,7 +93,7 @@ export interface CleanupSummary {
  * Идемпотентна: состояние между запусками не хранится, уже удалённые объекты просто не попадут
  * в следующий listing.
  */
-export async function runStorageCleanup(env: AppEnv, db: Database): Promise<CleanupSummary> {
+export async function runStorageCleanup(env: AppEnv, db: Database, resume?: { offset?: number }): Promise<CleanupSummary> {
   const startedAt = Date.now();
   const dryRun = env.STORAGE_CLEANUP_DRY_RUN !== "false";
   const now = new Date();
@@ -100,8 +103,13 @@ export async function runStorageCleanup(env: AppEnv, db: Database): Promise<Clea
   let skippedTooRecent = 0;
   const orphanCandidates: string[] = [];
 
-  let offset = 0;
+  let offset = Number.isSafeInteger(resume?.offset) && resume!.offset! >= 0 ? resume!.offset! : 0;
+  let budgetExhausted = false;
   while (scanned < CLEANUP_MAX_SCANNED_OBJECTS && orphanCandidates.length < CLEANUP_MAX_DELETE_PER_RUN) {
+    if (!hasMaintenanceBudget(startedAt)) {
+      budgetExhausted = true;
+      break;
+    }
     const page = await listCardImageObjects(env, { limit: CLEANUP_LIST_PAGE_SIZE, offset });
     if (page.length === 0) break;
     scanned += page.length;
@@ -127,6 +135,10 @@ export async function runStorageCleanup(env: AppEnv, db: Database): Promise<Clea
 
   if (!dryRun && orphanCandidates.length > 0) {
     for (const batch of chunk(orphanCandidates, CLEANUP_DELETE_BATCH_SIZE)) {
+      if (!hasMaintenanceBudget(startedAt)) {
+        budgetExhausted = true;
+        break;
+      }
       const stillReferenced = await findReferencedStoragePaths(env, batch, db);
       const confirmed = batch.filter((path) => !stillReferenced.has(path));
       const result = await deleteStorageObjectsStrict(env, confirmed);
@@ -143,6 +155,8 @@ export async function runStorageCleanup(env: AppEnv, db: Database): Promise<Clea
     skippedTooRecent,
     deleted,
     failed,
+    remaining: budgetExhausted ? null : 0,
+    checkpoint: { offset },
     durationMs: Date.now() - startedAt
   };
 

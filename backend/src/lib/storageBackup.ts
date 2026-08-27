@@ -1,5 +1,6 @@
 import type { AppEnv } from "../env";
 import { downloadStorageObject, listCardImageObjects } from "./storage";
+import { hasMaintenanceBudget } from "./maintenanceBudget";
 
 const BACKUP_PAGE_SIZE = 100;
 const BACKUP_MAX_OBJECTS = 200;
@@ -14,6 +15,8 @@ export interface StorageBackupSummary {
   failed: number;
   bytes: number;
   manifestKey: string | null;
+  remaining: number | null;
+  checkpoint: { offset: number } | null;
   durationMs: number;
 }
 
@@ -59,7 +62,7 @@ async function readBounded(response: Response, maxBytes: number): Promise<ArrayB
  * an object could not be copied; operators must not treat that snapshot as a
  * complete recovery point.
  */
-export async function runStorageBackup(env: AppEnv): Promise<StorageBackupSummary> {
+export async function runStorageBackup(env: AppEnv, resume?: { offset?: number }): Promise<StorageBackupSummary> {
   const startedAt = Date.now();
   const backup = env.STORAGE_BACKUP;
   if (!backup) {
@@ -72,6 +75,8 @@ export async function runStorageBackup(env: AppEnv): Promise<StorageBackupSummar
       failed: 0,
       bytes: 0,
       manifestKey: null,
+      remaining: null,
+      checkpoint: null,
       durationMs: Date.now() - startedAt,
     };
   }
@@ -84,10 +89,15 @@ export async function runStorageBackup(env: AppEnv): Promise<StorageBackupSummar
   let copied = 0;
   let failed = 0;
   let bytes = 0;
-  let offset = 0;
+  let offset = Number.isSafeInteger(resume?.offset) && resume!.offset! >= 0 ? resume!.offset! : 0;
   let exhausted = false;
+  let budgetExhausted = false;
 
   while (true) {
+    if (!hasMaintenanceBudget(startedAt)) {
+      budgetExhausted = true;
+      break;
+    }
     if (scanned >= BACKUP_MAX_OBJECTS || bytes >= BACKUP_MAX_BYTES) {
       // Probe one more page so an exactly-full final page is not falsely
       // reported as truncated. If an object exists beyond either bound, the
@@ -105,6 +115,10 @@ export async function runStorageBackup(env: AppEnv): Promise<StorageBackupSummar
     offset += page.length;
 
     for (const object of page) {
+      if (!hasMaintenanceBudget(startedAt)) {
+        budgetExhausted = true;
+        break;
+      }
       if (copied + failed >= BACKUP_MAX_OBJECTS || bytes >= BACKUP_MAX_BYTES) break;
       const response = await downloadStorageObject(env, object.storagePath);
       if (!response.ok) {
@@ -134,6 +148,8 @@ export async function runStorageBackup(env: AppEnv): Promise<StorageBackupSummar
       bytes += body.byteLength;
     }
 
+    if (budgetExhausted) break;
+
     if (page.length < BACKUP_PAGE_SIZE) {
       exhausted = true;
       break;
@@ -141,7 +157,7 @@ export async function runStorageBackup(env: AppEnv): Promise<StorageBackupSummar
   }
 
   const manifestKey = `manifests/${snapshot}.json`;
-  const complete = exhausted && failed === 0;
+  const complete = exhausted && failed === 0 && !budgetExhausted;
   await backup.put(manifestKey, JSON.stringify({
     snapshot,
     complete,
@@ -149,6 +165,8 @@ export async function runStorageBackup(env: AppEnv): Promise<StorageBackupSummar
     copied,
     failed,
     bytes,
+    remaining: complete ? 0 : null,
+    checkpoint: { offset },
     objects: manifest,
   }), {
     httpMetadata: { contentType: "application/json" },
@@ -161,6 +179,8 @@ export async function runStorageBackup(env: AppEnv): Promise<StorageBackupSummar
     failed,
     bytes,
     manifestKey,
+    remaining: complete ? 0 : null,
+    checkpoint: { offset },
     durationMs: Date.now() - startedAt,
   } satisfies StorageBackupSummary;
   if (!complete) console.error("storageBackup: snapshot is incomplete", summary);

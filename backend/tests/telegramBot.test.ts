@@ -199,7 +199,7 @@ describe("sendAdminNotification (ретрай)", () => {
     expect(calls).toBe(1);
   });
 
-  test("после неудачи выполняется ровно одна повторная попытка", async () => {
+  test("не повторяет server error без подтверждаемого receipt", async () => {
     let calls = 0;
     globalThis.fetch = (async () => {
       calls++;
@@ -207,15 +207,29 @@ describe("sendAdminNotification (ретрай)", () => {
     }) as typeof fetch;
 
     await sendAdminNotification(env, "-100", "test");
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
+  });
+
+  test("не повторяет client error, который не восстановится повторной отправкой", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response("bad request", { status: 400 });
+    }) as typeof fetch;
+
+    await sendAdminNotification(env, "-100", "test");
+    expect(calls).toBe(1);
   });
 
   test("сетевая ошибка не пробрасывается наружу", async () => {
+    let calls = 0;
     globalThis.fetch = (async () => {
+      calls++;
       throw new Error("network down");
     }) as typeof fetch;
 
     await expect(sendAdminNotification(env, "-100", "test")).resolves.toBeUndefined();
+    expect(calls).toBe(1);
   });
 });
 

@@ -16,7 +16,9 @@ import {
 
 const env = {} as WorkerEnv;
 const resolvedEnv = { WEBAPP_ORIGIN: "https://app.example" } as AppEnv;
-const database = {} as DatabaseInvocation;
+const database = {
+  sql: async () => [],
+} as unknown as DatabaseInvocation;
 const outboxId = "4ef66e67-9c95-4fd5-9f05-a08a2d2a7bd9";
 
 const productionProxyEnv: AppEnv = {
@@ -269,13 +271,36 @@ describe("Worker scheduled contract", () => {
       resolveEnvironment: () => metricsEnv,
       runStorageCleanup: async () => ({ scanned: 7 }),
       runStorageBackup: async () => ({ scanned: 4 }),
+      runPrivacyRetention: async () => ({ processed: 3 }),
     }));
     await context.promises[0];
 
     expect(points).toEqual(expect.arrayContaining([
       expect.objectContaining({ blobs: ["cron", "storage-cleanup", "ok"], doubles: [expect.any(Number), 7] }),
       expect.objectContaining({ blobs: ["cron", "storage-backup", "ok"], doubles: [expect.any(Number), 4] }),
+      expect.objectContaining({ blobs: ["cron", "privacy-retention", "ok"], doubles: [expect.any(Number), 3] }),
     ]));
+  });
+
+  test("persists a PII-free maintenance checkpoint after a partial job", async () => {
+    const writes: unknown[][] = [];
+    const checkpointDatabase = {
+      sql: async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+        writes.push(values);
+        return [];
+      },
+    } as unknown as DatabaseInvocation;
+    const context = scheduledContext();
+    handleScheduled({ cron: DAILY_STORAGE_CRON }, env, context, dependencies({
+      createDatabase: () => checkpointDatabase,
+      runStorageCleanup: async () => ({ processed: 4, failed: 1, remaining: null, checkpoint: { offset: 400 } }),
+    }));
+    await context.promises[0];
+
+    expect(writes).toContainEqual([
+      "storage-cleanup",
+      JSON.stringify({ processed: 4, failed: 1, remaining: null, cursor: { offset: 400 } }),
+    ]);
   });
   test("routes each configured cron to exactly its own jobs", async () => {
     const calls: string[] = [];

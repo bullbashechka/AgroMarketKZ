@@ -1,6 +1,7 @@
 import type { TransactionSql } from "postgres";
 import type { Database, IdempotentDatabase } from "../db";
 import type { AppEnv } from "../env";
+import { hasMaintenanceBudget } from "../lib/maintenanceBudget";
 import { HttpError } from "../lib/errors";
 import { telegramIdentityHash } from "../lib/telegram";
 import {
@@ -96,6 +97,7 @@ export async function deleteAccount(env: AppEnv, userId: string, db: Database): 
  * useful without retaining their direct identifiers.
  */
 interface RetentionCandidate {
+  created_at: string;
   id: string;
 }
 
@@ -138,7 +140,19 @@ async function retainUserData(userId: string, db: Database): Promise<void> {
   });
 }
 
-export async function runPrivacyRetention(env: AppEnv, db: IdempotentDatabase): Promise<void> {
+export interface PrivacyRetentionSummary {
+  processed: number;
+  failed: number;
+  remaining: number | null;
+  checkpoint: { stage: "retention" | "inactive" | "complete"; createdAt: string | null; id: string | null };
+}
+
+export async function runPrivacyRetention(
+  env: AppEnv,
+  db: IdempotentDatabase,
+  resume?: { stage?: "retention" | "inactive"; createdAt?: string; id?: string },
+): Promise<PrivacyRetentionSummary> {
+  const startedAt = Date.now();
   // Only standalone cleanup and candidate discovery are retried. Per-user
   // PII changes use a transaction and must never be replayed after a transport
   // ambiguity.
@@ -155,8 +169,10 @@ export async function runPrivacyRetention(env: AppEnv, db: IdempotentDatabase): 
     delete from app_private.telegram_auth_cutoffs
     where expires_at < now()
   `;
+  const retentionCursorDate = resume?.stage === "retention" ? resume.createdAt ?? null : null;
+  const retentionCursorId = resume?.stage === "retention" ? resume.id ?? null : null;
   const retentionCandidates = await db.retryIdempotentStandalone<RetentionCandidate[]>`
-    select u.id
+    select u.id, u.created_at
     from public.users u
     where u.deleted_at is null
       and (
@@ -178,18 +194,40 @@ export async function runPrivacyRetention(env: AppEnv, db: IdempotentDatabase): 
             and f.contact_name <> '[удалено]'
         )
       )
-    order by u.created_at
+      and (${retentionCursorDate}::timestamptz is null or (u.created_at, u.id) > (${retentionCursorDate}::timestamptz, ${retentionCursorId}::uuid))
+    order by u.created_at, u.id
     limit 100
   `;
-  for (const user of retentionCandidates) await retainUserData(user.id, db);
-  const inactive = await db.retryIdempotentStandalone<{ id: string }[]>`
-    select u.id
+  let processed = 0;
+  let retentionLast = resume?.stage === "retention" && resume.createdAt && resume.id
+    ? { createdAt: resume.createdAt, id: resume.id }
+    : null;
+  for (const user of retentionCandidates) {
+    if (!hasMaintenanceBudget(startedAt)) return { processed, failed: 0, remaining: null, checkpoint: { stage: "retention", createdAt: retentionLast?.createdAt ?? null, id: retentionLast?.id ?? null } };
+    await retainUserData(user.id, db);
+    processed += 1;
+    retentionLast = { createdAt: user.created_at, id: user.id };
+  }
+  const inactiveCursorDate = resume?.stage === "inactive" ? resume.createdAt ?? null : null;
+  const inactiveCursorId = resume?.stage === "inactive" ? resume.id ?? null : null;
+  const inactive = await db.retryIdempotentStandalone<RetentionCandidate[]>`
+    select u.id, u.created_at
     from public.users u
     where u.deleted_at is null
       and u.last_seen_at < now() - interval '24 months'
       and not exists (select 1 from app_private.privacy_holds h where h.user_id = u.id)
-    order by u.last_seen_at
+      and (${inactiveCursorDate}::timestamptz is null or (u.created_at, u.id) > (${inactiveCursorDate}::timestamptz, ${inactiveCursorId}::uuid))
+    order by u.created_at, u.id
     limit 100
   `;
-  for (const user of inactive) await deleteAccount(env, user.id, db);
+  let inactiveLast = resume?.stage === "inactive" && resume.createdAt && resume.id
+    ? { createdAt: resume.createdAt, id: resume.id }
+    : null;
+  for (const user of inactive) {
+    if (!hasMaintenanceBudget(startedAt)) return { processed, failed: 0, remaining: null, checkpoint: { stage: "inactive", createdAt: inactiveLast?.createdAt ?? null, id: inactiveLast?.id ?? null } };
+    await deleteAccount(env, user.id, db);
+    processed += 1;
+    inactiveLast = { createdAt: user.created_at, id: user.id };
+  }
+  return { processed, failed: 0, remaining: 0, checkpoint: { stage: "complete", createdAt: null, id: null } };
 }

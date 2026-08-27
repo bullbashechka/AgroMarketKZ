@@ -148,12 +148,14 @@ export function buildRequestDeepLink(env: AppEnv, requestId: string): string | n
  * Одна попытка отправки сообщения через Bot API. Возвращает успех/неуспех,
  * не бросает — сетевые ошибки и ошибки API логируются.
  */
-export async function sendTelegramMessage(
+type TelegramAttempt = { delivered: boolean };
+
+async function sendTelegramMessageAttempt(
   env: AppEnv,
   chatId: string,
   html: string,
   replyMarkup?: InlineKeyboardMarkup
-): Promise<boolean> {
+): Promise<TelegramAttempt> {
   const startedAt = metricNow();
   try {
     const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -169,16 +171,27 @@ export async function sendTelegramMessage(
     });
     if (!res.ok) {
       writeMetric(env, { kind: "telegram", operation: "send_message", outcome: "error", durationMs: metricNow() - startedAt });
-      console.error("sendTelegramMessage: Telegram API вернул ошибку", res.status, await res.text());
-      return false;
+      console.error("sendTelegramMessage: Telegram API вернул ошибку", { status: res.status });
+      return { delivered: false };
     }
     writeMetric(env, { kind: "telegram", operation: "send_message", outcome: "ok", durationMs: metricNow() - startedAt });
-    return true;
-  } catch (err) {
+    return { delivered: true };
+  } catch {
     writeMetric(env, { kind: "telegram", operation: "send_message", outcome: "error", durationMs: metricNow() - startedAt });
-    console.error("sendTelegramMessage: не удалось отправить сообщение", err);
-    return false;
+    console.error("sendTelegramMessage: не удалось отправить сообщение");
+    // A network failure can happen after Telegram accepted the write. Without a
+    // delivery receipt it is safer to leave recovery to the durable outbox.
+    return { delivered: false };
   }
+}
+
+export async function sendTelegramMessage(
+  env: AppEnv,
+  chatId: string,
+  html: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<boolean> {
+  return (await sendTelegramMessageAttempt(env, chatId, html, replyMarkup)).delivered;
 }
 
 /**
@@ -208,7 +221,7 @@ export async function sendTelegramPhoto(
     });
     if (!res.ok) {
       writeMetric(env, { kind: "telegram", operation: "send_photo", outcome: "error", durationMs: metricNow() - startedAt });
-      console.error("sendTelegramPhoto: Telegram API вернул ошибку", res.status, await res.text());
+      console.error("sendTelegramPhoto: Telegram API вернул ошибку", { status: res.status });
       return false;
     }
     writeMetric(env, { kind: "telegram", operation: "send_photo", outcome: "ok", durationMs: metricNow() - startedAt });
@@ -222,8 +235,9 @@ export async function sendTelegramPhoto(
 
 /**
  * Отправляет уведомление в чат администраторов через Bot API. Best-effort
- * с одной немедленной повторной попыткой: сбой не должен ломать создание
- * заявки/сообщения обратной связи (заявка в любом случае видна в админке).
+ * без локального повтора: сетевой разрыв после принятого POST не даёт receipt,
+ * поэтому повтор может создать дубликат. Durable outbox остаётся источником
+ * дальнейшего восстановления критичных уведомлений.
  */
 export async function sendAdminNotificationResult(
   env: AppEnv,
@@ -231,11 +245,7 @@ export async function sendAdminNotificationResult(
   html: string,
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<boolean> {
-  if (await sendTelegramMessage(env, chatId, html, replyMarkup)) return true;
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  const delivered = await sendTelegramMessage(env, chatId, html, replyMarkup);
-  if (!delivered) console.error("sendAdminNotification: уведомление не доставлено после повторной попытки");
-  return delivered;
+  return (await sendTelegramMessageAttempt(env, chatId, html, replyMarkup)).delivered;
 }
 
 /** Backward-compatible fire-and-forget API for non-critical callers. */

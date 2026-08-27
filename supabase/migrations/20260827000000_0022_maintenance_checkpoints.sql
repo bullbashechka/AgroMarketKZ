@@ -1,0 +1,1 @@
+../../database/migrations/0022_maintenance_checkpoints.sql

@@ -8,6 +8,9 @@ type StorageAdminEnv = Pick<
   "SUPABASE_URL" | "SUPABASE_STORAGE_BUCKET" | "SUPABASE_SERVICE_ROLE_KEY" | "REQUEST_METRICS"
 >;
 
+export const STORAGE_FETCH_TIMEOUT_MS = 10_000;
+export const STORAGE_JSON_MAX_BYTES = 256 * 1024;
+
 async function fetchStorage(
   env: StorageAdminEnv,
   operation: string,
@@ -16,7 +19,10 @@ async function fetchStorage(
 ): Promise<Response> {
   const startedAt = metricNow();
   try {
-    const response = await fetch(input, init);
+    const response = await fetch(input, {
+      ...init,
+      signal: AbortSignal.timeout(STORAGE_FETCH_TIMEOUT_MS),
+    });
     writeMetric(env, {
       kind: "storage",
       operation,
@@ -27,6 +33,43 @@ async function fetchStorage(
   } catch (error) {
     writeMetric(env, { kind: "storage", operation, outcome: "error", durationMs: metricNow() - startedAt });
     throw error;
+  }
+}
+
+export async function readBoundedStorageJson<T>(response: Response): Promise<T> {
+  const contentLength = Number(response.headers.get("content-length") ?? "0");
+  if (contentLength > STORAGE_JSON_MAX_BYTES || !response.body) {
+    throw new HttpError(502, "Ответ Storage слишком большой или неполный");
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > STORAGE_JSON_MAX_BYTES) {
+        throw new HttpError(502, "Ответ Storage слишком большой");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+
+  try {
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  } catch {
+    throw new HttpError(502, "Storage вернул некорректный ответ");
   }
 }
 
@@ -72,6 +115,26 @@ interface SupabaseSignedUploadResponse {
   url: string;
 }
 
+function isSignedUploadResponse(value: unknown): value is SupabaseSignedUploadResponse {
+  return typeof value === "object" && value !== null && typeof (value as { url?: unknown }).url === "string";
+}
+
+function isStorageList(value: unknown): value is SupabaseStorageListItem[] {
+  return Array.isArray(value) && value.every((item) =>
+    typeof item === "object" && item !== null
+      && typeof (item as { name?: unknown }).name === "string"
+      && ((item as { created_at?: unknown }).created_at === null
+        || (typeof (item as { created_at?: unknown }).created_at === "string"
+          && Number.isFinite(Date.parse((item as { created_at: string }).created_at))))
+  );
+}
+
+function isDeletedObjectList(value: unknown): value is { name: string }[] {
+  return Array.isArray(value) && value.every((item) =>
+    typeof item === "object" && item !== null && typeof (item as { name?: unknown }).name === "string"
+  );
+}
+
 /**
  * Разбирает ответ Supabase Storage `{ url: "/object/upload/sign/{bucket}/{path}?token=..." }`
  * в абсолютный URL для загрузки и извлечённый token (для `supabase-js` `uploadToSignedUrl`).
@@ -109,7 +172,8 @@ export async function createSignedUploadUrl(
   if (!res.ok) {
     throw new HttpError(502, "Не удалось подготовить загрузку изображения");
   }
-  const data = (await res.json()) as SupabaseSignedUploadResponse;
+  const data = await readBoundedStorageJson<unknown>(res);
+  if (!isSignedUploadResponse(data)) throw new HttpError(502, "Storage вернул некорректный ответ");
   return signedUploadUrlFromResponse(env, data);
 }
 
@@ -165,7 +229,7 @@ export async function deleteStorageObjects(env: AppEnv, storagePaths: string[]):
       body: JSON.stringify({ prefixes: storagePaths })
     });
     if (!res.ok) {
-      console.error("deleteStorageObjects: Supabase Storage вернул ошибку", res.status, await res.text());
+      console.error("deleteStorageObjects: Supabase Storage вернул ошибку", res.status);
     }
   } catch (err) {
     console.error("deleteStorageObjects: не удалось удалить объекты", err);
@@ -234,7 +298,8 @@ export async function listStorageObjects(
   if (!res.ok) {
     throw new HttpError(502, "Не удалось получить список объектов Storage");
   }
-  const items = (await res.json()) as SupabaseStorageListItem[];
+  const items = await readBoundedStorageJson<unknown>(res);
+  if (!isStorageList(items)) throw new HttpError(502, "Storage вернул некорректный ответ");
   return items
     .filter((item) => item.created_at !== null)
     .map((item) => ({
@@ -321,7 +386,8 @@ export async function deleteStorageObjectsStrict(
         failed: uniquePaths.filter((path) => !reconciledSet.has(path)),
       };
     }
-    const removed = (await res.json()) as { name: string }[];
+    const removed = await readBoundedStorageJson<unknown>(res);
+    if (!isDeletedObjectList(removed)) throw new HttpError(502, "Storage вернул некорректный ответ");
     const removedPaths = new Set(removed.map((item) => item.name));
     const deleted = uniquePaths.filter((path) => removedPaths.has(path));
     const unresolved = uniquePaths.filter((path) => !removedPaths.has(path));

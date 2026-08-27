@@ -13,6 +13,7 @@ import { runStorageBackup } from "./lib/storageBackup";
 import { purgeExpiredWidgetAuthProofs } from "./repos/authProofs";
 import { runPrivacyRetention } from "./repos/privacy";
 import { processTelegramUpdate } from "./repos/telegramUpdates";
+import { loadMaintenanceCheckpoint, saveMaintenanceCheckpoint, type MaintenanceCheckpoint } from "./repos/maintenanceCheckpoints";
 import { metricNow, writeMetric } from "./lib/metrics";
 
 export const NOTIFICATION_QUEUE_NAME = "agromarketkz-notifications-prod";
@@ -55,9 +56,9 @@ export type WorkerDependencies = {
   purgeExpiredWidgetAuthProofs: (env: AppEnv, db: DatabaseInvocation) => Promise<number | void>;
   reconcileAdminAuditOutbox: (env: AppEnv, db: DatabaseInvocation) => Promise<number | void>;
   reconcileNotificationOutbox: (env: AppEnv, db: DatabaseInvocation) => Promise<number | void>;
-  runStorageCleanup: (env: AppEnv, db: DatabaseInvocation) => Promise<unknown>;
-  runStorageBackup: (env: AppEnv) => Promise<unknown>;
-  runPrivacyRetention: (env: AppEnv, db: DatabaseInvocation) => Promise<void>;
+  runStorageCleanup: (env: AppEnv, db: DatabaseInvocation, resume?: { offset?: number }) => Promise<unknown>;
+  runStorageBackup: (env: AppEnv, resume?: { offset?: number }) => Promise<unknown>;
+  runPrivacyRetention: (env: AppEnv, db: DatabaseInvocation, resume?: { stage?: "retention" | "inactive"; createdAt?: string; id?: string }) => Promise<unknown>;
 };
 
 const productionDependencies: WorkerDependencies = {
@@ -159,20 +160,37 @@ export async function handleQueueBatch(
   }
 }
 
-type NamedJob = readonly [name: string, run: () => Promise<unknown>];
+type NamedJob = readonly [name: string, run: (cursor: MaintenanceCheckpoint | null) => Promise<unknown>];
 
 function scheduledItemCount(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
   if (typeof value !== "object" || value === null) return 0;
-  const scanned = (value as { scanned?: unknown }).scanned;
-  return typeof scanned === "number" && Number.isFinite(scanned) && scanned >= 0 ? scanned : 0;
+  const summary = value as { scanned?: unknown; processed?: unknown };
+  const quantity = summary.scanned ?? summary.processed;
+  return typeof quantity === "number" && Number.isFinite(quantity) && quantity >= 0 ? quantity : 0;
 }
 
-async function runScheduledJobs(env: AppEnv, jobs: readonly NamedJob[]): Promise<void> {
+function checkpointFromResult(value: unknown): MaintenanceCheckpoint | null {
+  if (typeof value !== "object" || value === null || !("checkpoint" in value)) return null;
+  const result = value as { processed?: unknown; failed?: unknown; remaining?: unknown; checkpoint: unknown };
+  if (typeof result.checkpoint !== "object" || result.checkpoint === null || Array.isArray(result.checkpoint)) return null;
+  return {
+    processed: typeof result.processed === "number" ? result.processed : 0,
+    failed: typeof result.failed === "number" ? result.failed : 0,
+    remaining: typeof result.remaining === "number" ? result.remaining : null,
+    cursor: result.checkpoint as MaintenanceCheckpoint,
+  };
+}
+
+async function runScheduledJobs(env: AppEnv, database: DatabaseInvocation, jobs: readonly NamedJob[]): Promise<void> {
   const results = await Promise.allSettled(jobs.map(async ([name, run]) => {
     const startedAt = metricNow();
+    const previous = await loadMaintenanceCheckpoint(database, name);
     try {
-      const result = await run();
+      const cursor = previous?.cursor;
+      const result = await run(typeof cursor === "object" && cursor !== null ? cursor as MaintenanceCheckpoint : null);
+      const checkpoint = checkpointFromResult(result);
+      if (checkpoint) await saveMaintenanceCheckpoint(database, name, checkpoint);
       writeMetric(env, {
         kind: "cron",
         operation: name,
@@ -182,6 +200,11 @@ async function runScheduledJobs(env: AppEnv, jobs: readonly NamedJob[]): Promise
       });
       return result;
     } catch (error) {
+      await saveMaintenanceCheckpoint(database, name, {
+        ...(previous ?? {}),
+        failed: 1,
+        remaining: null,
+      });
       writeMetric(env, { kind: "cron", operation: name, outcome: "error", durationMs: metricNow() - startedAt });
       throw error;
     }
@@ -201,9 +224,10 @@ export function handleScheduled(
 ): void {
   let jobs: NamedJob[];
   let resolved: AppEnv;
+  let database: DatabaseInvocation;
   if (event.cron === FIVE_MINUTE_CRON) {
     resolved = dependencies.resolveEnvironment(env);
-    const database = dependencies.createDatabase(resolved);
+    database = dependencies.createDatabase(resolved);
     jobs = [
       ["db-health-alert", () => dependencies.runDbHealthAlertCheck(resolved, database)],
       ["widget-auth-proof-retention", () => dependencies.purgeExpiredWidgetAuthProofs(resolved, database)],
@@ -212,11 +236,11 @@ export function handleScheduled(
     ];
   } else if (event.cron === DAILY_STORAGE_CRON) {
     resolved = dependencies.resolveEnvironment(env);
-    const database = dependencies.createDatabase(resolved);
+    database = dependencies.createDatabase(resolved);
     jobs = [
-      ["storage-cleanup", () => dependencies.runStorageCleanup(resolved, database)],
-      ["storage-backup", () => dependencies.runStorageBackup(resolved)],
-      ["privacy-retention", () => dependencies.runPrivacyRetention(resolved, database)],
+      ["storage-cleanup", (cursor) => dependencies.runStorageCleanup(resolved, database, cursor ?? undefined)],
+      ["storage-backup", (cursor) => dependencies.runStorageBackup(resolved, cursor ?? undefined)],
+      ["privacy-retention", (cursor) => dependencies.runPrivacyRetention(resolved, database, cursor ?? undefined)],
     ];
   } else {
     ctx.waitUntil(Promise.resolve().then(() => {
@@ -225,7 +249,7 @@ export function handleScheduled(
     return;
   }
 
-  const completion = runScheduledJobs(resolved, jobs).catch((error) => {
+  const completion = runScheduledJobs(resolved, database, jobs).catch((error) => {
     console.error("scheduled runtime failed", { cron: event.cron, error });
     throw error;
   });

@@ -4,6 +4,7 @@
 **Этап:** 1  
 **Оценка:** M  
 **Зависимости:** TD-003A, TD-010.
+**Статус:** выполнено 27.08.2026 (два независимых review-прохода).
 
 ## Проблема
 
@@ -37,3 +38,15 @@ bun run build
 ## Вероятные файлы
 
 `backend/src/lib/telegram.ts`, Storage client/helpers, maintenance/backup/privacy modules, `worker.ts`, tests.
+
+## Итоговое решение
+
+Server-side Storage calls получили единый 10-секундный timeout, capped JSON body
+и runtime validation ответа. Telegram POST не повторяется без delivery receipt,
+поэтому сетевой разрыв не создаёт локальный дубликат. Daily maintenance не
+начинает новый внешний вызов в reserved execution window, сообщает non-PII
+`processed`/`failed`/`remaining`/`checkpoint`, а checkpoint сохраняется в
+закрытой runtime-only таблице `app_private.maintenance_checkpoints` и передаётся
+в следующую job. Privacy использует stable `(created_at, id)` cursor вместо
+изменяемого offset. Migration `0022` — expand-only; применять в production
+только штатным explicit-version workflow после preflight.
