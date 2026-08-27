@@ -8,9 +8,18 @@ import { adminPlatformSettingsSchema } from "../src/settings";
 import { cardListQuery, categoryListQuery } from "../src/catalog";
 import { VOLUME_MAX, VOLUME_MIN } from "../src/constants";
 import { volumeTonnesSchema } from "../src/commodity";
+import { updateProfileInput } from "../src/profile";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 const oneImage = [{ storagePath: `cards/${UUID}.jpg` }];
+
+describe("updateProfileInput — Telegram contact proof", () => {
+  test("принимает optional proof только как непустую строку", () => {
+    expect(updateProfileInput.safeParse({ contactName: "Айдос", contactPhone: "+77011234567" }).success).toBe(true);
+    expect(updateProfileInput.safeParse({ contactName: "Айдос", contactPhone: "+77011234567", contactResponse: "signed-proof" }).success).toBe(true);
+    expect(updateProfileInput.safeParse({ contactName: "Айдос", contactPhone: "+77011234567", contactResponse: "" }).success).toBe(false);
+  });
+});
 
 const baseCard = {
   type: "product" as const,

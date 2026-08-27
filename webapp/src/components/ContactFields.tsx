@@ -7,17 +7,22 @@ interface ContactFieldsProps {
   phone: string;
   onNameChange: (value: string) => void;
   onPhoneChange: (value: string) => void;
+  /** Ephemeral signed Telegram proof for the enclosing mutation only. */
+  onContactResponseChange?: (value: string | undefined) => void;
   errors: { contactName?: string; contactPhone?: string };
   showShare?: boolean;
 }
 
 /** Общие поля имя+телефон, переиспользуются в форме заявки, обратной связи и редактировании профиля. */
-export function ContactFields({ name, phone, onNameChange, onPhoneChange, errors, showShare = true }: ContactFieldsProps) {
+export function ContactFields({ name, phone, onNameChange, onPhoneChange, onContactResponseChange, errors, showShare = true }: ContactFieldsProps) {
   const inTelegram = isTelegramContext();
 
   async function handleShareContact() {
     const shared = await sharePhoneFromTelegram();
-    if (shared) onPhoneChange(shared.phone);
+    if (shared) {
+      onPhoneChange(shared.phone);
+      onContactResponseChange?.(shared.contactResponse);
+    }
   }
 
   return (
@@ -41,7 +46,10 @@ export function ContactFields({ name, phone, onNameChange, onPhoneChange, errors
           className="input"
           data-testid="request-phone-input"
           value={phone}
-          onChange={(e) => onPhoneChange(e.target.value)}
+          onChange={(e) => {
+            onPhoneChange(e.target.value);
+            onContactResponseChange?.(undefined);
+          }}
           inputMode="tel"
           placeholder="+7 701 234 56 78"
         />

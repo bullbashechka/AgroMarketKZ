@@ -6,6 +6,7 @@ import {
   validateInitData,
   validateWidgetLogin,
 } from "../src/lib/telegram";
+import { validateContactPhoneForUser } from "../src/lib/contact";
 
 const BOT_TOKEN = "123456:TEST-BOT-TOKEN";
 const encoder = new TextEncoder();
@@ -165,6 +166,16 @@ describe("validateContactResponse", () => {
   test("отклоняет contact с нечисловым или синтетически невозможным user_id", async () => {
     const response = await buildContactResponse(now(), { phone_number: "77011234567", user_id: "777" });
     await expect(validateContactResponse(response, BOT_TOKEN)).rejects.toThrow();
+  });
+});
+
+describe("validateContactPhoneForUser", () => {
+  test("нормализует только proof текущего Telegram пользователя", async () => {
+    const response = await buildContactResponse(now());
+    await expect(validateContactPhoneForUser(response, 777, { TELEGRAM_BOT_TOKEN: BOT_TOKEN } as never))
+      .resolves.toBe("+77011234567");
+    await expect(validateContactPhoneForUser(response, 778, { TELEGRAM_BOT_TOKEN: BOT_TOKEN } as never))
+      .rejects.toThrow("другому пользователю");
   });
 });
 

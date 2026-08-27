@@ -57,9 +57,12 @@ profileRoutes.post("/contact", async (c) => {
 /** Редактирование контактных данных в профиле. */
 profileRoutes.put("/", async (c) => {
   const env = getEnv(c);
-  const { userId } = c.get("auth");
+  const { userId, telegramId } = c.get("auth");
   const data = updateProfileInput.parse(await c.req.json());
-  const row = await updateContacts(env, userId, data, getDatabase(c));
+  const verifiedPhone = data.contactResponse
+    ? await validateContactPhoneForUser(data.contactResponse, telegramId, env)
+    : null;
+  const row = await updateContacts(env, userId, data, getDatabase(c), verifiedPhone);
   return c.json(profileSchema.parse(toProfile(row, env)));
 });
 

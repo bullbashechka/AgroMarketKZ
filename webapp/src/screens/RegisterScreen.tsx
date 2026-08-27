@@ -80,7 +80,10 @@ export function RegisterScreen() {
               className="input"
               data-testid="register-phone-input"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                setContactResponse(undefined);
+              }}
               inputMode="tel"
               placeholder="+7 701 234 56 78"
             />

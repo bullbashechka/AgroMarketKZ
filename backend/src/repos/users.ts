@@ -161,12 +161,17 @@ export async function updateContacts(
   userId: string,
   data: { contactName: string; contactPhone: string },
   db: Database,
+  verifiedPhone: string | null = null,
 ): Promise<UserRow> {
   const sql = db.sql;
   const [row] = await sql<UserRow[]>`
     update users set
       contact_name = ${data.contactName},
-      contact_phone = ${data.contactPhone}
+      contact_phone = ${data.contactPhone},
+      verified_phone = case
+        when ${verifiedPhone}::text = ${data.contactPhone} then ${data.contactPhone}
+        else verified_phone
+      end
     where id = ${userId}
     returning *
   `;

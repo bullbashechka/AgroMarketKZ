@@ -10,21 +10,24 @@ type FakeRow = Record<string, unknown>;
  * только то, что findAuthUserCached/revokeUserSessions/register вызывают правильный запрос
  * и правильно реагируют на его результат (в частности — инвалидацию KV-кеша).
  */
-function createFakeSql(responses: { select?: FakeRow[]; revoke?: FakeRow[]; register?: FakeRow[] }) {
+function createFakeSql(responses: { select?: FakeRow[]; revoke?: FakeRow[]; register?: FakeRow[]; update?: FakeRow[] }) {
   const calls: string[] = [];
-  const fn = (strings: TemplateStringsArray, ..._values: unknown[]) => {
+  const values: unknown[][] = [];
+  const fn = (strings: TemplateStringsArray, ...queryValues: unknown[]) => {
     const text = strings.join("|");
     calls.push(text);
+    values.push(queryValues);
     if (text.includes("token_version, registered_at")) return Promise.resolve(responses.select ?? []);
     if (text.includes("token_version = token_version + 1")) return Promise.resolve(responses.revoke ?? []);
     if (text.includes("registered_at = coalesce")) return Promise.resolve(responses.register ?? []);
+    if (text.includes("contact_name = ")) return Promise.resolve(responses.update ?? []);
     throw new Error(`unexpected query in fake sql: ${text}`);
   };
-  return Object.assign(fn, { calls });
+  return Object.assign(fn, { calls, values });
 }
 
 let activeSql: ReturnType<typeof createFakeSql>;
-const { findAuthUserCached, revokeUserSessions, register } = await import("../src/repos/users");
+const { findAuthUserCached, revokeUserSessions, register, updateContacts } = await import("../src/repos/users");
 
 function activeDb(): Database {
   return { sql: activeSql as unknown as Database["sql"] };
@@ -161,5 +164,28 @@ describe("инвалидация кеша", () => {
   test("без AUTH_CACHE_KV инвалидация — no-op, не падает", async () => {
     activeSql = createFakeSql({ revoke: [{ id: USER_ID }] });
     await expect(revokeUserSessions(envWith(undefined), USER_ID, activeDb())).resolves.toBe(true);
+  });
+});
+
+describe("updateContacts", () => {
+  test("устанавливает verified_phone только для совпавшего нормализованного proof", async () => {
+    activeSql = createFakeSql({ update: [{ id: USER_ID } as FakeRow] });
+    await updateContacts(
+      envWith(),
+      USER_ID,
+      { contactName: "Аскар", contactPhone: "+77001234567" },
+      activeDb(),
+      "+77001234567",
+    );
+    expect(activeSql.calls[0]).toContain("when ");
+    expect(activeSql.calls[0]).toContain("verified_phone");
+    expect(activeSql.values[0]).toContain("+77001234567");
+  });
+
+  test("ручная смена номера сохраняет исторический verified_phone без нового proof", async () => {
+    activeSql = createFakeSql({ update: [{ id: USER_ID } as FakeRow] });
+    await updateContacts(envWith(), USER_ID, { contactName: "Аскар", contactPhone: "+77009998877" }, activeDb());
+    expect(activeSql.calls[0]).toContain("else verified_phone");
+    expect(activeSql.values[0]).toContain(null);
   });
 });

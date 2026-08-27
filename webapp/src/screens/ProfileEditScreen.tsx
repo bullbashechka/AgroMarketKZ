@@ -16,6 +16,7 @@ export function ProfileEditScreen() {
 
   const [name, setName] = useState(profile?.contactName ?? "");
   const [phone, setPhone] = useState(profile?.contactPhone ?? "");
+  const [contactResponse, setContactResponse] = useState<string | undefined>();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -24,7 +25,7 @@ export function ProfileEditScreen() {
     event.preventDefault();
     setErrors({});
 
-    const parsed = updateProfileInput.safeParse({ contactName: name, contactPhone: phone });
+    const parsed = updateProfileInput.safeParse({ contactName: name, contactPhone: phone, contactResponse });
     if (!parsed.success) {
       setErrors(zodFieldErrors(parsed.error));
       return;
@@ -82,7 +83,14 @@ export function ProfileEditScreen() {
   return (
     <Screen back title="Мои контакты" fallbackTo="/general">
       <form className="form" onSubmit={handleSubmit} noValidate>
-        <ContactFields name={name} phone={phone} onNameChange={setName} onPhoneChange={setPhone} errors={errors} />
+        <ContactFields
+          name={name}
+          phone={phone}
+          onNameChange={setName}
+          onPhoneChange={setPhone}
+          onContactResponseChange={setContactResponse}
+          errors={errors}
+        />
 
         {errors.form && <p className="field-error">{errors.form}</p>}
 
