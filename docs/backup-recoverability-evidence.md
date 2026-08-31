@@ -13,17 +13,17 @@ release до исправления в TD-203.
 | Контур | Проверенное evidence | Текущий статус | RPO / RTO |
 | --- | --- | --- | --- |
 | PostgreSQL PITR и daily backup | `supabase backups list --project-ref qxyieyzfdcosmmckyocm --output json` (2026-08-31, CLI 2.95.4) вернул `pitr_enabled=false`, `backups=[]`, `physical_backup_data={}` и `walg_enabled=true`. | **Не включён; recoverable point отсутствует** | Нет RPO / нет RTO |
-| Независимый Storage backup | Live metadata source Storage bucket доступны (HTTP 200; `public=true`, file-size/MIME policies configured), но это не independent backup. `backend/wrangler.toml` не включает `STORAGE_BACKUP`. Authenticated `wrangler r2 bucket info agromarketkz-storage-backup-prod` вернул Cloudflare API `10042`: R2 не enabled на account, поэтому bucket/lock не существуют. | **Не сконфигурирован; R2 не активирован** | Нет независимой точки / нет RTO |
+| Независимый Storage backup | Live metadata source Storage bucket доступны (HTTP 200; `public=true`, file-size/MIME policies configured), но это не independent backup. `backend/wrangler.toml` не включает `STORAGE_BACKUP`. Authenticated `wrangler r2 bucket info agromarketkz-storage-backup-prod` вернул Cloudflare API `10042`: repository-defined R2 bucket/lock не существуют. Иные external recovery mechanisms не предоставлены как evidence. | **Repository-defined R2 не сконфигурирован; другие механизмы не подтверждены** | Нет доказанной независимой точки / нет RTO |
 | Storage manifest и checksum | При неактивном R2 target manifest/complete/checksum отсутствуют; `storageBackup` не имеет active binding. | **Не существует — не recoverable evidence** | Нет RPO / нет RTO |
 | Restore drill | В tracked repository нет dated записи успешного restore в изолированный target с duration, migration state и Storage integrity. | **Unknown — не подтверждён** | Не измерены / не утверждены |
 | Failure alerts | Нет dated read-only evidence действующего alert на stale/failed backup. | **Unknown** | Неприменимо |
 
-Это подтверждённый **failed** state, а не отсутствие проверки: PITR/physical backup и independent
-Storage recovery в production сейчас отсутствуют. Cloudflare R2 нельзя включить Wrangler command —
-платформенный API требует сначала enable R2 через Dashboard (API `10042`); Supabase CLI не имеет
-команды включения PITR для существующего project. До remediation в TD-203 нельзя заявлять RPO/RTO
-или разрешать destructive/schema-rewrite release. Additive migration возможна только с отдельным
-risk review.
+Это подтверждённый **failed** state для PostgreSQL PITR/physical backup и repository-defined R2
+mechanism; сторонний Storage recovery, alerts и historical drill остаются not evidenced, а не
+опровергнуты. Cloudflare R2 нельзя включить Wrangler command — платформенный API требует сначала
+enable R2 через Dashboard (API `10042`); Supabase CLI не имеет команды включения PITR для
+существующего project. До remediation в TD-203 нельзя заявлять RPO/RTO или разрешать
+destructive/schema-rewrite release. Additive migration возможна только с отдельным risk review.
 
 ## Ownership и закрытие gap
 
