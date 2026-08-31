@@ -8,7 +8,7 @@
     "dev:e2e": "bun --watch src/index.ts",
     "dev:worker": "wrangler dev",
     "build": "bun build ./src/index.ts --target bun --outdir ./dist && wrangler deploy --dry-run --outdir ./dist-worker",
-    "deploy": "wrangler deploy",
+    "deploy": "bun scripts/deployProduction.ts",
     "deploy:production": "bun scripts/deployProduction.ts",
     "migrate": "bun scripts/migrate.ts",
     "audit:runtime-capabilities": "supabase --workdir .. db query --linked --file backend/scripts/runtimeCapabilitiesAudit.sql --output json",

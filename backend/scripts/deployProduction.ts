@@ -1,5 +1,13 @@
 const SERVICE_NAME = "agromarketkz-cloudflare-deploy";
 
+const preflight = Bun.spawnSync(["bun", "scripts/preflightRelease.ts"], {
+  cwd: new URL("..", import.meta.url).pathname,
+  env: process.env,
+  stdout: "inherit",
+  stderr: "inherit",
+});
+if (preflight.exitCode !== 0) process.exit(preflight.exitCode ?? 1);
+
 const tokenResult = Bun.spawnSync([
   "security",
   "find-generic-password",

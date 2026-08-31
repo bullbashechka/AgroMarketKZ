@@ -29,6 +29,7 @@
     "quality:check": "bun run --cwd packages/contracts build && bun run quality:lint && bun run quality:probes && bun run db:migrations:check && bun run typecheck && bun test backend/tests packages/contracts/tests webapp/tests webapp/functions/api/proxy.test.ts && bun run security:deps && bun run security:secrets && bun run test:integration && bun run build && bun run bundle:check",
     "security:deps": "bun audit --audit-level high",
     "release:verify": "bun install --frozen-lockfile && bun run types:worker:check && bun run quality:check && bun run test:e2e",
+    "release:descriptor": "bun backend/scripts/createReleaseDescriptor.ts",
     "typecheck": "bun run --cwd packages/contracts build && bun run --cwd backend typecheck && bun run --cwd webapp typecheck",
     "load:test": "bun --env-file=.env e2e/scripts/loadTest.ts",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",

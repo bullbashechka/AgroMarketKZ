@@ -212,28 +212,28 @@ cd backend
 bun run --cwd backend deploy:production
 ```
 
-Команда сначала ищет token в Keychain и передаёт его Wrangler только в памяти. Если token ещё
-не сохранён, она использует текущую Wrangler OAuth-сессию; после её истечения один раз выполните
-`cd backend && ./node_modules/.bin/wrangler login`. `wrangler.toml` содержит все production
-bindings, Queue consumers и `keep_vars = true`, поэтому deploy не удаляет dashboard-managed
-plain-text variables.
+Сначала на чистом, уже зафиксированном commit создать descriptor: `bun run release:descriptor`.
+Он запускает обязательный `release:verify` и сохраняет локальный, некоммитируемый JSON в
+`release-artifacts/<commit>.json`; в нём нет secrets, DSN или machine paths. Перед deploy указать
+этот файл через `RELEASE_DESCRIPTOR=release-artifacts/<commit>.json`. Wrapper read-only сверяет
+commit, migration checksum/ledger, Pages↔Worker protocol, account, Worker, активную version и
+Hyperdrive/Queue binding identities. Любое несовпадение завершает команду до `wrangler deploy`.
+Descriptor фиксирует `changeKind`: по умолчанию `code`, а для infrastructure/configuration change
+нужно явно задать `RELEASE_CHANGE_KIND=configuration` при его создании. Pages Preview остаётся
+независимым и не требует production descriptor.
+
+Команда сначала выполняет read-only Cloudflare/Supabase preflight, поэтому для production deploy
+нужен API token с `Workers Scripts Read`, `Pages Read` и правами Wrangler deploy; token передаётся только в
+памяти. `wrangler.toml` содержит все production bindings, Queue consumers и `keep_vars = true`,
+поэтому deploy не удаляет dashboard-managed plain-text variables.
 
 ## Деплой webapp
 
-Обычно не нужен — Cloudflare Pages сам собирает и деплоит webapp на каждый пуш (см. «Текущий статус» выше). Руками — только если нужно задеплоить локальные незапушенные изменения или обойти сборку Pages:
-
-```bash
-SUPABASE_URL="https://qxyieyzfdcosmmckyocm.supabase.co" \
-bun run --cwd webapp build
-
-cd webapp
-../backend/node_modules/.bin/wrangler pages deploy dist \
-  --project-name agromarketkz-webapp --branch main --commit-dirty=true
-```
-
-Команду deploy запускайте из `webapp/`: только так Wrangler автоматически включает
-`webapp/functions` в Pages Functions bundle. После deployment `/api/health` должен возвращать
-JSON backend, а не `index.html`; HTML на `/api/*` означает, что proxy function не попала в сборку.
+Cloudflare Pages сам собирает и продвигает webapp на каждый push. Ручной production deploy локальных
+или dirty changes больше не является штатным путём: он обходит общий release descriptor и запрещён.
+После Pages promotion preflight требует, чтобы canonical production deployment был собран из commit
+descriptor; так Pages proxy protocol и Worker остаются связаны одной release identity. Preview Pages
+остаётся отдельным, безопасным для экспериментов путём.
 
 ## Обновление секретов
 

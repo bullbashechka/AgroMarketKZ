@@ -1,4 +1,5 @@
 name = "agromarketkz-backend"
+account_id = "0b481a63e36d7f8a4b5058544213d90e"
 main = "src/worker.ts"
 compatibility_date = "2026-06-28"
 # Dashboard-managed plain-text variables are operational state, not deploy
