@@ -89,7 +89,7 @@ Production-артефакт `errors/scheduled-maintenance-failed-dd3a5746.md` с
 - `03fa907` (2026-07-23) запретил retry transaction callback, сохранив retry standalone queries.
 - `2d07115` (2026-08-24) сузил классификацию до известных connection/socket codes, чтобы не маскировать ошибки приложения.
 - Текущий diff снова расширяет классификацию — теперь на code-less stack signature.
-- Новый `tech_debt/001-db-client-lifecycle-and-retries.md:14-20` уже фиксирует этот общий invariant как P0: write нельзя повторять без явной idempotency-гарантии call site.
+- Этот общий invariant был закрыт в техническом долге: write нельзя повторять без явной idempotency-гарантии call site.
 
 **Failure / Adversarial Scenario**
 

@@ -15,21 +15,6 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 
 | № | Приоритет | Задача | Зачем сейчас |
 |---|---|---|---|
-| 001 | P0 | ✅ [Безопасное владение DB-клиентом и явные ретраи](001-db-client-lifecycle-and-retries.md) | Убрать module-global pool и прозрачный повтор неоднозначных write-запросов. |
-| 002 | P0 | ✅ [Атомарные сессии и полноценный отзыв credentials](002-session-rotation-and-revocation.md) | Закрыть race ротации, write amplification и повторный вход по старому Telegram proof. |
-| 003A | P0 | ✅ [Contract tests для Pages/Worker/scheduled runtime](003a-runtime-protocol-tests.md) | Защитить security/dispatch protocol на production entrypoints. |
-| 003B | P0 | ✅ [Durability tests для outbox/audit/privacy](003b-persistence-durability-tests.md) | Сделать executable критичные DB recovery и audit outcomes. |
-| 012 | P0 gate | ✅ [Единый и безопасный migration workflow](012-migration-workflow-convergence.md) | Canonical manifest/checks, explicit-version production preflight и local zero/N−1 upgrade test. |
-| 010 | P0 gate / P1 | ✅ [Наблюдаемость, DLQ и operational closure](010-observability-dlq-and-operations.md) | Закрыта 27.08.2026: monitoring preflight и операторский контур готовы. |
-| 004 | P1 | ✅ [Верификация телефона при редактировании профиля](004-profile-phone-verification.md) | Закрыта 27.08.2026: signed proof проходит profile edit и подтверждает только совпавший номер. |
-| 005 | P1 | ✅ [Единая политика публикации и видимости карточек](005-publication-policy-single-source.md) | Закрыта 27.08.2026: typed policy едина для Zod/UI/backend, публичная видимость покрыта integration-контрактом. |
-| 006 | P1 | ✅ [TDD-рефакторинг модели и workflow редактора карточки](006-card-editor-model-and-workflow.md) | Закрыта 27.08.2026: editor model централизует переходы и проекции draft/mutation/preview. |
-| 007 | P1 | ✅ [Разделение adminCatalog и единый card read model](007-admin-catalog-boundaries.md) | Закрыта 27.08.2026: category/read/lifecycle boundaries и publication adapters покрыты integration-characterization tests. |
-| 008 | P1 | ✅ [Типизированная API и cache boundary](008-typed-api-and-cache-boundary.md) | Закрыта 27.08.2026: critical response schemas и catalog cache ownership защищают malformed API payload и stale cache. |
-| 009 | P1 | ✅ [Route splitting и бюджет стартового bundle](009-route-splitting-and-bundle-budget.md) | Закрыта 27.08.2026: вторичные маршруты вынесены, initial graph ограничен проверяемым budget. |
-| 011 | P1 | ✅ [Надёжность Storage/Telegram/maintenance I/O](011-external-io-resilience.md) | Закрыта 27.08.2026: bounded I/O и durable maintenance checkpoints. |
-| 013 | P1 | ✅ [Выровнять документацию, env и исторический backlog](013-docs-config-and-backlog-alignment.md) | Закрыта 27.08.2026: docs, E2E env и Worker types выровнены с opaque sessions и актуальным ownership. |
-| 014 | P1 | ✅ [Минимальные quality/security gates](014-quality-and-secret-gates.md) | Закрыта 27.08.2026: минимальные lint/secret/release gates и dependency cadence проверяемы локально. |
 | 017 | P1 | [Read-only backup/PITR evidence и restore plan](017-backup-and-restore-evidence.md) | Дёшево снять неизвестность RPO/RTO до построения нового backup-механизма. |
 | 018 | P1 | [Effective grants и runtime capability audit](018-runtime-capability-audit.md) | Измерить реальный blast radius до дорогой сегментации credentials. |
 | 019 | P1 | [Verified release descriptor и read-only preflight](019-verified-release-descriptor.md) | Связать Pages, Worker и migration state без нового staging/CI. |
@@ -64,7 +49,7 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 - `bun audit --audit-level high` — уязвимости не найдены.
 - `bun run build` — успешно; main webapp chunk 532.68 kB minified / 151.75 kB gzip, Vite выдал предупреждение >500 kB.
 - `bun run test:integration` — успешно: isolated PostgreSQL применил migrations и выполнил catalog/session/outbox/audit/privacy persistence suites без пропусков.
-- TD-012: `bun run db:migrations:check` и read-only production preflight для первой pending
+- `bun run db:migrations:check` и read-only production preflight для первой pending
   `20260826055721` успешны; production SQL не применялся.
 - Полный GitLeaks/TruffleHog scan не выполнен: инструмент отсутствует. Path-only эвристика истории нашла только кандидаты в example/docs, но не заменяет redacted secret scanner.
 - E2E journeys не запускались: они требуют изолированные `E2E_*` DB/Storage/Telegram ресурсы и намеренно блокируют production baseline.
