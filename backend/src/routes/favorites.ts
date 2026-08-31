@@ -1,10 +1,10 @@
-import { favoriteInput, favoritesResponse } from "@agromarket/contracts";
+import { favoriteInput, favoriteMembershipQuery, favoriteMembershipResponse, favoritesPageQuery, favoritesResponse } from "@agromarket/contracts";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getDatabase, getEnv, type HonoEnv } from "../env";
 import { requireAuth } from "../middleware/auth";
 import { requireRegistered } from "../middleware/registered";
-import { addFavorite, listFavorites, removeFavorite } from "../repos/favorites";
+import { addFavorite, listFavoriteIds, listFavorites, removeFavorite } from "../repos/favorites";
 
 export const favoritesRoutes = new Hono<HonoEnv>();
 
@@ -14,8 +14,25 @@ favoritesRoutes.use("*", requireAuth, requireRegistered);
 favoritesRoutes.get("/", async (c) => {
   const env = getEnv(c);
   const { userId } = c.get("auth");
-  const items = await listFavorites(env, userId, getDatabase(c));
-  return c.json(favoritesResponse.parse(items));
+  if (c.req.query("pagination") !== "cursor") {
+    const items = [];
+    let cursor: string | undefined;
+    do {
+      const page = await listFavorites(env, userId, { pagination: "cursor", limit: 50, cursor }, getDatabase(c));
+      items.push(...page.items);
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    return c.json(items);
+  }
+  const page = favoritesPageQuery.parse(c.req.query());
+  return c.json(favoritesResponse.parse(await listFavorites(env, userId, page, getDatabase(c))));
+});
+
+favoritesRoutes.get("/membership", async (c) => {
+  const query = favoriteMembershipQuery.parse(c.req.query());
+  return c.json(favoriteMembershipResponse.parse({
+    favoriteIds: await listFavoriteIds(c.get("auth").userId, query, getDatabase(c)),
+  }));
 });
 
 /** Добавление карточки в избранное. Идемпотентно. */

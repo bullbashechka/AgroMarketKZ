@@ -2,6 +2,7 @@ import type { CatalogRegionFilter, CatalogType, CommodityGroup, PriceFilter, Pro
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useRef, type ReactNode } from "react";
 import { cardsInfiniteQueryOptions } from "../lib/queries";
+import { useFavoriteIds } from "../lib/favorites";
 import { CardTile } from "./CardTile";
 import { ErrorState } from "./ErrorState";
 import { SkeletonList } from "./Skeleton";
@@ -37,17 +38,19 @@ export function CardsList({ type, categoryId, search, price, region, sort, commo
     return () => observer.disconnect();
   }, [hasNextPage, fetchNextPage]);
 
+  const items = data?.pages.flatMap((page) => page.items) ?? [];
+  const favoriteIds = useFavoriteIds(items.map((item) => item.id));
+
   if (isPending) return <SkeletonList />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
-  const items = data.pages.flatMap((page) => page.items);
   if (items.length === 0) return <>{emptyState}</>;
 
   return (
     <div className={isPlaceholderData ? "cards-list cards-list--updating" : "cards-list"}>
       <div className="grid-cards">
         {items.map((item) => (
-          <CardTile key={item.id} item={item} />
+          <CardTile key={item.id} item={item} knownIsFavorite={favoriteIds.has(item.id)} />
         ))}
       </div>
       {hasNextPage && (

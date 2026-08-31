@@ -10,6 +10,7 @@ import { VOLUME_MAX, VOLUME_MIN } from "../src/constants";
 import { volumeTonnesSchema } from "../src/commodity";
 import { updateProfileInput } from "../src/profile";
 import { getPublicationPolicyIssues } from "../src/publication";
+import { favoriteMembershipQuery, favoritesPageQuery } from "../src/favorite";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 const oneImage = [{ storagePath: `cards/${UUID}.jpg` }];
@@ -372,5 +373,28 @@ describe("cardListQuery — фильтры товаров", () => {
   test("не принимает повторяющиеся значения фильтра", () => {
     expect(cardListQuery.safeParse({ type: "product", commodityGroups: "cereals,cereals" }).success).toBe(false);
     expect(cardListQuery.safeParse({ type: "product", ownershipForms: "peasant_farm,peasant_farm" }).success).toBe(false);
+  });
+});
+
+describe("favoritesPageQuery", () => {
+  test("использует bounded default и принимает opaque cursor", () => {
+    expect(favoritesPageQuery.parse({ pagination: "cursor" }).limit).toBe(20);
+    expect(favoritesPageQuery.parse({ pagination: "cursor", cursor: "eyJjcmVhdGVkQXQiOiJ0In0" }).cursor).toBe("eyJjcmVhdGVkQXQiOiJ0In0");
+  });
+
+  test("отклоняет пустой cursor и limit за безопасной границей", () => {
+    expect(favoritesPageQuery.safeParse({ pagination: "cursor", cursor: "" }).success).toBe(false);
+    expect(favoritesPageQuery.safeParse({ pagination: "cursor", limit: 51 }).success).toBe(false);
+  });
+});
+
+describe("favoriteMembershipQuery", () => {
+  test("принимает bounded batch уникальных UUID", () => {
+    expect(favoriteMembershipQuery.parse({ cardIds: `${UUID},22222222-2222-4222-8222-222222222222` }).cardIds).toHaveLength(2);
+  });
+
+  test("отклоняет duplicate и некорректный UUID", () => {
+    expect(favoriteMembershipQuery.safeParse({ cardIds: `${UUID},${UUID}` }).success).toBe(false);
+    expect(favoriteMembershipQuery.safeParse({ cardIds: "not-a-uuid" }).success).toBe(false);
   });
 });

@@ -1,23 +1,32 @@
 import type { CardListItem } from "@agromarket/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiDelete, apiPost } from "./api";
+import { type InfiniteData, useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
+import type { FavoriteMembershipResponse, FavoritesResponse } from "@agromarket/contracts";
+import { apiDelete, apiGet, apiPost } from "./api";
 import { useAuth } from "./auth";
-import { favoritesQueryOptions } from "./queries";
+import { catalogQueryKeys, favoritesInfiniteQueryOptions } from "./queries";
 import { hapticImpactLight } from "./telegram";
 
-/** Множество id избранных карточек — единый источник правды для сердечка на любом экране. */
-export function useFavoriteIds() {
+const membershipKeyPrefix = [...catalogQueryKeys.favorites, "membership"] as const;
+
+/** Множество избранных id только для уже видимой bounded-пачки карточек. */
+export function useFavoriteIds(cardIds: string[]): Set<string> {
   const { profile } = useAuth();
-  return useQuery({
-    ...favoritesQueryOptions,
-    enabled: profile?.isRegistered === true,
-    select: (items) => new Set(items.map((item) => item.id))
+  const ids = [...new Set(cardIds)].sort();
+  const chunks = Array.from({ length: Math.ceil(ids.length / 50) }, (_value, index) => ids.slice(index * 50, (index + 1) * 50));
+  const queries = useQueries({
+    queries: chunks.map((chunk) => ({
+      queryKey: [...membershipKeyPrefix, chunk.join(",")],
+      queryFn: () => apiGet<FavoriteMembershipResponse>(`/favorites/membership?${new URLSearchParams({ cardIds: chunk.join(",") })}`),
+      enabled: profile?.isRegistered === true,
+    })),
   });
+  return new Set(queries.flatMap((query) => query.data?.favoriteIds ?? []));
 }
 
-export function useIsFavorite(cardId: string): boolean {
-  const { data } = useFavoriteIds();
-  return data?.has(cardId) ?? false;
+/** Один card detail вне list получает такую же bounded (из одного id) membership-проверку. */
+export function useIsFavorite(cardId: string, known?: boolean): boolean {
+  const ids = useFavoriteIds(known === undefined ? [cardId] : []);
+  return known ?? ids.has(cardId);
 }
 
 /**
@@ -37,19 +46,38 @@ export function useToggleFavorite() {
     },
     onMutate: async ({ item, isFavorite }) => {
       hapticImpactLight();
-      await qc.cancelQueries({ queryKey: favoritesQueryOptions.queryKey });
-      const previous = qc.getQueryData<CardListItem[]>(favoritesQueryOptions.queryKey);
-      qc.setQueryData<CardListItem[]>(favoritesQueryOptions.queryKey, (current) => {
-        const list = current ?? [];
-        return isFavorite ? list.filter((c) => c.id !== item.id) : [item, ...list];
+      await qc.cancelQueries({ queryKey: favoritesInfiniteQueryOptions.queryKey });
+      const previous = qc.getQueryData<InfiniteData<FavoritesResponse>>(favoritesInfiniteQueryOptions.queryKey);
+      const previousMembership = qc.getQueriesData<FavoriteMembershipResponse>({ queryKey: membershipKeyPrefix });
+      qc.setQueryData<InfiniteData<FavoritesResponse>>(favoritesInfiniteQueryOptions.queryKey, (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          pages: current.pages.map((page, index) => ({
+            ...page,
+            items: isFavorite
+              ? page.items.filter((candidate) => candidate.id !== item.id)
+              : index === 0 ? [item, ...page.items.filter((candidate) => candidate.id !== item.id)] : page.items,
+          })),
+        };
       });
-      return { previous };
+      for (const [key, page] of previousMembership) {
+        const requestedIds = key.at(-1);
+        if (!page || typeof requestedIds !== "string" || !requestedIds.split(",").includes(item.id)) continue;
+        qc.setQueryData<FavoriteMembershipResponse>(key, {
+          favoriteIds: isFavorite
+            ? page.favoriteIds.filter((id) => id !== item.id)
+            : [...new Set([...page.favoriteIds, item.id])],
+        });
+      }
+      return { previous, previousMembership };
     },
     onError: (_err, _vars, context) => {
-      if (context?.previous) qc.setQueryData(favoritesQueryOptions.queryKey, context.previous);
+      if (context?.previous) qc.setQueryData(favoritesInfiniteQueryOptions.queryKey, context.previous);
+      for (const [key, page] of context?.previousMembership ?? []) qc.setQueryData(key, page);
     },
     onSettled: () => {
-      void qc.invalidateQueries({ queryKey: favoritesQueryOptions.queryKey });
+      void qc.invalidateQueries({ queryKey: favoritesInfiniteQueryOptions.queryKey });
     }
   });
 }

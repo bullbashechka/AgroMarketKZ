@@ -383,6 +383,12 @@ describeIntegration("admin catalog persistence", () => {
       const archivedDraft = await createVisibilityCard("archived");
       const archived = await publishCard(env, archivedDraft.id, archivedDraft.version);
       await sql`update cards set archived_at = now() where id = ${archived.id}`;
+      const secondDraft = await createVisibilityCard("second");
+      const secondPublished = await publishCard(env, secondDraft.id, secondDraft.version);
+      const thirdDraft = await createVisibilityCard("third");
+      const thirdPublished = await publishCard(env, thirdDraft.id, thirdDraft.version);
+      const addedDraft = await createVisibilityCard("added-between-pages");
+      const addedPublished = await publishCard(env, addedDraft.id, addedDraft.version);
 
       const catalog = await listCards(env, {
         type: "product",
@@ -393,15 +399,21 @@ describeIntegration("admin catalog persistence", () => {
         sort: "default",
         productLocation: "all",
       }, db);
-      expect(catalog.items.map((card) => card.id)).toEqual([published.id]);
+      expect(catalog.items.map((card) => card.id).sort()).toEqual([published.id, secondPublished.id, thirdPublished.id, addedPublished.id].sort());
       expect(await getCardById(env, published.id, db)).toBeDefined();
       expect(await getCardById(env, draft.id, db)).toBeUndefined();
       expect(await getCardById(env, archived.id, db)).toBeUndefined();
 
       const categories = await listCategories(env, "product", db, true);
-      expect(categories.find((category) => category.id === visibilityCategoryId)?.cardCount).toBe(1);
+      expect(categories.find((category) => category.id === visibilityCategoryId)?.cardCount).toBe(4);
 
+      expect(await listFavorites(env, visibilityUserId, { pagination: "cursor", limit: 1 }, db)).toEqual({
+        items: [],
+        nextCursor: null,
+      });
       await addFavorite(env, visibilityUserId, published.id, db);
+      await addFavorite(env, visibilityUserId, secondPublished.id, db);
+      await addFavorite(env, visibilityUserId, thirdPublished.id, db);
       await sql`
         insert into favorites (user_id, card_id)
         values (${visibilityUserId}, ${archived.id})
@@ -409,7 +421,32 @@ describeIntegration("admin catalog persistence", () => {
       `;
       await expect(addFavorite(env, visibilityUserId, draft.id, db)).rejects.toMatchObject({ status: 404 });
       await expect(addFavorite(env, visibilityUserId, archived.id, db)).rejects.toMatchObject({ status: 404 });
-      expect((await listFavorites(env, visibilityUserId, db)).map((card) => card.id)).toEqual([published.id]);
+      await sql`
+        update favorites set created_at = '2026-08-31T00:00:00.000000Z'
+        where user_id = ${visibilityUserId}
+      `;
+      await sql`
+        update favorites set created_at = '2026-08-31T00:00:00.000456Z'
+        where user_id = ${visibilityUserId} and card_id = ${secondPublished.id}
+      `;
+      const allFavoriteIds = [published.id, thirdPublished.id].sort().reverse();
+      const firstFavoritesPage = await listFavorites(env, visibilityUserId, { pagination: "cursor", limit: 1 }, db);
+      expect(firstFavoritesPage.items.map((card) => card.id)).toEqual([secondPublished.id]);
+      expect(firstFavoritesPage.nextCursor).toBeString();
+      await addFavorite(env, visibilityUserId, addedPublished.id, db);
+      await sql`
+        update favorites set created_at = '2026-08-30T00:00:00.000000Z'
+        where user_id = ${visibilityUserId} and card_id = ${addedPublished.id}
+      `;
+      await sql`delete from favorites where user_id = ${visibilityUserId} and card_id = ${secondPublished.id}`;
+      const secondFavoritesPage = await listFavorites(env, visibilityUserId, { pagination: "cursor", limit: 20, cursor: firstFavoritesPage.nextCursor! }, db);
+      expect(secondFavoritesPage.items.map((card) => card.id)).toEqual([
+        ...allFavoriteIds,
+        addedPublished.id,
+      ]);
+      expect(secondFavoritesPage.nextCursor).toBeNull();
+      expect(new Set([...firstFavoritesPage.items, ...secondFavoritesPage.items].map((card) => card.id)).size).toBe(4);
+      await expect(listFavorites(env, visibilityUserId, { pagination: "cursor", limit: 1, cursor: "not-a-cursor" }, db)).rejects.toMatchObject({ status: 400 });
 
       const requestFor = (cardId: string) => createRequest(env, visibilityUserId, {
         source: "card",

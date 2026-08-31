@@ -5,8 +5,8 @@ import type {
   AdminPlatformSettings,
   AdminUserListResponse,
   CardDetail,
-  CardListItem,
   CardListResponse,
+  FavoritesResponse,
   CatalogType,
   CatalogRegionFilter,
   CategoryListItem,
@@ -135,9 +135,17 @@ export const cardDetailQueryOptions = (cardId: string) =>
     retry: (failureCount, error) => !(error instanceof ApiError && error.status === 404) && failureCount < 2
   });
 
-export const favoritesQueryOptions = queryOptions({
+export const favoritesInfiniteQueryOptions = infiniteQueryOptions({
   queryKey: catalogQueryKeys.favorites,
-  queryFn: () => apiGet<CardListItem[]>("/favorites")
+  queryFn: ({ pageParam }) => {
+    const query = new URLSearchParams();
+    query.set("pagination", "cursor");
+    if (pageParam) query.set("cursor", pageParam);
+    const suffix = query.size > 0 ? `?${query}` : "";
+    return apiGet<FavoritesResponse>(`/favorites${suffix}`);
+  },
+  initialPageParam: null as string | null,
+  getNextPageParam: (lastPage) => lastPage.nextCursor,
 });
 
 /** Публичные контакты площадки — меняются редко, кэшируем дольше обычного. */

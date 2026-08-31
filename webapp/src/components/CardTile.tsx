@@ -13,7 +13,7 @@ function territorySummary(item: CardListItem): string | null {
 }
 
 /** Карточка списка в стиле маркетплейса: фото, название, цена, краткая характеристика. */
-export function CardTile({ item }: { item: CardListItem }) {
+export function CardTile({ item, knownIsFavorite }: { item: CardListItem; knownIsFavorite?: boolean }) {
   const navigate = useNavigate();
   const href = cardHref(item);
   const territory = territorySummary(item);
@@ -40,7 +40,7 @@ export function CardTile({ item }: { item: CardListItem }) {
         ) : (
           <span className="card-tile-img-placeholder" aria-hidden="true" />
         )}
-        <FavoriteButton item={item} />
+        <FavoriteButton item={item} knownIsFavorite={knownIsFavorite} />
       </div>
       <div className="card-tile-body">
         <p className="card-tile-price">{formatPrice(item.priceType, item.priceAmount, item.priceUnit)}</p>

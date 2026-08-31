@@ -4,8 +4,8 @@ import { useIsFavorite, useToggleFavorite } from "../lib/favorites";
 import { useRegistrationIntent } from "../lib/registrationIntent";
 
 /** Сердечко избранного — переиспользуется в списке карточек и внутри самой карточки. */
-export function FavoriteButton({ item }: { item: CardListItem }) {
-  const isFavorite = useIsFavorite(item.id);
+export function FavoriteButton({ item, knownIsFavorite }: { item: CardListItem; knownIsFavorite?: boolean }) {
+  const isFavorite = useIsFavorite(item.id, knownIsFavorite);
   const toggle = useToggleFavorite();
   const { requireRegistration } = useRegistrationIntent();
 
