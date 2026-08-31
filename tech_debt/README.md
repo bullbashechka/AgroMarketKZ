@@ -15,7 +15,7 @@ _Аудит: 2026-08-25. Основание: текущий `HEAD 93d002d`, ст
 
 | № | Приоритет | Задача | Зачем сейчас |
 |---|---|---|---|
-| 017 | P1 | [Read-only backup/PITR evidence и restore plan](017-backup-and-restore-evidence.md) | Дёшево снять неизвестность RPO/RTO до построения нового backup-механизма. |
+| 017 | P1 | ✅ [Read-only backup/PITR evidence и restore plan](017-backup-and-restore-evidence.md) | Закрыта 31.08.2026: production PITR/backup и R2 не настроены; failed state стал P0 gate, remediation — TD-203. |
 | 018 | P1 | [Effective grants и runtime capability audit](018-runtime-capability-audit.md) | Измерить реальный blast radius до дорогой сегментации credentials. |
 | 019 | P1 | [Verified release descriptor и read-only preflight](019-verified-release-descriptor.md) | Связать Pages, Worker и migration state без нового staging/CI. |
 | 015 | P2 | [Пагинация избранного](015-favorites-pagination.md) | Единственный явно неограниченный пользовательский list endpoint. |

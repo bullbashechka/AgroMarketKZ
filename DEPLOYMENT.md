@@ -143,11 +143,10 @@ DB connection errors = 0, outbox sent/delivered = 100%, DLQ = 0.
 
 ### Backup/PITR evidence — current blocker
 
-Read-only инвентаризация от **2026-08-27** не подтверждает active PITR/retention/latest
-recoverable point, complete Storage manifest, failure alerts или measured restore drill. Tracked
-`wrangler.toml` также не включает `STORAGE_BACKUP`, поэтому самостоятельная Storage recovery не
-считается настроенной. Это unknown, а не предположение об отсутствии внешних ресурсов; полный
-evidence, owner и границы TD-203 зафиксированы в
+Read-only инвентаризация от **2026-08-31** подтверждает failed state: `pitr_enabled=false`, нет
+physical backup/recoverable point, а Cloudflare R2 не enabled на account (`10042`), поэтому
+independent Storage backup, manifest, alerts и restore drill отсутствуют. Tracked `wrangler.toml`
+также не включает `STORAGE_BACKUP`. Полный evidence, owner и границы TD-203 зафиксированы в
 [`docs/backup-recoverability-evidence.md`](./docs/backup-recoverability-evidence.md).
 
 Пока evidence не получен, **destructive или schema-rewrite release запрещён**. Additive migration
