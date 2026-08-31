@@ -34,6 +34,7 @@ const allIntegrationTests = [
   "backend/tests/notificationOutbox.test.ts",
   "backend/tests/adminAudit.test.ts",
   "backend/tests/privacy.test.ts",
+  "backend/tests/runtimeCapabilities.integration.test.ts",
 ];
 const requestedIntegrationTests = process.env.INTEGRATION_TEST_FILES
   ?.split(",")
@@ -70,9 +71,11 @@ try {
   ]);
   run([pgCtl, "-D", dataDir, "-w", "start", "-o", `-p ${port} -h 127.0.0.1`, "-l", join(dataDir, "server.log")]);
   serverStarted = true;
+  run([psql, databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", "create role agromarket_runtime nologin nosuperuser nocreatedb nocreaterole noinherit bypassrls"]);
 
   const migrations = Array.from(new Bun.Glob("*.sql").scanSync({ cwd: migrationsDir })).sort();
   applyMigrations(databaseUrl, migrations);
+  run([psql, databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", "grant usage on schema app_private to agromarket_runtime"]);
 
   const upgradeDatabase = "migration_upgrade";
   const upgradeDatabaseUrl = `postgresql://127.0.0.1:${port}/${upgradeDatabase}`;

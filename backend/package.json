@@ -11,6 +11,7 @@
     "deploy": "wrangler deploy",
     "deploy:production": "bun scripts/deployProduction.ts",
     "migrate": "bun scripts/migrate.ts",
+    "audit:runtime-capabilities": "supabase --workdir .. db query --linked --file backend/scripts/runtimeCapabilitiesAudit.sql --output json",
     "seed:dev": "bun scripts/seedDev.ts",
     "types:worker": "wrangler types worker-configuration.d.ts --env-file .worker-types.env --env-interface WorkerEnv --include-runtime=false --strict-vars",
     "types:worker:check": "wrangler types worker-configuration.d.ts --env-file .worker-types.env --env-interface WorkerEnv --include-runtime=false --strict-vars --check",
